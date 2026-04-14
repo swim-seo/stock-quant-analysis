@@ -88,65 +88,91 @@ if stock_input:
     st.divider()
 
     # 진입 신호 판단 카드
-    st.subheader("🎯 진입 신호 판단")
-
-    # 조건 1: 정배열 (MA5 > MA20 > MA60)
+    # 조건 계산
     ma5, ma20, ma60 = latest["MA5"], latest["MA20"], latest["MA60"]
     cond_ma = ma5 > ma20 > ma60
-    cond_ma_icon = "✅" if cond_ma else "❌"
 
-    # 조건 2: 골든크로스 최근 20일 이내
     recent = df.tail(20)
     golden_cross_recent = recent["golden_cross"].any()
-    cond_gc_icon = "✅" if golden_cross_recent else "❌"
 
-    # 조건 3: RSI 30~70 사이
     rsi = latest["RSI"]
     cond_rsi = 30 <= rsi <= 70
-    cond_rsi_icon = "✅" if cond_rsi else ("⚠️" if rsi > 70 else "⚠️")
 
-    # 조건 4: 주봉 상승 추세
     cond_weekly = latest.get("주봉추세", "하락") == "상승"
-    cond_weekly_icon = "✅" if cond_weekly else "❌"
+    weekly_trend = latest.get("주봉추세", "하락")
 
-    # 조건 5: 거래량 20일 평균 이상
     vol_avg_20 = df["거래량"].tail(20).mean()
     cond_vol = latest["거래량"] >= vol_avg_20
-    cond_vol_icon = "✅" if cond_vol else "❌"
+    vol_ratio = latest["거래량"] / vol_avg_20
 
-    # 충족 개수 및 최종 판단
     conditions = [cond_ma, golden_cross_recent, cond_rsi, cond_weekly, cond_vol]
     satisfied = sum(conditions)
+    progress = satisfied / 5
+
     if satisfied >= 4:
-        final_judge = "🟢 진입 추천"
-        judge_color = "green"
+        judge_label = "진입 추천"
+        judge_emoji = "🟢"
+        judge_color = "#00c853"
+        judge_bg = "rgba(0,200,83,0.08)"
+        judge_border = "#00c853"
     elif satisfied == 3:
-        final_judge = "🟡 대기"
-        judge_color = "orange"
+        judge_label = "대기"
+        judge_emoji = "🟡"
+        judge_color = "#ffab00"
+        judge_bg = "rgba(255,171,0,0.08)"
+        judge_border = "#ffab00"
     else:
-        final_judge = "🔴 위험"
-        judge_color = "red"
+        judge_label = "위험"
+        judge_emoji = "🔴"
+        judge_color = "#ff1744"
+        judge_bg = "rgba(255,23,68,0.08)"
+        judge_border = "#ff1744"
 
-    col1, col2, col3, col4, col5, col6 = st.columns(6)
-    with col1:
-        st.metric(f"{cond_ma_icon} 정배열", "충족" if cond_ma else "미충족",
-                  "MA5>MA20>MA60")
-    with col2:
-        st.metric(f"{cond_gc_icon} 골든크로스", "충족" if golden_cross_recent else "미충족",
-                  "최근 20일 이내")
-    with col3:
-        st.metric(f"{cond_rsi_icon} RSI", f"{rsi:.1f}",
-                  "정상구간" if cond_rsi else "과매수" if rsi > 70 else "과매도")
-    with col4:
-        weekly_trend = latest.get("주봉추세", "하락")
-        st.metric(f"{cond_weekly_icon} 주봉 추세", weekly_trend)
-    with col5:
-        st.metric(f"{cond_vol_icon} 거래량", "평균 이상" if cond_vol else "평균 미만",
-                  f"{latest['거래량']/vol_avg_20:.1f}x")
-    with col6:
-        st.metric(f"최종 판단 ({satisfied}/5)", final_judge)
+    def cond_row(icon, name, value, detail, passed):
+        bg = "rgba(0,200,83,0.06)" if passed else "rgba(255,23,68,0.06)"
+        border = "#00c853" if passed else "#ff1744"
+        val_color = "#00c853" if passed else "#ff1744"
+        return f"""<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:{bg};border-left:3px solid {border};border-radius:6px;margin-bottom:8px;">
+<span style="font-size:18px;min-width:24px;">{icon}</span>
+<div style="flex:1;">
+<div style="font-size:13px;font-weight:600;color:#e0e0e0;">{name}</div>
+<div style="font-size:11px;color:#9e9e9e;margin-top:1px;">{detail}</div>
+</div>
+<div style="font-size:13px;font-weight:700;color:{val_color};">{value}</div>
+</div>"""
 
-    st.divider()
+    bar_pct = int(progress * 100)
+
+    conditions_html = "".join([
+        cond_row("✅" if cond_ma else "❌", "정배열", "충족" if cond_ma else "미충족", f"MA5({ma5:,.0f}) &gt; MA20({ma20:,.0f}) &gt; MA60({ma60:,.0f})", cond_ma),
+        cond_row("✅" if golden_cross_recent else "❌", "골든크로스", "최근 20일 내" if golden_cross_recent else "미발생", "MA5가 MA20 상향 돌파 여부", golden_cross_recent),
+        cond_row("✅" if cond_rsi else "⚠️", "RSI", f"{rsi:.1f}", "과매도(30↓) ~ 과매수(70↑) 판단", cond_rsi),
+        cond_row("✅" if cond_weekly else "❌", "주봉 추세", weekly_trend, "주봉 MA5 &gt; MA20 여부", cond_weekly),
+        cond_row("✅" if cond_vol else "❌", "거래량", f"{vol_ratio:.1f}x", "20일 평균 대비 거래량 비율", cond_vol),
+    ])
+
+    html = f"""<div style="font-family:sans-serif;background:#1a1a2e;border:1px solid #2a2a3e;border-radius:12px;padding:20px 24px;margin-bottom:16px;">
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;">
+<div style="font-size:13px;font-weight:600;color:#9e9e9e;letter-spacing:2px;">🎯 진입 신호 판단</div>
+<div style="display:flex;align-items:center;gap:8px;padding:8px 18px;background:{judge_bg};border:1.5px solid {judge_border};border-radius:24px;">
+<span style="font-size:18px;">{judge_emoji}</span>
+<span style="font-size:15px;font-weight:700;color:{judge_color};">{judge_label}</span>
+</div>
+</div>
+<div style="margin:14px 0 18px;">
+<div style="display:flex;justify-content:space-between;font-size:11px;color:#757575;margin-bottom:6px;">
+<span>조건 충족</span>
+<span style="color:{judge_color};font-weight:600;">{satisfied} / 5</span>
+</div>
+<div style="height:5px;background:#2a2a3e;border-radius:3px;overflow:hidden;">
+<div style="height:100%;width:{bar_pct}%;background:linear-gradient(90deg,{judge_color}88,{judge_color});border-radius:3px;"></div>
+</div>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+{conditions_html}
+</div>
+</div>"""
+    st.markdown(html, unsafe_allow_html=True)
 
     # 차트
     tab1, tab2, tab3 = st.tabs(["📊 차트", "🤖 AI 예측", "📰 유튜브 인사이트"])
@@ -323,6 +349,10 @@ if stock_input:
                             st.write("**언급 섹터:**", ", ".join(sectors))
                     with col2:
                         signals = insight.get("investment_signals", [])
+                        if isinstance(signals, str):
+                            signals = [signals]
+                        elif not isinstance(signals, list):
+                            signals = []
                         if signals:
                             st.write("**투자 신호:**")
                             for s in signals[:2]:
