@@ -1,9 +1,10 @@
 import os
 import json
 import re
+import argparse
 import schedule
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from youtube_transcript_api import YouTubeTranscriptApi
 import yt_dlp
@@ -33,10 +34,29 @@ except Exception as e:
     print(f"ChromaDB 초기화 실패: {e}")
     CHROMA_AVAILABLE = False
 
-# 채널 목록
-CHANNELS = {
-    "한국경제TV": "@hkwowtv",
-    "매일경제TV": "@MKeconomy_TV",
+# 재생목록 기반 수집 설정
+PLAYLISTS = {
+    "마켓브리핑": {
+        "channel": "한국경제TV",
+        "playlist_url": "https://www.youtube.com/playlist?list=PLh6kUo7pqm_4MJOOlfrrvk8jKhrBlInCT",
+        "priority": 1,
+        "trading_focus": "both",
+        "collect_time": "morning",
+    },
+    "투자의눈": {
+        "channel": "매일경제TV",
+        "playlist_url": "https://www.youtube.com/watch?v=Y_202P7yEnQ&list=PL0dOq2-5pHmhvKVKN_1RKn6VqFCGobZO4",
+        "priority": 1,
+        "trading_focus": "both",
+        "collect_time": "morning",
+    },
+    "성공투자오후증시": {
+        "channel": "한국경제TV",
+        "playlist_url": "https://www.youtube.com/playlist?list=PLh6kUo7pqm_6kELAfnVp9Rt-musZazbG1",
+        "priority": 1,
+        "trading_focus": "swing",
+        "collect_time": "afternoon",
+    },
 }
 
 # 저장 경로
@@ -45,50 +65,46 @@ INSIGHTS_DIR = Path("youtube_insights")
 DATA_DIR.mkdir(exist_ok=True)
 INSIGHTS_DIR.mkdir(exist_ok=True)
 
-STOCK_KEYWORDS = [
-    "주식", "코스피", "코스닥", "증시", "주가", "투자", "매수", "매도",
-    "반도체", "배당", "ETF", "펀드", "금리", "환율", "경제", "시장",
-    "상승", "하락", "급등", "급락", "포트폴리오", "종목", "실적",
-    "증권", "자산", "채권", "선물", "옵션", "리밸런싱", "수익률",
-    "stock", "KOSPI", "market", "invest", "ETF", "semiconductor",
-    "bull", "bear", "rally", "rebound", "FOMC", "rate",
-]
-
-SHORT_TERM_KEYWORDS = ["급등", "급락", "단기", "모멘텀", "거래량 급증", "단타", "스캘핑", "오늘", "내일", "즉시"]
+MAX_VIDEOS_PER_PLAYLIST = 3
 
 
-def is_stock_related(title: str) -> bool:
-    title_lower = title.lower()
-    return any(kw.lower() in title_lower for kw in STOCK_KEYWORDS)
+def get_playlist_videos(playlist_url: str, max_days: int = 2, max_videos: int = MAX_VIDEOS_PER_PLAYLIST) -> list:
+    """재생목록에서 최근 N일 이내 영상만 가져오기"""
+    ydl_opts = {
+        "quiet": True,
+        "extract_flat": True,
+        "playlist_items": "1:30",  # 최근 30개까지 스캔
+    }
+    cutoff = datetime.now() - timedelta(days=max_days)
 
-
-def get_channel_videos(channel_id: str, max_videos: int = 50, stock_only: bool = True) -> list:
-    if channel_id.startswith("@"):
-        url = f"https://www.youtube.com/{channel_id}/videos"
-    else:
-        url = f"https://www.youtube.com/channel/{channel_id}/videos"
-    ydl_opts = {"quiet": True, "extract_flat": True, "playlist_items": f"1:{max_videos}"}
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=False)
+        info = ydl.extract_info(playlist_url, download=False)
         videos = []
         for entry in info.get("entries", []):
-            title = entry.get("title", "")
-            if stock_only and not is_stock_related(title):
+            if not entry:
                 continue
+            upload_date = entry.get("upload_date")  # YYYYMMDD
+            if upload_date:
+                try:
+                    dt = datetime.strptime(upload_date, "%Y%m%d")
+                    if dt < cutoff:
+                        continue
+                except ValueError:
+                    pass
+
             videos.append({
                 "id": entry.get("id"),
-                "title": title,
+                "title": entry.get("title", ""),
                 "url": f"https://www.youtube.com/watch?v={entry.get('id')}",
-                "upload_date": entry.get("upload_date"),
+                "upload_date": upload_date,
             })
+            if len(videos) >= max_videos:
+                break
         return videos
 
 
 def get_transcript(video_id: str) -> str:
-    """
-    영상 스크립트 가져오기 (타임스탬프 + 텍스트)
-    자막 없는 영상은 None 반환
-    """
+    """영상 스크립트 가져오기 (타임스탬프 + 텍스트)"""
     try:
         api = YouTubeTranscriptApi()
         transcript_list = api.list(video_id)
@@ -112,12 +128,26 @@ def is_already_processed(video_id: str) -> bool:
     return insight_file.exists()
 
 
-def analyze_with_claude(title: str, transcript: str, channel: str) -> dict:
-    """Claude API로 투자 인사이트 + 단타/스윙/장기 구분 추출"""
+def analyze_with_claude(title: str, transcript: str, channel: str, trading_focus: str = "both") -> dict:
+    """Claude API로 투자 인사이트 추출. trading_focus에 따라 분석 관점 조정."""
     client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+
+    if trading_focus == "swing":
+        focus_instruction = """분석 관점: 스윙 트레이딩 위주로 분석해주세요.
+- 1~4주 단위 추세, 기술적 분석 포인트, 지지/저항선, 추세 전환 시그널에 집중
+- 단타 시그널보다는 중기 관점의 매매 타이밍에 초점"""
+    elif trading_focus == "short":
+        focus_instruction = """분석 관점: 단타/데이트레이딩 위주로 분석해주세요.
+- 당일/익일 매매 기회, 거래량 급증, 급등/급락 패턴에 집중
+- 즉각적인 진입/청산 포인트에 초점"""
+    else:
+        focus_instruction = """분석 관점: 단타와 스윙 모두 포함해서 분석해주세요.
+- 단기 매매 기회와 중기 추세 관점 모두 제시"""
 
     prompt = f"""당신은 주식/투자 전문 분석가입니다.
 아래는 '{channel}' 채널의 '{title}' 영상 스크립트입니다.
+
+{focus_instruction}
 
 스크립트:
 {transcript[:8000]}
@@ -195,7 +225,6 @@ def save_to_chroma(video_id: str, title: str, channel: str, url: str,
     if not CHROMA_AVAILABLE:
         return False
     try:
-        # 검색용 텍스트: summary + investment_signals + keywords 결합
         signals = insight.get("investment_signals", [])
         keywords = insight.get("keywords", [])
         text = " ".join([
@@ -270,18 +299,12 @@ def _json_to_item(item: dict, rrf_score: float = 0.0) -> dict:
 
 
 def keyword_search(stock_name: str, n_results: int = 10) -> list:
-    """
-    키워드 기반 검색
-    - Supabase 있으면 key_stocks 배열 + title/summary 텍스트 검색
-    - 없으면 JSON 파일에서 키워드 매칭
-    """
-    # Supabase 검색
+    """키워드 기반 검색"""
     if supabase:
         try:
             results = []
             seen = set()
 
-            # key_stocks 배열에 포함된 것 검색
             resp1 = (supabase.table("youtube_insights")
                      .select("*")
                      .contains("key_stocks", [stock_name])
@@ -292,7 +315,6 @@ def keyword_search(stock_name: str, n_results: int = 10) -> list:
                     seen.add(row["video_id"])
                     results.append(row)
 
-            # title, summary 텍스트 검색
             resp2 = (supabase.table("youtube_insights")
                      .select("*")
                      .or_(f"title.ilike.%{stock_name}%,summary.ilike.%{stock_name}%")
@@ -303,7 +325,6 @@ def keyword_search(stock_name: str, n_results: int = 10) -> list:
                     seen.add(row["video_id"])
                     results.append(row)
 
-            # Supabase row → 통일 형식
             items = []
             for row in results:
                 items.append({
@@ -324,7 +345,6 @@ def keyword_search(stock_name: str, n_results: int = 10) -> list:
         except Exception as e:
             print(f"  Supabase 키워드 검색 실패: {e}")
 
-    # JSON 파일 폴백
     insights = get_latest_insights(100)
     results = []
     for item in insights:
@@ -340,14 +360,10 @@ def keyword_search(stock_name: str, n_results: int = 10) -> list:
 
 
 def reciprocal_rank_fusion(vector_results: list, keyword_results: list, k: int = 60) -> list:
-    """
-    RRF (Reciprocal Rank Fusion) 알고리즘으로 두 검색 결과 합산
-    점수: 1 / (k + rank)  → 상위 랭크일수록 높은 점수
-    """
+    """RRF 알고리즘으로 두 검색 결과 합산"""
     scores: dict[str, float] = {}
     data: dict[str, dict] = {}
 
-    # 벡터 검색 결과 점수 계산
     for rank, item in enumerate(vector_results):
         vid = item.get("video_id", "")
         if not vid:
@@ -355,7 +371,6 @@ def reciprocal_rank_fusion(vector_results: list, keyword_results: list, k: int =
         scores[vid] = scores.get(vid, 0) + 1 / (k + rank + 1)
         data[vid] = item
 
-    # 키워드 검색 결과 점수 계산
     for rank, item in enumerate(keyword_results):
         vid = item.get("video_id", "")
         if not vid:
@@ -364,7 +379,6 @@ def reciprocal_rank_fusion(vector_results: list, keyword_results: list, k: int =
         if vid not in data:
             data[vid] = item
 
-    # 점수 기준 내림차순 정렬
     sorted_vids = sorted(scores.keys(), key=lambda v: scores[v], reverse=True)
     results = []
     for vid in sorted_vids:
@@ -377,18 +391,10 @@ def reciprocal_rank_fusion(vector_results: list, keyword_results: list, k: int =
 
 def search_insights_by_stock(stock_name: str, n_results: int = 5,
                               trading_type: str = None) -> list:
-    """
-    Hybrid RAG: 벡터 검색 + 키워드 검색 + RRF 합산
-
-    Args:
-        stock_name: 검색할 종목명 (예: "삼성전자")
-        n_results: 반환할 결과 수
-        trading_type: 필터링할 매매 유형 ("단타"/"스윙"/"장기", None이면 전체)
-    """
+    """Hybrid RAG: 벡터 검색 + 키워드 검색 + RRF 합산"""
     vector_results = []
     keyword_results = []
 
-    # 1. ChromaDB 벡터 검색
     if CHROMA_AVAILABLE:
         try:
             embedding = _embedder.encode(stock_name).tolist()
@@ -402,84 +408,167 @@ def search_insights_by_stock(stock_name: str, n_results: int = 5,
         except Exception as e:
             print(f"  벡터 검색 실패: {e}")
 
-    # 2. 키워드 검색
     keyword_results = keyword_search(stock_name, n_results=n_results * 3)
 
-    # 3. 둘 다 없으면 JSON 폴백
     if not vector_results and not keyword_results:
         return keyword_search(stock_name, n_results)[:n_results]
 
-    # 4. RRF 합산
     merged = reciprocal_rank_fusion(vector_results, keyword_results)
 
-    # 5. trading_type 필터링
     if trading_type:
         merged = [r for r in merged if r.get("trading_type") == trading_type]
 
     return merged[:n_results]
 
 
-def process_channel(channel_name: str, channel_id: str):
-    """채널 최신 영상 수집 + 분석 + 저장"""
-    print(f"\n[{datetime.now().strftime('%H:%M:%S')}] {channel_name} 채널 수집 중...")
+def process_video(video: dict, channel: str, playlist_name: str, trading_focus: str = "both"):
+    """단일 영상 처리: 트랜스크립트 수집 → Claude 분석 → 저장"""
+    video_id = video["id"]
+    title = video["title"]
 
-    videos = get_channel_videos(channel_id, max_videos=50)
+    if is_already_processed(video_id):
+        print(f"  [스킵] 이미 처리됨: {title[:30]}...")
+        return False
+
+    print(f"  [처리] {title[:40]}...")
+
+    transcript = get_transcript(video_id)
+    if not transcript:
+        print(f"  자막 없음, 스킵")
+        return False
+
+    transcript_file = DATA_DIR / f"{video_id}.txt"
+    transcript_file.write_text(transcript, encoding="utf-8")
+
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        insight = analyze_with_claude(title, transcript, channel, trading_focus)
+    else:
+        insight = {"summary": "API 키 없음", "market_sentiment": "중립",
+                   "trading_type": "스윙", "urgency": "이번주"}
+
+    result = {
+        "video_id": video_id,
+        "title": title,
+        "channel": channel,
+        "playlist": playlist_name,
+        "url": video["url"],
+        "upload_date": video.get("upload_date"),
+        "processed_at": datetime.now().isoformat(),
+        "transcript_length": len(transcript),
+        "trading_focus": trading_focus,
+        "insight": insight,
+    }
+    insight_file = INSIGHTS_DIR / f"{video_id}.json"
+    insight_file.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    sb_ok = save_to_supabase(video_id, title, channel, video["url"],
+                              video.get("upload_date"), insight)
+    ch_ok = save_to_chroma(video_id, title, channel, video["url"],
+                            video.get("upload_date"), insight)
+
+    print(f"  완료: {title[:40]}")
+    print(f"  시장전망: {insight.get('market_sentiment')} | "
+          f"매매유형: {insight.get('trading_type')} | "
+          f"시급성: {insight.get('urgency')}")
+    print(f"  Supabase: {'OK' if sb_ok else 'FAIL'} | ChromaDB: {'OK' if ch_ok else 'FAIL'}")
+    return True
+
+
+def process_playlist(playlist_name: str, config: dict, max_days: int = 2, max_videos: int = MAX_VIDEOS_PER_PLAYLIST):
+    """재생목록 수집 + 분석"""
+    channel = config["channel"]
+    playlist_url = config["playlist_url"]
+    trading_focus = config.get("trading_focus", "both")
+
+    print(f"\n[{datetime.now().strftime('%H:%M:%S')}] [{playlist_name}] ({channel}) 수집 중...")
+
+    try:
+        videos = get_playlist_videos(playlist_url, max_days=max_days, max_videos=max_videos)
+    except Exception as e:
+        print(f"  재생목록 로딩 실패: {e}")
+        return 0
+
     if not videos:
-        print(f"  주식 관련 영상 없음")
-        return
+        print(f"  최근 {max_days}일 이내 영상 없음")
+        return 0
 
-    print(f"  주식 관련 영상 {len(videos)}개 발견")
-    for video in videos[:5]:
-        video_id = video["id"]
-        title = video["title"]
+    print(f"  최근 {max_days}일 이내 영상 {len(videos)}개 발견")
+    processed = 0
+    for video in videos:
+        if process_video(video, channel, playlist_name, trading_focus):
+            processed += 1
+    return processed
 
-        if is_already_processed(video_id):
-            print(f"  이미 처리됨: {title[:30]}...")
-            continue
 
-        print(f"  처리 중: {title[:40]}...")
+def collect_morning():
+    """오전 수집: collect_time == 'morning' 재생목록"""
+    print(f"\n{'='*50}")
+    print(f"  오전 수집 시작 (마켓브리핑 + 투자의눈)")
+    print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"{'='*50}")
 
-        transcript = get_transcript(video_id)
-        if not transcript:
-            print(f"  자막 없음, 스킵")
-            continue
+    total = 0
+    for name, config in PLAYLISTS.items():
+        if config.get("collect_time") == "morning":
+            total += process_playlist(name, config)
 
-        transcript_file = DATA_DIR / f"{video_id}.txt"
-        transcript_file.write_text(transcript, encoding="utf-8")
+    print(f"\n오전 수집 완료: {total}개 영상 처리")
+    _print_sentiment()
 
-        if os.environ.get("ANTHROPIC_API_KEY"):
-            insight = analyze_with_claude(title, transcript, channel_name)
-        else:
-            insight = {"summary": "API 키 없음", "market_sentiment": "중립",
-                       "trading_type": "스윙", "urgency": "이번주"}
 
-        # JSON 저장
-        result = {
-            "video_id": video_id,
-            "title": title,
-            "channel": channel_name,
-            "url": video["url"],
-            "upload_date": video.get("upload_date"),
-            "processed_at": datetime.now().isoformat(),
-            "transcript_length": len(transcript),
-            "insight": insight,
-        }
-        insight_file = INSIGHTS_DIR / f"{video_id}.json"
-        insight_file.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+def collect_afternoon():
+    """오후 수집: collect_time == 'afternoon' 재생목록"""
+    print(f"\n{'='*50}")
+    print(f"  오후 수집 시작 (성공투자오후증시)")
+    print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"{'='*50}")
 
-        # Supabase 저장
-        sb_ok = save_to_supabase(video_id, title, channel_name, video["url"],
-                                  video.get("upload_date"), insight)
+    total = 0
+    for name, config in PLAYLISTS.items():
+        if config.get("collect_time") == "afternoon":
+            total += process_playlist(name, config)
 
-        # ChromaDB 저장
-        ch_ok = save_to_chroma(video_id, title, channel_name, video["url"],
-                                video.get("upload_date"), insight)
+    print(f"\n오후 수집 완료: {total}개 영상 처리")
+    _print_sentiment()
 
-        print(f"  완료: {title[:40]}")
-        print(f"  시장전망: {insight.get('market_sentiment')} | "
-              f"매매유형: {insight.get('trading_type')} | "
-              f"시급성: {insight.get('urgency')}")
-        print(f"  Supabase: {'✅' if sb_ok else '❌'} | ChromaDB: {'✅' if ch_ok else '❌'}")
+
+def collect_all():
+    """전체 재생목록 수집 (수동 실행용)"""
+    print(f"\n{'='*50}")
+    print(f"  전체 재생목록 수집 시작")
+    print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"{'='*50}")
+
+    total = 0
+    for name, config in PLAYLISTS.items():
+        total += process_playlist(name, config)
+
+    print(f"\n전체 수집 완료: {total}개 영상 처리")
+    _print_sentiment()
+
+
+def collect_historical(days: int = 7):
+    """과거 N일치 영상 일괄 수집"""
+    print(f"\n{'='*50}")
+    print(f"  과거 {days}일치 영상 일괄 수집")
+    print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"{'='*50}")
+
+    total = 0
+    for name, config in PLAYLISTS.items():
+        # 과거 수집은 max_videos 제한 없이 (최대 30개까지 스캔)
+        processed = process_playlist(name, config, max_days=days, max_videos=30)
+        total += processed
+
+    print(f"\n과거 수집 완료: 총 {total}개 영상 처리")
+    _print_sentiment()
+
+
+def _print_sentiment():
+    """시장 심리 점수 출력"""
+    sentiment = get_market_sentiment_score()
+    print(f"\n시장 심리 점수: {sentiment['score']} ({sentiment['label']})")
+    print(f"분석 영상 수: {sentiment['count']}개")
 
 
 def get_latest_insights(n: int = 10) -> list:
@@ -506,40 +595,51 @@ def get_market_sentiment_score() -> dict:
     }
 
 
-def run_collection():
-    print(f"\n{'='*50}")
-    print(f"  유튜브 인사이트 수집 시작")
-    print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"{'='*50}")
+def start_scheduler():
+    """스케줄러: 오전 8시 + 오후 4시"""
+    print("스케줄러 시작: 08:00 오전 수집 / 16:00 오후 수집")
+    schedule.every().day.at("08:00").do(collect_morning)
+    schedule.every().day.at("16:00").do(collect_afternoon)
 
-    for channel_name, channel_id in CHANNELS.items():
-        try:
-            process_channel(channel_name, channel_id)
-        except Exception as e:
-            print(f"  {channel_name} 오류: {e}")
+    # 시작 시 즉시 1회 실행
+    collect_all()
 
-    sentiment = get_market_sentiment_score()
-    print(f"\n시장 심리 점수: {sentiment['score']} ({sentiment['label']})")
-    print(f"분석 영상 수: {sentiment['count']}개")
-
-
-def start_scheduler(interval_hours: int = 6):
-    print(f"스케줄러 시작: {interval_hours}시간마다 수집")
-    run_collection()
-    schedule.every(interval_hours).hours.do(run_collection)
     while True:
         schedule.run_pending()
         time.sleep(60)
 
 
 if __name__ == "__main__":
-    import sys
+    parser = argparse.ArgumentParser(description="YouTube 재생목록 기반 주식 인사이트 수집기")
+    subparsers = parser.add_subparsers(dest="command")
 
-    if len(sys.argv) > 1 and sys.argv[1] == "schedule":
-        start_scheduler(interval_hours=6)
-    elif len(sys.argv) > 1 and sys.argv[1] == "search":
-        # 종목 검색 테스트: python youtube_collector.py search 삼성전자
-        stock = sys.argv[2] if len(sys.argv) > 2 else "삼성전자"
+    # schedule
+    subparsers.add_parser("schedule", help="스케줄러 실행 (08:00 오전 / 16:00 오후)")
+
+    # historical
+    hist_parser = subparsers.add_parser("historical", help="과거 N일치 영상 일괄 수집")
+    hist_parser.add_argument("--days", type=int, default=7, help="수집할 과거 일수 (기본: 7)")
+
+    # search
+    search_parser = subparsers.add_parser("search", help="종목 검색")
+    search_parser.add_argument("stock", nargs="?", default="삼성전자", help="검색할 종목명")
+
+    # morning / afternoon
+    subparsers.add_parser("morning", help="오전 수집만 실행")
+    subparsers.add_parser("afternoon", help="오후 수집만 실행")
+
+    args = parser.parse_args()
+
+    if args.command == "schedule":
+        start_scheduler()
+    elif args.command == "historical":
+        collect_historical(days=args.days)
+    elif args.command == "morning":
+        collect_morning()
+    elif args.command == "afternoon":
+        collect_afternoon()
+    elif args.command == "search":
+        stock = args.stock
         print(f"\n'{stock}' 관련 인사이트 검색:")
         results = search_insights_by_stock(stock)
         for r in results:
@@ -547,7 +647,8 @@ if __name__ == "__main__":
             print(f"채널: {r.get('channel')} | 시장전망: {r.get('market_sentiment')} | 매매유형: {r.get('trading_type')}")
             print(f"요약: {r.get('summary', '')[:100]}")
     else:
-        run_collection()
+        # 기본: 전체 수집 1회 실행
+        collect_all()
 
         print("\n\n=== 최근 인사이트 요약 ===")
         for item in get_latest_insights(3):
