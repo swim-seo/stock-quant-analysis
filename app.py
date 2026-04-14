@@ -1,0 +1,269 @@
+import streamlit as st
+import pandas as pd
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import json
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).parent / ".env")
+
+from data_collector import get_stock_data, KOSPI_STOCKS
+from indicators import add_all_indicators
+from multi_timeframe import add_mtf_signal
+from ml_model import build_features, train_model, add_ml_signal, FEATURE_COLS
+from youtube_collector import get_latest_insights, get_market_sentiment_score
+
+st.set_page_config(
+    page_title="한국 주식 AI 분석",
+    page_icon="📈",
+    layout="wide",
+)
+
+st.title("📈 한국 주식 AI 분석 시스템")
+st.caption("기술 지표 + ML + 유튜브 인사이트 기반 투자 분석")
+
+# 사이드바
+with st.sidebar:
+    st.header("종목 설정")
+    stock_input = st.text_input(
+        "종목 코드 입력",
+        value="005930.KS",
+        help="코스피: 종목코드.KS / 코스닥: 종목코드.KQ / 지수: ^KS11"
+    )
+    st.caption("예시: 005930.KS (삼성전자), 000660.KS (SK하이닉스), ^KS11 (코스피)")
+
+    period = st.selectbox("기간", ["3mo", "6mo", "1y", "2y", "3y"], index=2)
+    st.divider()
+
+    st.header("자주 쓰는 종목")
+    quick_stocks = {
+        "삼성전자": "005930.KS",
+        "SK하이닉스": "000660.KS",
+        "현대차": "005380.KS",
+        "코스피 지수": "^KS11",
+        "코스닥 지수": "^KQ11",
+    }
+    for name, ticker in quick_stocks.items():
+        if st.button(name, use_container_width=True):
+            stock_input = ticker
+            st.rerun()
+
+# 메인 영역
+if stock_input:
+    with st.spinner("데이터 수집 중..."):
+        df = get_stock_data(stock_input, period=period)
+
+    if df is None or df.empty:
+        st.error("데이터를 가져올 수 없습니다. 종목 코드를 확인해주세요.")
+        st.stop()
+
+    df = add_all_indicators(df)
+    df = add_mtf_signal(df)
+    df = build_features(df)
+
+    # 최신 데이터
+    latest = df.iloc[-1]
+    prev = df.iloc[-2]
+    price_change = latest["종가"] - prev["종가"]
+    price_change_pct = price_change / prev["종가"] * 100
+
+    # 상단 지표 카드
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("현재가", f"{latest['종가']:,.0f}원",
+                  f"{price_change:+,.0f}원 ({price_change_pct:+.2f}%)")
+    with col2:
+        rsi_val = latest["RSI"]
+        rsi_status = "과매수" if rsi_val > 70 else "과매도" if rsi_val < 30 else "중립"
+        st.metric("RSI", f"{rsi_val:.1f}", rsi_status)
+    with col3:
+        signal = latest["mtf_signal"]
+        signal_color = "🟢" if signal == "매수" else "🔴" if signal == "매도" else "⚪"
+        st.metric("현재 신호", f"{signal_color} {signal}")
+    with col4:
+        vol_ratio = latest.get("volume_ratio", 1)
+        st.metric("거래량 비율", f"{vol_ratio:.1f}x", "평균 대비")
+
+    st.divider()
+
+    # 차트
+    tab1, tab2, tab3 = st.tabs(["📊 차트", "🤖 AI 예측", "📰 유튜브 인사이트"])
+
+    with tab1:
+        fig = make_subplots(
+            rows=3, cols=1,
+            shared_xaxes=True,
+            row_heights=[0.6, 0.2, 0.2],
+            vertical_spacing=0.05,
+        )
+
+        # 캔들스틱
+        fig.add_trace(go.Candlestick(
+            x=df.index,
+            open=df["시가"],
+            high=df["고가"],
+            low=df["저가"],
+            close=df["종가"],
+            name="주가",
+            increasing_line_color="#ef5350",
+            decreasing_line_color="#26a69a",
+        ), row=1, col=1)
+
+        # 이동평균선
+        for ma, color in [("MA5", "#ff9800"), ("MA20", "#2196f3"), ("MA60", "#9c27b0")]:
+            fig.add_trace(go.Scatter(
+                x=df.index, y=df[ma],
+                name=ma, line=dict(color=color, width=1),
+            ), row=1, col=1)
+
+        # 볼린저밴드
+        fig.add_trace(go.Scatter(
+            x=df.index, y=df["BB_upper"],
+            name="BB상단", line=dict(color="gray", width=1, dash="dash"),
+            opacity=0.5,
+        ), row=1, col=1)
+        fig.add_trace(go.Scatter(
+            x=df.index, y=df["BB_lower"],
+            name="BB하단", line=dict(color="gray", width=1, dash="dash"),
+            fill="tonexty", fillcolor="rgba(128,128,128,0.05)",
+            opacity=0.5,
+        ), row=1, col=1)
+
+        # 매수/매도 신호 표시
+        buy_signals = df[df["mtf_signal"] == "매수"]
+        sell_signals = df[df["mtf_signal"] == "매도"]
+
+        fig.add_trace(go.Scatter(
+            x=buy_signals.index, y=buy_signals["저가"] * 0.99,
+            mode="markers", name="매수신호",
+            marker=dict(symbol="triangle-up", size=10, color="#ef5350"),
+        ), row=1, col=1)
+
+        fig.add_trace(go.Scatter(
+            x=sell_signals.index, y=sell_signals["고가"] * 1.01,
+            mode="markers", name="매도신호",
+            marker=dict(symbol="triangle-down", size=10, color="#26a69a"),
+        ), row=1, col=1)
+
+        # RSI
+        fig.add_trace(go.Scatter(
+            x=df.index, y=df["RSI"],
+            name="RSI", line=dict(color="#ff9800", width=1.5),
+        ), row=2, col=1)
+        fig.add_hline(y=70, line_dash="dash", line_color="red", opacity=0.5, row=2, col=1)
+        fig.add_hline(y=30, line_dash="dash", line_color="blue", opacity=0.5, row=2, col=1)
+
+        # 거래량
+        colors = ["#ef5350" if c >= o else "#26a69a"
+                  for c, o in zip(df["종가"], df["시가"])]
+        fig.add_trace(go.Bar(
+            x=df.index, y=df["거래량"],
+            name="거래량", marker_color=colors, opacity=0.7,
+        ), row=3, col=1)
+
+        fig.update_layout(
+            height=700,
+            xaxis_rangeslider_visible=False,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02),
+            margin=dict(l=0, r=0, t=30, b=0),
+        )
+        fig.update_yaxes(title_text="가격(원)", row=1, col=1)
+        fig.update_yaxes(title_text="RSI", row=2, col=1)
+        fig.update_yaxes(title_text="거래량", row=3, col=1)
+
+        st.plotly_chart(fig, use_container_width=True)
+
+    with tab2:
+        st.subheader("🤖 ML 기반 예측")
+
+        with st.spinner("모델 학습 중... (처음 한 번만 오래 걸려요)"):
+            try:
+                df_3y = get_stock_data(stock_input, period="3y")
+                df_3y = add_all_indicators(df_3y)
+                df_3y = add_mtf_signal(df_3y)
+                df_3y = build_features(df_3y)
+
+                model, _ = train_model(df_3y)
+                df_pred = add_ml_signal(df_3y, model)
+
+                latest_pred = df_pred.iloc[-1]
+                proba = latest_pred.get("ml_proba", 0.5)
+                final_signal = latest_pred.get("final_signal", "중립")
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("내일 상승 확률", f"{proba*100:.1f}%")
+                    st.metric("ML 신호", final_signal)
+
+                with col2:
+                    # 간단한 예상가
+                    expected_return = (proba - 0.5) * 0.04
+                    expected_price = latest["종가"] * (1 + expected_return)
+                    st.metric("내일 예상가 (참고용)", f"{expected_price:,.0f}원",
+                              f"{expected_return*100:+.2f}%")
+                    st.caption("※ 예상가는 확률 기반 추정치로 실제와 다를 수 있습니다.")
+
+                # 피처 중요도
+                import pandas as pd
+                importance = pd.Series(
+                    model.feature_importances_,
+                    index=FEATURE_COLS
+                ).sort_values(ascending=True).tail(10)
+
+                fig_imp = go.Figure(go.Bar(
+                    x=importance.values,
+                    y=importance.index,
+                    orientation="h",
+                    marker_color="#2196f3",
+                ))
+                fig_imp.update_layout(
+                    title="피처 중요도 Top 10",
+                    height=350,
+                    margin=dict(l=0, r=0, t=40, b=0),
+                )
+                st.plotly_chart(fig_imp, use_container_width=True)
+
+            except Exception as e:
+                st.warning(f"예측 데이터 부족 또는 오류: {e}")
+
+    with tab3:
+        st.subheader("📰 최근 유튜브 인사이트")
+
+        sentiment = get_market_sentiment_score()
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("시장 심리 점수", f"{sentiment['score']}", sentiment['label'])
+        with col2:
+            st.metric("긍정", f"{sentiment['details'].get('긍정', 0)}개")
+        with col3:
+            st.metric("부정", f"{sentiment['details'].get('부정', 0)}개")
+
+        st.divider()
+
+        insights = get_latest_insights(10)
+        if not insights:
+            st.info("수집된 인사이트가 없습니다. youtube_collector.py를 먼저 실행해주세요.")
+        else:
+            for item in insights:
+                insight = item.get("insight", {})
+                sentiment_label = insight.get("market_sentiment", "중립")
+                color = "🟢" if sentiment_label == "긍정" else "🔴" if sentiment_label == "부정" else "⚪"
+
+                with st.expander(f"{color} {item['title'][:60]}... | {item['channel']}"):
+                    st.write("**요약:**", insight.get("summary", "-"))
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        stocks = insight.get("key_stocks", [])
+                        if stocks:
+                            st.write("**언급 종목:**", ", ".join(stocks))
+                        sectors = insight.get("key_sectors", [])
+                        if sectors:
+                            st.write("**언급 섹터:**", ", ".join(sectors))
+                    with col2:
+                        signals = insight.get("investment_signals", [])
+                        if signals:
+                            st.write("**투자 신호:**")
+                            for s in signals[:2]:
+                                st.caption(f"• {s}")
+                    st.link_button("유튜브에서 보기", item.get("url", "#"))
