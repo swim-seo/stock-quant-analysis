@@ -13,6 +13,7 @@ from indicators import add_all_indicators
 from multi_timeframe import add_mtf_signal
 from ml_model import build_features, train_model, add_ml_signal, FEATURE_COLS
 from youtube_collector import get_latest_insights, get_market_sentiment_score
+from fear_greed_korea import calculate_korea_fear_greed, display_fear_greed_widget
 
 st.set_page_config(
     page_title="한국 주식 AI 분석",
@@ -55,6 +56,16 @@ with st.sidebar:
         if st.button(name, use_container_width=True):
             stock_input = ticker
             st.rerun()
+
+    st.divider()
+
+    # 공포탐욕 위젯 (항상 표시)
+    with st.spinner("공포탐욕 지수 계산 중..."):
+        try:
+            fg_data = calculate_korea_fear_greed()
+            display_fear_greed_widget(fg_data)
+        except Exception as _e:
+            st.caption(f"공포탐욕 지수 오류: {_e}")
 
 # 메인 영역
 if not stock_input:
