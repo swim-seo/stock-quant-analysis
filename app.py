@@ -20,15 +20,22 @@ st.set_page_config(
     layout="wide",
 )
 
-st.title("📈 한국 주식 AI 분석 시스템")
-st.caption("기술 지표 + ML + 유튜브 인사이트 기반 투자 분석")
+# 한국어 종목명 매핑
+KOREAN_NAMES = {
+    "005930.KS": "삼성전자", "000660.KS": "SK하이닉스", "005380.KS": "현대차",
+    "035420.KS": "NAVER", "035720.KS": "카카오", "051910.KS": "LG화학",
+    "006400.KS": "삼성SDI", "068270.KS": "셀트리온", "207940.KS": "삼성바이오로직스",
+    "003550.KS": "LG", "055550.KS": "신한지주", "105560.KS": "KB금융",
+    "012330.KS": "현대모비스", "000270.KS": "기아", "096770.KS": "SK이노베이션",
+    "^KS11": "코스피 지수", "^KQ11": "코스닥 지수",
+}
 
 # 사이드바
 with st.sidebar:
     st.header("종목 설정")
     stock_input = st.text_input(
         "종목 코드 입력",
-        value="005930.KS",
+        value="",
         help="코스피: 종목코드.KS / 코스닥: 종목코드.KQ / 지수: ^KS11"
     )
     st.caption("예시: 005930.KS (삼성전자), 000660.KS (SK하이닉스), ^KS11 (코스피)")
@@ -50,7 +57,79 @@ with st.sidebar:
             st.rerun()
 
 # 메인 영역
-if stock_input:
+if not stock_input:
+    # ── 초기 화면 ──────────────────────────────────────────────────────
+    def _tag(text, color):
+        return (
+            f'<span style="font-size:10px;background:{color}22;color:{color};'
+            f'padding:2px 8px;border-radius:3px;white-space:nowrap;">{text}</span>'
+        )
+
+    def _card(icon, title, subtitle_tags, desc, accent, col_span=""):
+        tags_html = "".join(_tag(t, accent) for t in subtitle_tags)
+        return f"""<div style="background:#111118;border:1px solid #1e1e28;border-top:2px solid {accent};
+border-radius:10px;padding:22px 20px;{col_span}">
+<div style="font-size:26px;margin-bottom:12px;">{icon}</div>
+<div style="font-size:14px;font-weight:700;color:#ececec;margin-bottom:8px;">{title}</div>
+<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px;">{tags_html}</div>
+<div style="font-size:12px;color:#7a7a8c;line-height:1.7;">{desc}</div>
+</div>"""
+
+    st.markdown("""<div style="text-align:center;padding:44px 0 36px;">
+<div style="font-size:10px;letter-spacing:5px;color:#f0a500;font-weight:700;margin-bottom:14px;">KOREA STOCK · AI QUANT SYSTEM</div>
+<div style="font-size:32px;font-weight:800;color:#f0f0f0;letter-spacing:-0.5px;line-height:1.3;">한국 주식 AI 분석 시스템</div>
+<div style="font-size:13px;color:#555568;margin-top:10px;letter-spacing:0.5px;">기술 지표 &nbsp;×&nbsp; ML 예측 &nbsp;×&nbsp; 유튜브 인사이트를 하나로</div>
+</div>""", unsafe_allow_html=True)
+
+    c1 = _card("📊", "차트를 자동으로 읽어요",
+               ["MA5/MA20/MA60", "볼린저밴드", "RSI", "MACD", "골든크로스"],
+               "단기·중기·장기 흐름을 한눈에 파악하고, 지금 오르는 추세인지 꺾이는 추세인지 알려줘요.",
+               "#2196f3")
+    c2 = _card("🎯", "지금 들어가도 되는지 판단해줘요",
+               ["정배열", "골든크로스", "RSI", "주봉 추세", "거래량"],
+               "5가지 조건을 체크해서 <b>진입 추천 / 대기 / 위험</b>으로 알려줘요.",
+               "#00c853")
+    c3 = _card("📺", "유튜브 전문가 의견도 같이 봐요",
+               ["한국경제TV", "매일경제TV", "단타/스윙 구분"],
+               "매일 자동 수집해서 이 종목 관련 최신 의견을 요약해줘요.",
+               "#ff6b35")
+    c4 = _card("🔮", "내일 주가를 예측해줘요",
+               ["기술지표 18개 피처", "전문가 의견 결합"],
+               "오를지 내릴지, 예상 종가까지 알려줘요.",
+               "#9c6bff")
+    c5 = _card("⏱️", "일봉 + 주봉 같이 봐요",
+               ["주봉 하락 추세면 매수 차단", "다중 시간프레임"],
+               "큰 흐름과 반대로 진입하는 실수를 막아줘요.",
+               "#f0a500")
+
+    st.markdown(f"""<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:14px;">
+{c1}{c2}{c3}
+</div>
+<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-bottom:28px;">
+{c4}{c5}
+</div>""", unsafe_allow_html=True)
+
+    with st.expander("🔧 시스템 정보"):
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.markdown("**ML 엔진**")
+            st.caption("• XGBoost Classifier")
+            st.caption("• 18개 기술 지표 피처")
+            st.caption("• TimeSeriesSplit 교차검증 (5-fold)")
+        with col_b:
+            st.markdown("**RAG 엔진**")
+            st.caption("• ChromaDB 벡터 검색 (KR-SBERT)")
+            st.caption("• Supabase 키워드 검색")
+            st.caption("• Hybrid RAG · RRF 합산 스코어링")
+
+    st.markdown("""<div style="text-align:center;padding:24px 0 8px;">
+<div style="display:inline-block;background:#111118;border:1px solid #1e1e28;border-radius:8px;
+padding:14px 28px;font-size:13px;color:#7a7a8c;letter-spacing:0.3px;">
+⬅&nbsp; 왼쪽에서 종목 코드를 입력하면 바로 분석을 시작합니다
+</div>
+</div>""", unsafe_allow_html=True)
+
+elif stock_input:
     with st.spinner("데이터 수집 중..."):
         df = get_stock_data(stock_input, period=period)
 
@@ -61,6 +140,17 @@ if stock_input:
     df = add_all_indicators(df)
     df = add_mtf_signal(df)
     df = build_features(df)
+
+    # 종목명 가져오기
+    try:
+        import yfinance as yf
+        _info = yf.Ticker(stock_input).info
+        _yf_name = _info.get("shortName") or _info.get("longName") or stock_input
+    except Exception:
+        _yf_name = stock_input
+    display_name = KOREAN_NAMES.get(stock_input, _yf_name)
+
+    st.title(f"📈 {display_name} ({stock_input})")
 
     # 최신 데이터
     latest = df.iloc[-1]
