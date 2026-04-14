@@ -1,0 +1,13 @@
+streamlit
+yfinance
+pandas
+numpy
+plotly
+xgboost
+scikit-learn
+networkx
+anthropic
+youtube-transcript-api
+yt-dlp
+schedule
+python-dotenv
