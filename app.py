@@ -87,6 +87,67 @@ if stock_input:
 
     st.divider()
 
+    # 진입 신호 판단 카드
+    st.subheader("🎯 진입 신호 판단")
+
+    # 조건 1: 정배열 (MA5 > MA20 > MA60)
+    ma5, ma20, ma60 = latest["MA5"], latest["MA20"], latest["MA60"]
+    cond_ma = ma5 > ma20 > ma60
+    cond_ma_icon = "✅" if cond_ma else "❌"
+
+    # 조건 2: 골든크로스 최근 20일 이내
+    recent = df.tail(20)
+    golden_cross_recent = recent["golden_cross"].any()
+    cond_gc_icon = "✅" if golden_cross_recent else "❌"
+
+    # 조건 3: RSI 30~70 사이
+    rsi = latest["RSI"]
+    cond_rsi = 30 <= rsi <= 70
+    cond_rsi_icon = "✅" if cond_rsi else ("⚠️" if rsi > 70 else "⚠️")
+
+    # 조건 4: 주봉 상승 추세
+    cond_weekly = latest.get("주봉추세", "하락") == "상승"
+    cond_weekly_icon = "✅" if cond_weekly else "❌"
+
+    # 조건 5: 거래량 20일 평균 이상
+    vol_avg_20 = df["거래량"].tail(20).mean()
+    cond_vol = latest["거래량"] >= vol_avg_20
+    cond_vol_icon = "✅" if cond_vol else "❌"
+
+    # 충족 개수 및 최종 판단
+    conditions = [cond_ma, golden_cross_recent, cond_rsi, cond_weekly, cond_vol]
+    satisfied = sum(conditions)
+    if satisfied >= 4:
+        final_judge = "🟢 진입 추천"
+        judge_color = "green"
+    elif satisfied == 3:
+        final_judge = "🟡 대기"
+        judge_color = "orange"
+    else:
+        final_judge = "🔴 위험"
+        judge_color = "red"
+
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
+    with col1:
+        st.metric(f"{cond_ma_icon} 정배열", "충족" if cond_ma else "미충족",
+                  "MA5>MA20>MA60")
+    with col2:
+        st.metric(f"{cond_gc_icon} 골든크로스", "충족" if golden_cross_recent else "미충족",
+                  "최근 20일 이내")
+    with col3:
+        st.metric(f"{cond_rsi_icon} RSI", f"{rsi:.1f}",
+                  "정상구간" if cond_rsi else "과매수" if rsi > 70 else "과매도")
+    with col4:
+        weekly_trend = latest.get("주봉추세", "하락")
+        st.metric(f"{cond_weekly_icon} 주봉 추세", weekly_trend)
+    with col5:
+        st.metric(f"{cond_vol_icon} 거래량", "평균 이상" if cond_vol else "평균 미만",
+                  f"{latest['거래량']/vol_avg_20:.1f}x")
+    with col6:
+        st.metric(f"최종 판단 ({satisfied}/5)", final_judge)
+
+    st.divider()
+
     # 차트
     tab1, tab2, tab3 = st.tabs(["📊 차트", "🤖 AI 예측", "📰 유튜브 인사이트"])
 
