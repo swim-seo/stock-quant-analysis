@@ -18,7 +18,7 @@ export function SearchBar() {
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (query.trim()) {
-      router.push(`/search?q=${encodeURIComponent(query.trim())}`);
+      router.push(`/stock?ticker=${encodeURIComponent(query.trim())}`);
     }
   };
 
@@ -26,11 +26,11 @@ export function SearchBar() {
     <div className="flex items-center gap-3">
       {/* Quick stock buttons */}
       <div className="hidden md:flex gap-2">
-        {Object.entries(QUICK_STOCKS).map(([name]) => (
+        {Object.entries(QUICK_STOCKS).map(([name, ticker]) => (
           <button
             key={name}
             onClick={() =>
-              router.push(`/search?q=${encodeURIComponent(name)}`)
+              router.push(`/stock?ticker=${encodeURIComponent(ticker)}`)
             }
             className="px-3 py-1.5 text-xs rounded-full border border-[#2a2a3e] text-[#7a7a8c] hover:border-[#f0a500] hover:text-[#f0a500] transition-colors"
           >
