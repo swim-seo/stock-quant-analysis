@@ -57,6 +57,13 @@ PLAYLISTS = {
         "trading_focus": "swing",
         "collect_time": "afternoon",
     },
+    "조선일의K1레이스": {
+        "channel": "매일경제TV",
+        "playlist_url": "https://www.youtube.com/playlist?list=PL0dOq2-5pHmhdqoiAphTBj6C6PxneZMIR",
+        "priority": 1,
+        "trading_focus": "both",
+        "collect_time": "morning",
+    },
 }
 
 # 저장 경로
@@ -103,8 +110,70 @@ def get_playlist_videos(playlist_url: str, max_days: int = 2, max_videos: int = 
         return videos
 
 
+REQUEST_DELAY = 10  # 요청 간 딜레이 (초) - IP 차단 방지
+
+
 def get_transcript(video_id: str) -> str:
-    """영상 스크립트 가져오기 (타임스탬프 + 텍스트)"""
+    """yt-dlp로 자막 다운로드 (IP 차단에 강함). 실패 시 youtube_transcript_api 폴백."""
+    url = f"https://www.youtube.com/watch?v={video_id}"
+
+    # 1차: yt-dlp로 자막 추출
+    transcript = _get_transcript_ytdlp(url)
+    if transcript:
+        return transcript
+
+    # 2차: youtube_transcript_api 폴백
+    transcript = _get_transcript_api(video_id)
+    if transcript:
+        return transcript
+
+    return None
+
+
+def _get_transcript_ytdlp(url: str) -> str:
+    """yt-dlp로 자막 추출 (자동생성 포함)"""
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmpdir:
+        ydl_opts = {
+            "quiet": True,
+            "skip_download": True,
+            "writeautomaticsub": True,  # 자동생성 자막
+            "writesubtitles": True,     # 수동 자막
+            "subtitleslangs": ["ko", "ko-KR"],
+            "subtitlesformat": "json3",
+            "outtmpl": os.path.join(tmpdir, "%(id)s"),
+        }
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
+
+            # json3 자막 파일 찾기
+            import glob
+            sub_files = glob.glob(os.path.join(tmpdir, "*.json3"))
+            if not sub_files:
+                return None
+
+            with open(sub_files[0], "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            lines = []
+            for event in data.get("events", []):
+                start_ms = event.get("tStartMs", 0)
+                seconds = int(start_ms / 1000)
+                timestamp = f"[{seconds // 60:02d}:{seconds % 60:02d}]"
+                segs = event.get("segs", [])
+                text = "".join(s.get("utf8", "") for s in segs).strip()
+                if text and text != "\n":
+                    lines.append(f"{timestamp} {text}")
+
+            return "\n".join(lines) if lines else None
+        except Exception as e:
+            print(f"  [yt-dlp 자막] {type(e).__name__}: {str(e)[:80]}")
+            return None
+
+
+def _get_transcript_api(video_id: str) -> str:
+    """youtube_transcript_api 폴백"""
     try:
         api = YouTubeTranscriptApi()
         transcript_list = api.list(video_id)
@@ -119,7 +188,8 @@ def get_transcript(video_id: str) -> str:
             timestamp = f"[{seconds // 60:02d}:{seconds % 60:02d}]"
             lines.append(f"{timestamp} {t.text}")
         return "\n".join(lines)
-    except Exception:
+    except Exception as e:
+        print(f"  [API 자막] {type(e).__name__}: {str(e)[:80]}")
         return None
 
 
@@ -494,9 +564,12 @@ def process_playlist(playlist_name: str, config: dict, max_days: int = 2, max_vi
 
     print(f"  최근 {max_days}일 이내 영상 {len(videos)}개 발견")
     processed = 0
-    for video in videos:
+    for i, video in enumerate(videos):
         if process_video(video, channel, playlist_name, trading_focus):
             processed += 1
+        # 영상 간 딜레이 (IP 차단 방지)
+        if i < len(videos) - 1:
+            time.sleep(REQUEST_DELAY)
     return processed
 
 
@@ -564,6 +637,43 @@ def collect_historical(days: int = 7):
     _print_sentiment()
 
 
+def retry_failed():
+    """자막 수집 실패했던 영상 재수집 (IP 차단 해제 후 사용)"""
+    print(f"\n{'='*50}")
+    print(f"  실패 영상 재수집")
+    print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"{'='*50}")
+
+    # 모든 재생목록에서 영상 목록을 가져와서, 처리 안 된 것만 재시도
+    total = 0
+    for name, config in PLAYLISTS.items():
+        channel = config["channel"]
+        playlist_url = config["playlist_url"]
+        trading_focus = config.get("trading_focus", "both")
+
+        print(f"\n[{name}] ({channel}) 미처리 영상 확인 중...")
+        try:
+            videos = get_playlist_videos(playlist_url, max_days=30, max_videos=30)
+        except Exception as e:
+            print(f"  재생목록 로딩 실패: {e}")
+            continue
+
+        failed = [v for v in videos if not is_already_processed(v["id"])]
+        if not failed:
+            print(f"  미처리 영상 없음")
+            continue
+
+        print(f"  미처리 영상 {len(failed)}개 발견, 재시도...")
+        for i, video in enumerate(failed):
+            if process_video(video, channel, name, trading_focus):
+                total += 1
+            if i < len(failed) - 1:
+                time.sleep(REQUEST_DELAY)
+
+    print(f"\n재수집 완료: {total}개 영상 처리")
+    _print_sentiment()
+
+
 def _print_sentiment():
     """시장 심리 점수 출력"""
     sentiment = get_market_sentiment_score()
@@ -624,6 +734,9 @@ if __name__ == "__main__":
     search_parser = subparsers.add_parser("search", help="종목 검색")
     search_parser.add_argument("stock", nargs="?", default="삼성전자", help="검색할 종목명")
 
+    # retry
+    subparsers.add_parser("retry", help="자막 실패 영상 재수집")
+
     # morning / afternoon
     subparsers.add_parser("morning", help="오전 수집만 실행")
     subparsers.add_parser("afternoon", help="오후 수집만 실행")
@@ -634,6 +747,8 @@ if __name__ == "__main__":
         start_scheduler()
     elif args.command == "historical":
         collect_historical(days=args.days)
+    elif args.command == "retry":
+        retry_failed()
     elif args.command == "morning":
         collect_morning()
     elif args.command == "afternoon":
