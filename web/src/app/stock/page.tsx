@@ -236,6 +236,8 @@ function StockContent() {
   const [insights, setInsights] = useState<YoutubeInsight[]>([]);
   const [showMore, setShowMore] = useState(false);
   const [expandedInsight, setExpandedInsight] = useState<string | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [newsData, setNewsData] = useState<any>(null);
 
   useEffect(() => {
     if (!ticker) return;
@@ -258,6 +260,12 @@ function StockContent() {
     if (!ticker) return;
     const name = TICKER_TO_NAME[ticker] || rawTicker;
     searchByStock(name, 10).then(setInsights);
+    // 뉴스/수급 데이터
+    const code = ticker.split(".")[0];
+    fetch(`/api/news?code=${code}`)
+      .then((r) => r.json())
+      .then((d) => { if (Array.isArray(d) && d.length > 0) setNewsData(d[0]); })
+      .catch(() => {});
   }, [ticker, rawTicker]);
 
   const displayName = data?.name
@@ -490,6 +498,140 @@ function StockContent() {
                 })}
               </div>
             </div>
+
+            {/* ── 뉴스 + 수급 (2컬럼) ── */}
+            {newsData && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                {/* 뉴스/공시 */}
+                <div
+                  className="rounded-xl p-5"
+                  style={{ background: "#0f0f17", border: "1px solid #1a1a2a" }}
+                >
+                  <div className="flex items-center justify-between mb-4">
+                    <span
+                      className="text-xs font-semibold"
+                      style={{ color: "#8a8a9a", letterSpacing: "2px" }}
+                    >
+                      NEWS
+                    </span>
+                    {(() => {
+                      const analysis = typeof newsData.analysis === "string"
+                        ? JSON.parse(newsData.analysis) : newsData.analysis || {};
+                      const sent = analysis.sentiment || "중립";
+                      const sentColor = sent === "호재" ? "#22c55e" : sent === "악재" ? "#ef4444" : "#f0a500";
+                      return (
+                        <span
+                          className="text-xs font-bold px-3 py-1 rounded-full"
+                          style={{ color: sentColor, background: `${sentColor}15`, border: `1px solid ${sentColor}40` }}
+                        >
+                          {sent}
+                        </span>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Claude 분석 요약 */}
+                  {(() => {
+                    const analysis = typeof newsData.analysis === "string"
+                      ? JSON.parse(newsData.analysis) : newsData.analysis || {};
+                    return analysis.summary ? (
+                      <p className="text-sm leading-relaxed mb-3" style={{ color: "#b0b0c0" }}>
+                        {analysis.summary}
+                      </p>
+                    ) : null;
+                  })()}
+
+                  {/* 뉴스 목록 */}
+                  <div className="space-y-1.5">
+                    {(typeof newsData.articles === "string"
+                      ? JSON.parse(newsData.articles) : newsData.articles || []
+                    ).slice(0, 5).map((a: { title: string; url: string; date: string; source: string }, i: number) => (
+                      <a
+                        key={i}
+                        href={a.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block px-3 py-2 rounded-lg hover:bg-[#12121e] transition-colors"
+                      >
+                        <div className="text-xs font-medium line-clamp-1" style={{ color: "#e8e8f0" }}>
+                          {a.title}
+                        </div>
+                        <div className="text-[11px] mt-0.5" style={{ color: "#555568" }}>
+                          {a.source} · {a.date}
+                        </div>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 외국인/기관 수급 */}
+                <div
+                  className="rounded-xl p-5"
+                  style={{ background: "#0f0f17", border: "1px solid #1a1a2a" }}
+                >
+                  <span
+                    className="text-xs font-semibold block mb-4"
+                    style={{ color: "#8a8a9a", letterSpacing: "2px" }}
+                  >
+                    INVESTOR FLOW
+                  </span>
+
+                  {(() => {
+                    const investors: { date: string; close: number; foreign_net: number; institution_net: number }[] =
+                      typeof newsData.investor_data === "string"
+                        ? JSON.parse(newsData.investor_data) : newsData.investor_data || [];
+                    if (investors.length === 0) return (
+                      <div className="text-center py-4 text-xs" style={{ color: "#8a8a9a" }}>수급 데이터 없음</div>
+                    );
+
+                    const foreign5 = investors.slice(0, 5).reduce((s, d) => s + d.foreign_net, 0);
+                    const inst5 = investors.slice(0, 5).reduce((s, d) => s + d.institution_net, 0);
+                    const fColor = foreign5 >= 0 ? "#ef4444" : "#3b82f6";
+                    const iColor = inst5 >= 0 ? "#ef4444" : "#3b82f6";
+
+                    return (
+                      <>
+                        {/* 5일 합계 */}
+                        <div className="grid grid-cols-2 gap-3 mb-4">
+                          <div className="rounded-lg p-3 text-center" style={{ background: "#0a0a0f" }}>
+                            <div className="text-xs mb-1" style={{ color: "#8a8a9a" }}>외국인 5일</div>
+                            <div className="text-sm font-bold" style={{ color: fColor, fontFamily: "monospace" }}>
+                              {foreign5 >= 0 ? "+" : ""}{foreign5.toLocaleString("ko-KR")}
+                            </div>
+                          </div>
+                          <div className="rounded-lg p-3 text-center" style={{ background: "#0a0a0f" }}>
+                            <div className="text-xs mb-1" style={{ color: "#8a8a9a" }}>기관 5일</div>
+                            <div className="text-sm font-bold" style={{ color: iColor, fontFamily: "monospace" }}>
+                              {inst5 >= 0 ? "+" : ""}{inst5.toLocaleString("ko-KR")}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* 일별 테이블 */}
+                        <div className="space-y-1">
+                          <div className="flex text-[11px] font-semibold px-2 py-1" style={{ color: "#555568" }}>
+                            <span className="w-20">날짜</span>
+                            <span className="flex-1 text-right">외국인</span>
+                            <span className="flex-1 text-right">기관</span>
+                          </div>
+                          {investors.slice(0, 7).map((d, i) => (
+                            <div key={i} className="flex text-xs px-2 py-1.5 rounded" style={{ background: i % 2 === 0 ? "#0a0a0f" : "transparent" }}>
+                              <span className="w-20" style={{ color: "#8a8a9a" }}>{d.date}</span>
+                              <span className="flex-1 text-right font-medium" style={{ color: d.foreign_net >= 0 ? "#ef4444" : "#3b82f6", fontFamily: "monospace" }}>
+                                {d.foreign_net >= 0 ? "+" : ""}{d.foreign_net.toLocaleString("ko-KR")}
+                              </span>
+                              <span className="flex-1 text-right font-medium" style={{ color: d.institution_net >= 0 ? "#ef4444" : "#3b82f6", fontFamily: "monospace" }}>
+                                {d.institution_net >= 0 ? "+" : ""}{d.institution_net.toLocaleString("ko-KR")}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
+            )}
 
             {/* ── AI 예측 + 유튜브 인사이트 (2컬럼) ── */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">

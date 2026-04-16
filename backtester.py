@@ -20,13 +20,15 @@ class Backtester:
         stop_loss: float = 0.05,     # 손절선 5%
         take_profit: float = 0.10,   # 익절선 10%
         position_size: float = 1.0,  # 자본 대비 투자 비율 (1.0 = 전액)
+        slippage: float = 0.001,     # 슬리피지 0.1% (체결가 불리하게)
     ):
         self.initial_capital = initial_capital
         self.stop_loss = stop_loss
         self.take_profit = take_profit
         self.position_size = position_size
+        self.slippage = slippage
 
-    def run(self, df: pd.DataFrame, fee_rate: float = 0.00015) -> dict:
+    def run(self, df: pd.DataFrame, fee_rate: float = 0.0015) -> dict:
         """
         백테스트 실행
 
@@ -85,7 +87,7 @@ class Backtester:
 
             # 매수 신호
             if yesterday["signal"] == "매수" and position == 0 and capital > 0:
-                price = today["시가"]
+                price = today["시가"] * (1 + self.slippage)  # 슬리피지: 더 비싸게 삼
                 invest_capital = capital * self.position_size
                 shares = int(invest_capital / price)
                 cost = shares * price * (1 + fee_rate)
@@ -102,7 +104,7 @@ class Backtester:
 
             # 매도 신호
             elif yesterday["signal"] == "매도" and position > 0:
-                price = today["시가"]
+                price = today["시가"] * (1 - self.slippage)  # 슬리피지: 더 싸게 팔림
                 current_return = (price - buy_price) / buy_price
                 revenue = position * price * (1 - fee_rate)
                 capital += revenue
