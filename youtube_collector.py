@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import re
 import argparse
@@ -10,6 +11,12 @@ from youtube_transcript_api import YouTubeTranscriptApi
 import yt_dlp
 import anthropic
 from dotenv import load_dotenv
+
+# Windows cp949 인코딩 에러 방지
+if sys.stdout.encoding != 'utf-8':
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+if sys.stderr.encoding != 'utf-8':
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
 load_dotenv(Path(__file__).parent / ".env")
 
@@ -81,6 +88,7 @@ def get_playlist_videos(playlist_url: str, max_days: int = 2, max_videos: int = 
         "quiet": True,
         "extract_flat": True,
         "playlist_items": "1:30",  # 최근 30개까지 스캔
+        "extractor_args": {"youtube": {"lang": ["ko"]}},
     }
     cutoff = datetime.now() - timedelta(days=max_days)
 

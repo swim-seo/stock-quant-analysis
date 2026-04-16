@@ -63,7 +63,7 @@ export function TopStocks() {
         </div>
       )}
 
-      <div className="mt-3 text-[10px] text-[#555]">최근 7일 기준</div>
+      <div className="mt-3 text-xs text-[#555]">최근 7일 기준</div>
     </div>
   );
 }

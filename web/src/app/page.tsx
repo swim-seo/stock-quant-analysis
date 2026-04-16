@@ -1,6 +1,6 @@
 import { SentimentCard } from "@/components/SentimentCard";
 import { TopStocks } from "@/components/TopStocks";
-import { InsightsFeed } from "@/components/InsightsFeed";
+import { MainTabs } from "@/components/MainTabs";
 import { SearchBar } from "@/components/SearchBar";
 
 export const revalidate = 300;
@@ -25,15 +25,15 @@ export default function Home() {
 
       {/* Dashboard Grid */}
       <div className="max-w-7xl mx-auto p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left: 시장 심리 + 종목 랭킹 */}
+        {/* Left: 공포탐욕 + 종목 랭킹 */}
         <div className="space-y-6">
           <SentimentCard />
           <TopStocks />
         </div>
 
-        {/* Right: 유튜브 인사이트 피드 */}
+        {/* Right: 탭 (인사이트 / 종목 검색) */}
         <div className="lg:col-span-2">
-          <InsightsFeed />
+          <MainTabs />
         </div>
       </div>
     </main>
