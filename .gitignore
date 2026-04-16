@@ -5,3 +5,9 @@ youtube_data/
 youtube_insights/
 *.pkl
 .streamlit/secrets.toml
+.next/
+chroma_db/
+_naver_debug.html
+_playlist_check.json
+backtest_results.csv
+node_modules/
