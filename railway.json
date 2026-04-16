@@ -4,7 +4,7 @@
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
-    "cronSchedule": "0 22 * * *",
+    "cronSchedule": "0 22,7 * * 1-5",
     "restartPolicyType": "NEVER"
   }
 }
