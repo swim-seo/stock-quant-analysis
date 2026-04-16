@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { SentimentCard } from "@/components/SentimentCard";
 import { TopStocks } from "@/components/TopStocks";
 import { MainTabs } from "@/components/MainTabs";
@@ -19,7 +20,16 @@ export default function Home() {
               주식 AI 대시보드
             </h1>
           </div>
-          <SearchBar />
+          <div className="flex items-center gap-3">
+            <Link
+              href="/briefing"
+              className="px-4 py-2 text-xs font-semibold rounded-lg transition-colors"
+              style={{ background: "#f0a50015", color: "#f0a500", border: "1px solid #f0a50040" }}
+            >
+              오늘의 브리핑
+            </Link>
+            <SearchBar />
+          </div>
         </div>
       </header>
 
