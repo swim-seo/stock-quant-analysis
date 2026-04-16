@@ -34,17 +34,17 @@ interface FearGreedData {
 type Tab = "feargreed" | "sector";
 
 function getColor(score: number) {
-  if (score >= 81) return "#00c853";
+  if (score >= 81) return "#00ff88";
   if (score >= 61) return "#6bcb77";
-  if (score >= 41) return "#ffab00";
+  if (score >= 41) return "#ffd700";
   if (score >= 21) return "#ff6b6b";
-  return "#ff1744";
+  return "#ff4444";
 }
 
 function getSectorColor(label: string) {
-  if (label === "긍정") return "#00c853";
-  if (label === "부정") return "#ff1744";
-  return "#ffab00";
+  if (label === "긍정") return "#00ff88";
+  if (label === "부정") return "#ff4444";
+  return "#ffd700";
 }
 
 const COMP_LABELS: Record<string, string> = {
@@ -68,13 +68,13 @@ export function SentimentCard() {
 
   if (!data) {
     return (
-      <div className="bg-[#111118] border border-[#1e1e28] rounded-xl p-6 animate-pulse">
-        <div className="h-4 bg-[#1e1e28] rounded w-1/3 mb-4" />
-        <div className="h-12 bg-[#1e1e28] rounded w-1/2 mx-auto mb-4" />
-        <div className="h-2 bg-[#1e1e28] rounded mb-3" />
+      <div className="bg-[#111118] border border-[#2a2a3a] rounded-xl p-6 animate-pulse">
+        <div className="h-4 bg-[#2a2a3a] rounded w-1/3 mb-4" />
+        <div className="h-12 bg-[#2a2a3a] rounded w-1/2 mx-auto mb-4" />
+        <div className="h-2 bg-[#2a2a3a] rounded mb-3" />
         <div className="space-y-2">
           {[...Array(5)].map((_, i) => (
-            <div key={i} className="h-6 bg-[#1e1e28] rounded" />
+            <div key={i} className="h-6 bg-[#2a2a3a] rounded" />
           ))}
         </div>
       </div>
@@ -84,15 +84,15 @@ export function SentimentCard() {
   const color = getColor(data.score);
 
   return (
-    <div className="bg-[#111118] border border-[#1e1e28] rounded-xl p-6">
+    <div className="bg-[#111118] border border-[#2a2a3a] rounded-xl p-6">
       {/* 탭 버튼 */}
       <div className="flex gap-1 mb-5">
         <button
           onClick={() => setTab("feargreed")}
           className="flex-1 py-1.5 text-[11px] font-semibold rounded-lg transition-colors"
           style={{
-            background: tab === "feargreed" ? "#1e1e28" : "transparent",
-            color: tab === "feargreed" ? "#e8e8f0" : "#555568",
+            background: tab === "feargreed" ? "#2a2a3a" : "transparent",
+            color: tab === "feargreed" ? "#ffffff" : "#aaaaaa",
           }}
         >
           공포탐욕 지수
@@ -101,8 +101,8 @@ export function SentimentCard() {
           onClick={() => setTab("sector")}
           className="flex-1 py-1.5 text-[11px] font-semibold rounded-lg transition-colors"
           style={{
-            background: tab === "sector" ? "#1e1e28" : "transparent",
-            color: tab === "sector" ? "#e8e8f0" : "#555568",
+            background: tab === "sector" ? "#2a2a3a" : "transparent",
+            color: tab === "sector" ? "#ffffff" : "#aaaaaa",
           }}
         >
           섹터별 심리
@@ -122,16 +122,16 @@ export function SentimentCard() {
           </div>
 
           {/* 게이지 바 */}
-          <div className="h-2 bg-[#1e1e28] rounded-full overflow-hidden mb-1">
+          <div className="h-2 bg-[#2a2a3a] rounded-full overflow-hidden mb-1">
             <div
               className="h-full rounded-full transition-all duration-700"
               style={{
                 width: `${data.score}%`,
-                background: "linear-gradient(90deg, #ff1744, #ff6b6b, #ffab00, #6bcb77, #00c853)",
+                background: "linear-gradient(90deg, #ff4444, #ff6b6b, #ffd700, #6bcb77, #00ff88)",
               }}
             />
           </div>
-          <div className="flex justify-between text-[11px] mb-5" style={{ color: "#555568" }}>
+          <div className="flex justify-between text-[11px] mb-5" style={{ color: "#aaaaaa" }}>
             <span>극도공포</span>
             <span>공포</span>
             <span>중립</span>
@@ -152,13 +152,13 @@ export function SentimentCard() {
                       {comp.score.toFixed(0)}/20
                     </span>
                   </div>
-                  <div className="h-1 bg-[#1e1e28] rounded-full overflow-hidden">
+                  <div className="h-1 bg-[#2a2a3a] rounded-full overflow-hidden">
                     <div
                       className="h-full rounded-full transition-all duration-500"
                       style={{ width: `${barW}%`, background: compColor }}
                     />
                   </div>
-                  <div className="text-[11px] mt-0.5" style={{ color: "#555568" }}>
+                  <div className="text-[11px] mt-0.5" style={{ color: "#aaaaaa" }}>
                     {comp.detail}
                   </div>
                 </div>
@@ -173,7 +173,7 @@ export function SentimentCard() {
             최근 영상 기준 · 3회 이상 언급 섹터
           </div>
           {data.sectors.length === 0 ? (
-            <div className="text-center py-6 text-xs" style={{ color: "#555568" }}>
+            <div className="text-center py-6 text-xs" style={{ color: "#aaaaaa" }}>
               섹터 데이터 없음
             </div>
           ) : (
@@ -187,10 +187,10 @@ export function SentimentCard() {
                   <div
                     key={sector.name}
                     className="rounded-lg p-3"
-                    style={{ background: "#0a0a12", border: "1px solid #1e1e28" }}
+                    style={{ background: "#0a0a12", border: "1px solid #2a2a3a" }}
                   >
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-semibold" style={{ color: "#e8e8f0" }}>
+                      <span className="text-xs font-semibold" style={{ color: "#ffffff" }}>
                         {sector.name}
                       </span>
                       <div className="flex items-center gap-2">
@@ -200,7 +200,7 @@ export function SentimentCard() {
                         >
                           {sector.label}
                         </span>
-                        <span className="text-[11px]" style={{ color: "#555568" }}>
+                        <span className="text-[11px]" style={{ color: "#aaaaaa" }}>
                           {sector.total}건
                         </span>
                       </div>
@@ -208,13 +208,13 @@ export function SentimentCard() {
                     {/* 스택 바 */}
                     <div className="h-1.5 rounded-full overflow-hidden flex">
                       {posW > 0 && (
-                        <div style={{ width: `${posW}%`, background: "#00c853" }} className="h-full" />
+                        <div style={{ width: `${posW}%`, background: "#00ff88" }} className="h-full" />
                       )}
                       {neuW > 0 && (
-                        <div style={{ width: `${neuW}%`, background: "#ffab00" }} className="h-full" />
+                        <div style={{ width: `${neuW}%`, background: "#ffd700" }} className="h-full" />
                       )}
                       {negW > 0 && (
-                        <div style={{ width: `${negW}%`, background: "#ff1744" }} className="h-full" />
+                        <div style={{ width: `${negW}%`, background: "#ff4444" }} className="h-full" />
                       )}
                     </div>
                     <div className="flex gap-3 mt-1.5 text-[11px]" style={{ color: "#8a8a9a" }}>

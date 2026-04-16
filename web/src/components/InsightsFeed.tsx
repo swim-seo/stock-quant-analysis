@@ -21,7 +21,7 @@ function timeAgo(dateStr: string) {
 
 function SentimentBadge({ sentiment }: { sentiment: string }) {
   const color =
-    sentiment === "긍정" ? "#00c853" : sentiment === "부정" ? "#ff1744" : "#ffab00";
+    sentiment === "긍정" ? "#00ff88" : sentiment === "부정" ? "#ff4444" : "#ffd700";
   return (
     <span
       className="text-[11px] font-semibold px-1.5 py-0.5 rounded"
@@ -55,7 +55,7 @@ function InsightCard({
 
   return (
     <div
-      className="bg-[#111118] border border-[#1e1e28] rounded-xl overflow-hidden hover:border-[#2a2a3e] transition-all"
+      className="bg-[#111118] border border-[#2a2a3a] rounded-xl overflow-hidden hover:border-[#2a2a3e] transition-all"
     >
       {/* 썸네일 */}
       <button onClick={onToggle} className="w-full text-left">
@@ -73,7 +73,7 @@ function InsightCard({
               <span
                 className="text-[11px] font-semibold px-1.5 py-0.5 rounded"
                 style={{
-                  color: insight.trading_type === "단타" ? "#ff6b35" : insight.trading_type === "스윙" ? "#2196f3" : "#9c6bff",
+                  color: insight.trading_type === "단타" ? "#ff6b35" : insight.trading_type === "스윙" ? "#4d9fff" : "#9c6bff",
                   background: "rgba(0,0,0,0.6)",
                   backdropFilter: "blur(4px)",
                 }}
@@ -84,7 +84,7 @@ function InsightCard({
           </div>
           {insight.urgency === "오늘" && (
             <div className="absolute top-2 right-2">
-              <span className="text-[11px] font-bold px-1.5 py-0.5 rounded bg-[#ff1744] text-white">
+              <span className="text-[11px] font-bold px-1.5 py-0.5 rounded bg-[#ff4444] text-white">
                 긴급
               </span>
             </div>
@@ -94,12 +94,12 @@ function InsightCard({
         {/* 제목 영역 */}
         <div className="p-3">
           <div className="flex items-center gap-2 mb-1.5">
-            <span className="text-xs text-[#7a7a8c]">{insight.channel}</span>
-            <span className="text-xs text-[#555568]">
+            <span className="text-xs text-[#aaaaaa]">{insight.channel}</span>
+            <span className="text-xs text-[#aaaaaa]">
               {insight.processed_at ? timeAgo(insight.processed_at) : fmtDate(insight.upload_date)}
             </span>
           </div>
-          <h3 className="text-sm font-semibold text-[#e8e8f0] line-clamp-2 leading-snug">
+          <h3 className="text-sm font-semibold text-[#ffffff] line-clamp-2 leading-snug">
             {insight.title}
           </h3>
         </div>
@@ -107,8 +107,8 @@ function InsightCard({
 
       {/* 펼침 영역 */}
       {expanded && (
-        <div className="px-3 pb-3 border-t border-[#1e1e28] pt-3 space-y-3">
-          <p className="text-xs text-[#b0b0c0] leading-relaxed">{insight.summary}</p>
+        <div className="px-3 pb-3 border-t border-[#2a2a3a] pt-3 space-y-3">
+          <p className="text-xs text-[#e0e0e0] leading-relaxed">{insight.summary}</p>
 
           {/* 종목 태그 */}
           {(insight.key_stocks || []).length > 0 && (
@@ -116,7 +116,7 @@ function InsightCard({
               {insight.key_stocks.map((s) => (
                 <span
                   key={s}
-                  className="text-xs px-2 py-0.5 rounded bg-[#2196f310] text-[#2196f3] border border-[#2196f330]"
+                  className="text-xs px-2 py-0.5 rounded bg-[#4d9fff10] text-[#4d9fff] border border-[#4d9fff30]"
                 >
                   {s}
                 </span>
@@ -164,20 +164,20 @@ export function InsightsFeed() {
   if (loading) {
     return (
       <div>
-        <h2 className="text-xs font-semibold text-[#7a7a8c] tracking-widest mb-4">
+        <h2 className="text-xs font-semibold text-[#aaaaaa] tracking-widest mb-4">
           최근 인사이트
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {[...Array(6)].map((_, i) => (
             <div
               key={i}
-              className="bg-[#111118] border border-[#1e1e28] rounded-xl overflow-hidden animate-pulse"
+              className="bg-[#111118] border border-[#2a2a3a] rounded-xl overflow-hidden animate-pulse"
             >
-              <div className="w-full bg-[#1e1e28]" style={{ aspectRatio: "16/9" }} />
+              <div className="w-full bg-[#2a2a3a]" style={{ aspectRatio: "16/9" }} />
               <div className="p-3">
-                <div className="h-3 bg-[#1e1e28] rounded w-1/3 mb-2" />
-                <div className="h-4 bg-[#1e1e28] rounded w-full mb-1" />
-                <div className="h-4 bg-[#1e1e28] rounded w-2/3" />
+                <div className="h-3 bg-[#2a2a3a] rounded w-1/3 mb-2" />
+                <div className="h-4 bg-[#2a2a3a] rounded w-full mb-1" />
+                <div className="h-4 bg-[#2a2a3a] rounded w-2/3" />
               </div>
             </div>
           ))}
@@ -189,15 +189,15 @@ export function InsightsFeed() {
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
-        <h2 className="text-xs font-semibold text-[#7a7a8c] tracking-widest">
+        <h2 className="text-xs font-semibold text-[#aaaaaa] tracking-widest">
           최근 인사이트
         </h2>
-        <span className="text-xs text-[#555568]">{insights.length}개</span>
+        <span className="text-xs text-[#aaaaaa]">{insights.length}개</span>
       </div>
 
       {insights.length === 0 ? (
-        <div className="bg-[#111118] border border-[#1e1e28] rounded-xl p-12 text-center">
-          <p className="text-sm text-[#555568]">수집된 인사이트가 없습니다.</p>
+        <div className="bg-[#111118] border border-[#2a2a3a] rounded-xl p-12 text-center">
+          <p className="text-sm text-[#aaaaaa]">수집된 인사이트가 없습니다.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

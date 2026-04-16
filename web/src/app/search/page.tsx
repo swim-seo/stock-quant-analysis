@@ -10,10 +10,10 @@ import { Suspense } from "react";
 function SentimentDot({ sentiment }: { sentiment: string }) {
   const color =
     sentiment === "긍정"
-      ? "#00c853"
+      ? "#00ff88"
       : sentiment === "부정"
-        ? "#ff1744"
-        : "#ffab00";
+        ? "#ff4444"
+        : "#ffd700";
   return (
     <span
       className="inline-block w-2 h-2 rounded-full mr-1.5"
@@ -40,11 +40,11 @@ function SearchContent() {
 
   return (
     <main className="min-h-screen">
-      <header className="border-b border-[#1e1e28] px-6 py-4">
+      <header className="border-b border-[#2a2a3a] px-6 py-4">
         <div className="max-w-4xl mx-auto flex items-center gap-4">
           <Link
             href="/"
-            className="text-[#7a7a8c] hover:text-white transition-colors"
+            className="text-[#aaaaaa] hover:text-white transition-colors"
           >
             ← 대시보드
           </Link>
@@ -60,16 +60,16 @@ function SearchContent() {
             {[...Array(5)].map((_, i) => (
               <div
                 key={i}
-                className="bg-[#111118] border border-[#1e1e28] rounded-xl p-4 animate-pulse"
+                className="bg-[#111118] border border-[#2a2a3a] rounded-xl p-4 animate-pulse"
               >
-                <div className="h-4 bg-[#1e1e28] rounded w-3/4 mb-2" />
-                <div className="h-3 bg-[#1e1e28] rounded w-1/2" />
+                <div className="h-4 bg-[#2a2a3a] rounded w-3/4 mb-2" />
+                <div className="h-3 bg-[#2a2a3a] rounded w-1/2" />
               </div>
             ))}
           </div>
         ) : results.length === 0 ? (
-          <div className="bg-[#111118] border border-[#1e1e28] rounded-xl p-8 text-center">
-            <p className="text-[#7a7a8c]">
+          <div className="bg-[#111118] border border-[#2a2a3a] rounded-xl p-8 text-center">
+            <p className="text-[#aaaaaa]">
               &ldquo;{query}&rdquo; 관련 인사이트가 없습니다.
             </p>
           </div>
@@ -90,11 +90,11 @@ function SearchContent() {
               return (
                 <div
                   key={item.video_id}
-                  className="bg-[#111118] border border-[#1e1e28] rounded-xl p-4 hover:border-[#2a2a3e] transition-colors"
+                  className="bg-[#111118] border border-[#2a2a3a] rounded-xl p-4 hover:border-[#2a2a3e] transition-colors"
                 >
                   <div className="flex items-center gap-2 mb-2">
                     <SentimentDot sentiment={item.market_sentiment} />
-                    <span className="text-[10px] text-[#7a7a8c]">
+                    <span className="text-[10px] text-[#aaaaaa]">
                       {item.channel}
                     </span>
                     <span className="text-[10px] text-[#555]">
@@ -112,7 +112,7 @@ function SearchContent() {
                     {(item.key_stocks || []).map((s) => (
                       <span
                         key={s}
-                        className="text-[10px] px-2 py-0.5 rounded bg-[#2196f310] text-[#2196f3] border border-[#2196f330]"
+                        className="text-[10px] px-2 py-0.5 rounded bg-[#4d9fff10] text-[#4d9fff] border border-[#4d9fff30]"
                       >
                         {s}
                       </span>
@@ -152,7 +152,7 @@ export default function SearchPage() {
     <Suspense
       fallback={
         <div className="min-h-screen flex items-center justify-center">
-          <p className="text-[#7a7a8c]">로딩 중...</p>
+          <p className="text-[#aaaaaa]">로딩 중...</p>
         </div>
       }
     >

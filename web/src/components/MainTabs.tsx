@@ -43,12 +43,12 @@ function StockSearchPanel() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="종목명을 입력하세요 (예: 삼성전자)"
-            className="flex-1 px-4 py-2.5 text-sm bg-[#111118] border border-[#1e1e28] rounded-lg text-white placeholder-[#555568] focus:outline-none focus:border-[#f0a500] transition-colors"
+            className="flex-1 px-4 py-2.5 text-sm bg-[#111118] border border-[#2a2a3a] rounded-lg text-white placeholder-[#aaaaaa] focus:outline-none focus:border-[#ffd700] transition-colors"
           />
           <button
             type="submit"
             className="px-5 py-2.5 text-sm font-semibold rounded-lg transition-colors"
-            style={{ background: "#f0a500", color: "#0a0a12" }}
+            style={{ background: "#ffd700", color: "#0a0a12" }}
           >
             검색
           </button>
@@ -61,7 +61,7 @@ function StockSearchPanel() {
           <button
             key={name}
             onClick={() => handleSearch(name)}
-            className="px-3 py-1.5 text-[11px] rounded-full border border-[#1e1e28] text-[#8a8a9a] hover:border-[#f0a500] hover:text-[#f0a500] transition-colors"
+            className="px-3 py-1.5 text-[11px] rounded-full border border-[#2a2a3a] text-[#8a8a9a] hover:border-[#ffd700] hover:text-[#ffd700] transition-colors"
           >
             {name}
           </button>
@@ -72,7 +72,7 @@ function StockSearchPanel() {
       {query.trim() && (
         <button
           onClick={() => router.push(`/stock?ticker=${encodeURIComponent(query.trim())}`)}
-          className="w-full mb-4 py-3 text-sm font-semibold rounded-xl border border-[#2a2a3e] text-[#e8e8f0] hover:border-[#f0a500] hover:text-[#f0a500] transition-colors"
+          className="w-full mb-4 py-3 text-sm font-semibold rounded-xl border border-[#2a2a3e] text-[#ffffff] hover:border-[#ffd700] hover:text-[#ffd700] transition-colors"
           style={{ background: "#111118" }}
         >
           📊 &quot;{query.trim()}&quot; 차트 분석 보기 →
@@ -83,30 +83,30 @@ function StockSearchPanel() {
       {loading && (
         <div className="space-y-3">
           {[...Array(3)].map((_, i) => (
-            <div key={i} className="bg-[#111118] border border-[#1e1e28] rounded-xl p-4 animate-pulse">
-              <div className="h-4 bg-[#1e1e28] rounded w-3/4 mb-2" />
-              <div className="h-3 bg-[#1e1e28] rounded w-1/2" />
+            <div key={i} className="bg-[#111118] border border-[#2a2a3a] rounded-xl p-4 animate-pulse">
+              <div className="h-4 bg-[#2a2a3a] rounded w-3/4 mb-2" />
+              <div className="h-3 bg-[#2a2a3a] rounded w-1/2" />
             </div>
           ))}
         </div>
       )}
 
       {!loading && searched && results.length === 0 && (
-        <div className="bg-[#111118] border border-[#1e1e28] rounded-xl p-8 text-center">
-          <p className="text-sm text-[#555568]">&quot;{query}&quot; 관련 인사이트가 없습니다.</p>
+        <div className="bg-[#111118] border border-[#2a2a3a] rounded-xl p-8 text-center">
+          <p className="text-sm text-[#aaaaaa]">&quot;{query}&quot; 관련 인사이트가 없습니다.</p>
         </div>
       )}
 
       {!loading && results.length > 0 && (
         <div className="space-y-3">
-          <p className="text-xs text-[#555568] mb-2">{results.length}개 결과</p>
+          <p className="text-xs text-[#aaaaaa] mb-2">{results.length}개 결과</p>
           {results.map((item) => {
             const sentColor =
-              item.market_sentiment === "긍정" ? "#00c853" : item.market_sentiment === "부정" ? "#ff1744" : "#ffab00";
+              item.market_sentiment === "긍정" ? "#00ff88" : item.market_sentiment === "부정" ? "#ff4444" : "#ffd700";
             return (
               <div
                 key={item.video_id}
-                className="bg-[#111118] border border-[#1e1e28] rounded-xl overflow-hidden hover:border-[#2a2a3e] transition-colors"
+                className="bg-[#111118] border border-[#2a2a3a] rounded-xl overflow-hidden hover:border-[#2a2a3e] transition-colors"
               >
                 <div className="flex gap-3 p-3">
                   {/* 썸네일 */}
@@ -127,9 +127,9 @@ function StockSearchPanel() {
                       >
                         {item.market_sentiment}
                       </span>
-                      <span className="text-xs text-[#7a7a8c]">{item.channel}</span>
+                      <span className="text-xs text-[#aaaaaa]">{item.channel}</span>
                     </div>
-                    <h3 className="text-xs font-semibold text-[#e8e8f0] line-clamp-2 mb-1">
+                    <h3 className="text-xs font-semibold text-[#ffffff] line-clamp-2 mb-1">
                       {item.title}
                     </h3>
                     <p className="text-[11px] text-[#8a8a9a] line-clamp-1">{item.summary}</p>
@@ -138,7 +138,7 @@ function StockSearchPanel() {
                       {(item.key_stocks || []).slice(0, 5).map((s) => (
                         <span
                           key={s}
-                          className="text-[11px] px-1.5 py-0.5 rounded bg-[#2196f310] text-[#2196f3] border border-[#2196f330]"
+                          className="text-[11px] px-1.5 py-0.5 rounded bg-[#4d9fff10] text-[#4d9fff] border border-[#4d9fff30]"
                         >
                           {s}
                         </span>
@@ -156,31 +156,31 @@ function StockSearchPanel() {
 }
 
 export function MainTabs() {
-  const [tab, setTab] = useState<"insights" | "search">("insights");
+  const [tab, setTab] = useState<"insights" | "search">("search");
 
   return (
     <div>
       {/* 탭 버튼 */}
-      <div className="flex gap-1 mb-5 bg-[#111118] p-1 rounded-lg border border-[#1e1e28]">
-        <button
-          onClick={() => setTab("insights")}
-          className="flex-1 py-2 text-xs font-semibold rounded-md transition-colors"
-          style={{
-            background: tab === "insights" ? "#1e1e28" : "transparent",
-            color: tab === "insights" ? "#e8e8f0" : "#555568",
-          }}
-        >
-          최근 인사이트
-        </button>
+      <div className="flex gap-1 mb-5 bg-[#111118] p-1 rounded-lg border border-[#2a2a3a]">
         <button
           onClick={() => setTab("search")}
           className="flex-1 py-2 text-xs font-semibold rounded-md transition-colors"
           style={{
-            background: tab === "search" ? "#1e1e28" : "transparent",
-            color: tab === "search" ? "#e8e8f0" : "#555568",
+            background: tab === "search" ? "#2a2a3a" : "transparent",
+            color: tab === "search" ? "#ffffff" : "#aaaaaa",
           }}
         >
           종목 검색
+        </button>
+        <button
+          onClick={() => setTab("insights")}
+          className="flex-1 py-2 text-xs font-semibold rounded-md transition-colors"
+          style={{
+            background: tab === "insights" ? "#2a2a3a" : "transparent",
+            color: tab === "insights" ? "#ffffff" : "#aaaaaa",
+          }}
+        >
+          최근 인사이트
         </button>
       </div>
 

@@ -16,10 +16,10 @@ export function TopStocks() {
 
   if (loading) {
     return (
-      <div className="bg-[#111118] border border-[#1e1e28] rounded-xl p-6 animate-pulse">
-        <div className="h-4 bg-[#1e1e28] rounded w-1/2 mb-4" />
+      <div className="bg-[#111118] border border-[#2a2a3a] rounded-xl p-6 animate-pulse">
+        <div className="h-4 bg-[#2a2a3a] rounded w-1/2 mb-4" />
         {[...Array(5)].map((_, i) => (
-          <div key={i} className="h-6 bg-[#1e1e28] rounded mb-2" />
+          <div key={i} className="h-6 bg-[#2a2a3a] rounded mb-2" />
         ))}
       </div>
     );
@@ -28,8 +28,8 @@ export function TopStocks() {
   const maxCount = stocks[0]?.count || 1;
 
   return (
-    <div className="bg-[#111118] border border-[#1e1e28] rounded-xl p-6">
-      <h2 className="text-xs font-semibold text-[#7a7a8c] tracking-widest mb-4">
+    <div className="bg-[#111118] border border-[#2a2a3a] rounded-xl p-6">
+      <h2 className="text-xs font-semibold text-[#aaaaaa] tracking-widest mb-4">
         종목 언급 빈도 TOP 10
       </h2>
 
@@ -45,13 +45,13 @@ export function TopStocks() {
               <div className="flex-1">
                 <div className="flex justify-between items-center mb-1">
                   <span className="text-sm text-white">{stock.name}</span>
-                  <span className="text-xs text-[#7a7a8c]">
+                  <span className="text-xs text-[#aaaaaa]">
                     {stock.count}회
                   </span>
                 </div>
-                <div className="h-1 bg-[#1e1e28] rounded-full overflow-hidden">
+                <div className="h-1 bg-[#2a2a3a] rounded-full overflow-hidden">
                   <div
-                    className="h-full rounded-full bg-[#2196f3] transition-all duration-500"
+                    className="h-full rounded-full bg-[#4d9fff] transition-all duration-500"
                     style={{
                       width: `${(stock.count / maxCount) * 100}%`,
                     }}

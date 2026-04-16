@@ -286,11 +286,11 @@ function StockContent() {
   const judgeLabel =
     totalScore >= 4 ? "진입 추천" : totalScore >= 2.5 ? "대기" : "위험";
   const judgeColor =
-    totalScore >= 4 ? "#22c55e" : totalScore >= 2.5 ? "#f0a500" : "#ef4444";
+    totalScore >= 4 ? "#00ff88" : totalScore >= 2.5 ? "#ffd700" : "#ff4444";
   const judgeEmoji =
     totalScore >= 4 ? "🟢" : totalScore >= 2.5 ? "🟡" : "🔴";
 
-  const chgColor = change >= 0 ? "#ef4444" : "#3b82f6";
+  const chgColor = change >= 0 ? "#ff4444" : "#4d9fff";
   const chgArrow = change > 0 ? "▲" : change < 0 ? "▼" : "―";
   const chgSign = change >= 0 ? "+" : "";
 
@@ -299,13 +299,13 @@ function StockContent() {
       {/* ── 헤더 ── */}
       <header
         className="px-6 py-3"
-        style={{ borderBottom: "1px solid #1a1a2a" }}
+        style={{ borderBottom: "1px solid #2a2a3a" }}
       >
         <div className="max-w-[1400px] mx-auto flex items-center gap-4">
           <Link
             href="/"
             className="text-xs hover:opacity-80 transition-opacity"
-            style={{ color: "#6e6e82" }}
+            style={{ color: "#aaaaaa" }}
           >
             ← 대시보드
           </Link>
@@ -319,7 +319,7 @@ function StockContent() {
             className="rounded-2xl p-6 flex items-center justify-between flex-wrap gap-4"
             style={{
               background: "linear-gradient(135deg, #0f0f17 0%, #12121e 100%)",
-              border: "1px solid #1a1a2a",
+              border: "1px solid #2a2a3a",
             }}
           >
             <div>
@@ -327,7 +327,7 @@ function StockContent() {
                 <span
                   className="text-3xl font-black"
                   style={{
-                    color: "#e8e8f0",
+                    color: "#ffffff",
                     fontFamily: "'Noto Sans KR', sans-serif",
                     letterSpacing: "-1px",
                   }}
@@ -336,14 +336,14 @@ function StockContent() {
                 </span>
                 <span
                   className="text-sm font-medium"
-                  style={{ color: "#8a8a9a", fontFamily: "monospace" }}
+                  style={{ color: "#aaaaaa", fontFamily: "monospace" }}
                 >
                   {ticker}
                 </span>
               </div>
               <div
                 className="text-xs"
-                style={{ color: "#8a8a9a", letterSpacing: "1px" }}
+                style={{ color: "#aaaaaa", letterSpacing: "1px" }}
               >
                 {period.toUpperCase()} &middot; {quotes.length} trading days
               </div>
@@ -352,7 +352,7 @@ function StockContent() {
               <div
                 className="text-4xl font-bold"
                 style={{
-                  color: "#e8e8f0",
+                  color: "#ffffff",
                   fontFamily: "'JetBrains Mono', monospace",
                   letterSpacing: "-1px",
                 }}
@@ -360,7 +360,7 @@ function StockContent() {
                 {fmtKRW(latest.close)}
                 <span
                   className="text-sm font-normal ml-1"
-                  style={{ color: "#8a8a9a" }}
+                  style={{ color: "#aaaaaa" }}
                 >
                   원
                 </span>
@@ -381,17 +381,17 @@ function StockContent() {
         {loading && (
           <div
             className="rounded-xl p-16 text-center animate-pulse"
-            style={{ background: "#0f0f17", border: "1px solid #1a1a2a" }}
+            style={{ background: "#0f0f17", border: "1px solid #2a2a3a" }}
           >
-            <p style={{ color: "#6e6e82" }}>차트 로딩 중...</p>
+            <p style={{ color: "#aaaaaa" }}>차트 로딩 중...</p>
           </div>
         )}
         {error && (
           <div
             className="rounded-xl p-8 text-center"
-            style={{ background: "#0f0f17", border: "1px solid #ef444430" }}
+            style={{ background: "#0f0f17", border: "1px solid #ff444430" }}
           >
-            <p style={{ color: "#ef4444" }}>{error}</p>
+            <p style={{ color: "#ff4444" }}>{error}</p>
           </div>
         )}
 
@@ -407,13 +407,13 @@ function StockContent() {
             {/* ── 진입 신호 판단 (전체 너비) ── */}
             <div
               className="rounded-xl p-5"
-              style={{ background: "#0f0f17", border: "1px solid #1a1a2a" }}
+              style={{ background: "#0f0f17", border: "1px solid #2a2a3a" }}
             >
               <div className="flex items-center justify-between mb-4">
                 <span
                   className="text-xs font-semibold"
                   style={{
-                    color: "#8a8a9a",
+                    color: "#aaaaaa",
                     letterSpacing: "2px",
                   }}
                 >
@@ -434,7 +434,7 @@ function StockContent() {
               {/* 프로그레스 */}
               <div className="mb-4">
                 <div className="flex justify-between text-xs mb-1">
-                  <span style={{ color: "#8a8a9a" }}>조건 충족</span>
+                  <span style={{ color: "#aaaaaa" }}>조건 충족</span>
                   <span
                     className="font-semibold"
                     style={{
@@ -447,7 +447,7 @@ function StockContent() {
                 </div>
                 <div
                   className="h-1 rounded-full overflow-hidden"
-                  style={{ background: "#1a1a2a" }}
+                  style={{ background: "#2a2a3a" }}
                 >
                   <div
                     className="h-full rounded-full transition-all duration-500"
@@ -463,7 +463,7 @@ function StockContent() {
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
                 {entry.signals.map((s) => {
                   const icon = s.status === "pass" ? "✅" : s.status === "warn" ? "⚠️" : "❌";
-                  const borderColor = s.status === "pass" ? "#22c55e" : s.status === "warn" ? "#f0a500" : "#ef4444";
+                  const borderColor = s.status === "pass" ? "#00ff88" : s.status === "warn" ? "#ffd700" : "#ff4444";
                   const bgColor = s.status === "pass"
                     ? "rgba(34,197,94,0.06)"
                     : s.status === "warn"
@@ -482,13 +482,13 @@ function StockContent() {
                       <div className="min-w-0">
                         <div
                           className="text-xs font-semibold"
-                          style={{ color: "#e8e8f0" }}
+                          style={{ color: "#ffffff" }}
                         >
                           {s.label}
                         </div>
                         <div
                           className="text-xs"
-                          style={{ color: "#8a8a9a" }}
+                          style={{ color: "#aaaaaa" }}
                         >
                           {s.detail}
                         </div>
@@ -505,12 +505,12 @@ function StockContent() {
                 {/* 뉴스/공시 */}
                 <div
                   className="rounded-xl p-5"
-                  style={{ background: "#0f0f17", border: "1px solid #1a1a2a" }}
+                  style={{ background: "#0f0f17", border: "1px solid #2a2a3a" }}
                 >
                   <div className="flex items-center justify-between mb-4">
                     <span
                       className="text-xs font-semibold"
-                      style={{ color: "#8a8a9a", letterSpacing: "2px" }}
+                      style={{ color: "#aaaaaa", letterSpacing: "2px" }}
                     >
                       NEWS
                     </span>
@@ -518,7 +518,7 @@ function StockContent() {
                       const analysis = typeof newsData.analysis === "string"
                         ? JSON.parse(newsData.analysis) : newsData.analysis || {};
                       const sent = analysis.sentiment || "중립";
-                      const sentColor = sent === "호재" ? "#22c55e" : sent === "악재" ? "#ef4444" : "#f0a500";
+                      const sentColor = sent === "호재" ? "#00ff88" : sent === "악재" ? "#ff4444" : "#ffd700";
                       return (
                         <span
                           className="text-xs font-bold px-3 py-1 rounded-full"
@@ -535,7 +535,7 @@ function StockContent() {
                     const analysis = typeof newsData.analysis === "string"
                       ? JSON.parse(newsData.analysis) : newsData.analysis || {};
                     return analysis.summary ? (
-                      <p className="text-sm leading-relaxed mb-3" style={{ color: "#b0b0c0" }}>
+                      <p className="text-sm leading-relaxed mb-3" style={{ color: "#e0e0e0" }}>
                         {analysis.summary}
                       </p>
                     ) : null;
@@ -553,10 +553,10 @@ function StockContent() {
                         rel="noopener noreferrer"
                         className="block px-3 py-2 rounded-lg hover:bg-[#12121e] transition-colors"
                       >
-                        <div className="text-xs font-medium line-clamp-1" style={{ color: "#e8e8f0" }}>
+                        <div className="text-xs font-medium line-clamp-1" style={{ color: "#ffffff" }}>
                           {a.title}
                         </div>
-                        <div className="text-[11px] mt-0.5" style={{ color: "#555568" }}>
+                        <div className="text-xs mt-0.5" style={{ color: "#aaaaaa" }}>
                           {a.source} · {a.date}
                         </div>
                       </a>
@@ -567,11 +567,11 @@ function StockContent() {
                 {/* 외국인/기관 수급 */}
                 <div
                   className="rounded-xl p-5"
-                  style={{ background: "#0f0f17", border: "1px solid #1a1a2a" }}
+                  style={{ background: "#0f0f17", border: "1px solid #2a2a3a" }}
                 >
                   <span
                     className="text-xs font-semibold block mb-4"
-                    style={{ color: "#8a8a9a", letterSpacing: "2px" }}
+                    style={{ color: "#aaaaaa", letterSpacing: "2px" }}
                   >
                     INVESTOR FLOW
                   </span>
@@ -581,26 +581,26 @@ function StockContent() {
                       typeof newsData.investor_data === "string"
                         ? JSON.parse(newsData.investor_data) : newsData.investor_data || [];
                     if (investors.length === 0) return (
-                      <div className="text-center py-4 text-xs" style={{ color: "#8a8a9a" }}>수급 데이터 없음</div>
+                      <div className="text-center py-4 text-xs" style={{ color: "#aaaaaa" }}>수급 데이터 없음</div>
                     );
 
                     const foreign5 = investors.slice(0, 5).reduce((s, d) => s + d.foreign_net, 0);
                     const inst5 = investors.slice(0, 5).reduce((s, d) => s + d.institution_net, 0);
-                    const fColor = foreign5 >= 0 ? "#ef4444" : "#3b82f6";
-                    const iColor = inst5 >= 0 ? "#ef4444" : "#3b82f6";
+                    const fColor = foreign5 >= 0 ? "#ff4444" : "#3b82f6";
+                    const iColor = inst5 >= 0 ? "#ff4444" : "#3b82f6";
 
                     return (
                       <>
                         {/* 5일 합계 */}
                         <div className="grid grid-cols-2 gap-3 mb-4">
                           <div className="rounded-lg p-3 text-center" style={{ background: "#0a0a0f" }}>
-                            <div className="text-xs mb-1" style={{ color: "#8a8a9a" }}>외국인 5일</div>
+                            <div className="text-xs mb-1" style={{ color: "#aaaaaa" }}>외국인 5일</div>
                             <div className="text-sm font-bold" style={{ color: fColor, fontFamily: "monospace" }}>
                               {foreign5 >= 0 ? "+" : ""}{foreign5.toLocaleString("ko-KR")}
                             </div>
                           </div>
                           <div className="rounded-lg p-3 text-center" style={{ background: "#0a0a0f" }}>
-                            <div className="text-xs mb-1" style={{ color: "#8a8a9a" }}>기관 5일</div>
+                            <div className="text-xs mb-1" style={{ color: "#aaaaaa" }}>기관 5일</div>
                             <div className="text-sm font-bold" style={{ color: iColor, fontFamily: "monospace" }}>
                               {inst5 >= 0 ? "+" : ""}{inst5.toLocaleString("ko-KR")}
                             </div>
@@ -609,18 +609,18 @@ function StockContent() {
 
                         {/* 일별 테이블 */}
                         <div className="space-y-1">
-                          <div className="flex text-[11px] font-semibold px-2 py-1" style={{ color: "#555568" }}>
+                          <div className="flex text-xs font-semibold px-2 py-1" style={{ color: "#aaaaaa" }}>
                             <span className="w-20">날짜</span>
                             <span className="flex-1 text-right">외국인</span>
                             <span className="flex-1 text-right">기관</span>
                           </div>
                           {investors.slice(0, 7).map((d, i) => (
                             <div key={i} className="flex text-xs px-2 py-1.5 rounded" style={{ background: i % 2 === 0 ? "#0a0a0f" : "transparent" }}>
-                              <span className="w-20" style={{ color: "#8a8a9a" }}>{d.date}</span>
-                              <span className="flex-1 text-right font-medium" style={{ color: d.foreign_net >= 0 ? "#ef4444" : "#3b82f6", fontFamily: "monospace" }}>
+                              <span className="w-20" style={{ color: "#aaaaaa" }}>{d.date}</span>
+                              <span className="flex-1 text-right font-medium" style={{ color: d.foreign_net >= 0 ? "#ff4444" : "#3b82f6", fontFamily: "monospace" }}>
                                 {d.foreign_net >= 0 ? "+" : ""}{d.foreign_net.toLocaleString("ko-KR")}
                               </span>
-                              <span className="flex-1 text-right font-medium" style={{ color: d.institution_net >= 0 ? "#ef4444" : "#3b82f6", fontFamily: "monospace" }}>
+                              <span className="flex-1 text-right font-medium" style={{ color: d.institution_net >= 0 ? "#ff4444" : "#3b82f6", fontFamily: "monospace" }}>
                                 {d.institution_net >= 0 ? "+" : ""}{d.institution_net.toLocaleString("ko-KR")}
                               </span>
                             </div>
@@ -638,11 +638,11 @@ function StockContent() {
               {/* AI 예측 */}
               <div
                 className="rounded-xl p-5"
-                style={{ background: "#0f0f17", border: "1px solid #1a1a2a" }}
+                style={{ background: "#0f0f17", border: "1px solid #2a2a3a" }}
               >
                 <div
                   className="text-xs font-semibold mb-4"
-                  style={{ color: "#8a8a9a", letterSpacing: "2px" }}
+                  style={{ color: "#aaaaaa", letterSpacing: "2px" }}
                 >
                   AI PREDICTION
                 </div>
@@ -652,7 +652,7 @@ function StockContent() {
                     <div className="text-center mb-4">
                       <div
                         className="text-xs mb-1"
-                        style={{ color: "#8a8a9a", letterSpacing: "1px" }}
+                        style={{ color: "#aaaaaa", letterSpacing: "1px" }}
                       >
                         내일 상승 확률
                       </div>
@@ -662,16 +662,16 @@ function StockContent() {
                           fontFamily: "'JetBrains Mono', monospace",
                           color:
                             prediction.probability >= 0.55
-                              ? "#22c55e"
+                              ? "#00ff88"
                               : prediction.probability < 0.45
-                                ? "#ef4444"
-                                : "#f0a500",
+                                ? "#ff4444"
+                                : "#ffd700",
                         }}
                       >
                         {(prediction.probability * 100).toFixed(1)}
                         <span
                           className="text-lg"
-                          style={{ color: "#8a8a9a" }}
+                          style={{ color: "#aaaaaa" }}
                         >
                           %
                         </span>
@@ -679,13 +679,13 @@ function StockContent() {
                       {/* 바 */}
                       <div
                         className="h-1.5 rounded-full overflow-hidden mt-3 mx-auto"
-                        style={{ background: "#1a1a2a", maxWidth: "200px" }}
+                        style={{ background: "#2a2a3a", maxWidth: "200px" }}
                       >
                         <div
                           className="h-full rounded-full"
                           style={{
                             width: `${prediction.probability * 100}%`,
-                            background: `linear-gradient(90deg, #3b82f6, ${prediction.probability >= 0.55 ? "#22c55e" : prediction.probability < 0.45 ? "#ef4444" : "#f0a500"})`,
+                            background: `linear-gradient(90deg, #3b82f6, ${prediction.probability >= 0.55 ? "#00ff88" : prediction.probability < 0.45 ? "#ff4444" : "#ffd700"})`,
                           }}
                         />
                       </div>
@@ -698,7 +698,7 @@ function StockContent() {
                       >
                         <div
                           className="text-xs mb-1"
-                          style={{ color: "#8a8a9a" }}
+                          style={{ color: "#aaaaaa" }}
                         >
                           예상 등락
                         </div>
@@ -708,8 +708,8 @@ function StockContent() {
                             fontFamily: "monospace",
                             color:
                               prediction.probability >= 0.5
-                                ? "#22c55e"
-                                : "#ef4444",
+                                ? "#00ff88"
+                                : "#ff4444",
                           }}
                         >
                           {prediction.returnLo >= 0 ? "+" : ""}
@@ -724,13 +724,13 @@ function StockContent() {
                       >
                         <div
                           className="text-xs mb-1"
-                          style={{ color: "#8a8a9a" }}
+                          style={{ color: "#aaaaaa" }}
                         >
                           예상 종가
                         </div>
                         <div
                           className="text-sm font-semibold"
-                          style={{ fontFamily: "monospace", color: "#e8e8f0" }}
+                          style={{ fontFamily: "monospace", color: "#ffffff" }}
                         >
                           {fmtKRW(prediction.expectedLo)} ~{" "}
                           {fmtKRW(prediction.expectedHi)}
@@ -739,8 +739,8 @@ function StockContent() {
                     </div>
 
                     <div
-                      className="text-[11px] text-center mt-3"
-                      style={{ color: "#555568" }}
+                      className="text-xs text-center mt-3"
+                      style={{ color: "#aaaaaa" }}
                     >
                       Technical indicator-based estimation &middot; Not
                       financial advice
@@ -749,7 +749,7 @@ function StockContent() {
                 ) : (
                   <div
                     className="text-center py-4 text-xs"
-                    style={{ color: "#8a8a9a" }}
+                    style={{ color: "#aaaaaa" }}
                   >
                     데이터 부족 (60일 이상 필요)
                   </div>
@@ -759,11 +759,11 @@ function StockContent() {
               {/* 유튜브 인사이트 */}
               <div
                 className="rounded-xl p-5"
-                style={{ background: "#0f0f17", border: "1px solid #1a1a2a" }}
+                style={{ background: "#0f0f17", border: "1px solid #2a2a3a" }}
               >
                 <div
                   className="text-xs font-semibold mb-4"
-                  style={{ color: "#8a8a9a", letterSpacing: "2px" }}
+                  style={{ color: "#aaaaaa", letterSpacing: "2px" }}
                 >
                   YOUTUBE INSIGHTS
                 </div>
@@ -771,7 +771,7 @@ function StockContent() {
                 {insights.length === 0 ? (
                   <div
                     className="text-center py-4 text-xs"
-                    style={{ color: "#8a8a9a" }}
+                    style={{ color: "#aaaaaa" }}
                   >
                     관련 인사이트 없음
                   </div>
@@ -782,10 +782,10 @@ function StockContent() {
                       .map((item) => {
                         const sentColor =
                           item.market_sentiment === "긍정"
-                            ? "#22c55e"
+                            ? "#00ff88"
                             : item.market_sentiment === "부정"
-                              ? "#ef4444"
-                              : "#6e6e82";
+                              ? "#ff4444"
+                              : "#aaaaaa";
                         const typeColor =
                           item.trading_type === "단타"
                             ? "#f97316"
@@ -800,7 +800,7 @@ function StockContent() {
                             className="rounded-lg overflow-hidden transition-colors"
                             style={{
                               background: "#0a0a0f",
-                              border: isOpen ? "1px solid #1a1a2a" : "1px solid transparent",
+                              border: isOpen ? "1px solid #2a2a3a" : "1px solid transparent",
                             }}
                           >
                             {/* 헤더 - 클릭으로 접기/펼치기 */}
@@ -810,7 +810,7 @@ function StockContent() {
                             >
                               <div className="flex items-center gap-1.5 mb-1.5">
                                 <span
-                                  className="text-[11px] px-1.5 py-0.5 rounded"
+                                  className="text-xs px-1.5 py-0.5 rounded"
                                   style={{
                                     color: sentColor,
                                     background: `${sentColor}15`,
@@ -821,7 +821,7 @@ function StockContent() {
                                 </span>
                                 {item.trading_type && (
                                   <span
-                                    className="text-[11px] px-1.5 py-0.5 rounded"
+                                    className="text-xs px-1.5 py-0.5 rounded"
                                     style={{
                                       color: typeColor,
                                       background: `${typeColor}15`,
@@ -832,24 +832,24 @@ function StockContent() {
                                   </span>
                                 )}
                                 <span
-                                  className="text-[11px] ml-auto"
-                                  style={{ color: "#555568" }}
+                                  className="text-xs ml-auto"
+                                  style={{ color: "#aaaaaa" }}
                                 >
                                   {fmtDate(item.upload_date)}
                                 </span>
-                                <span className="text-xs ml-1" style={{ color: "#555568" }}>
+                                <span className="text-xs ml-1" style={{ color: "#aaaaaa" }}>
                                   {isOpen ? "▲" : "▼"}
                                 </span>
                               </div>
                               <div
                                 className="text-xs font-semibold line-clamp-2"
-                                style={{ color: "#e8e8f0" }}
+                                style={{ color: "#ffffff" }}
                               >
                                 {item.title}
                               </div>
                               <div
-                                className="text-[11px] mt-1"
-                                style={{ color: "#555568" }}
+                                className="text-xs mt-1"
+                                style={{ color: "#aaaaaa" }}
                               >
                                 {item.channel}
                               </div>
@@ -859,11 +859,11 @@ function StockContent() {
                             {isOpen && (
                               <div
                                 className="px-3 pb-3 pt-2 border-t"
-                                style={{ borderColor: "#1a1a2a" }}
+                                style={{ borderColor: "#2a2a3a" }}
                               >
                                 <p
                                   className="text-xs leading-relaxed mb-2"
-                                  style={{ color: "#b0b0c0" }}
+                                  style={{ color: "#e0e0e0" }}
                                 >
                                   {item.summary}
                                 </p>
@@ -887,9 +887,9 @@ function StockContent() {
                         onClick={() => setShowMore(true)}
                         className="w-full py-2 text-xs rounded-lg transition-colors"
                         style={{
-                          color: "#6e6e82",
+                          color: "#aaaaaa",
                           background: "#0a0a0f",
-                          border: "1px solid #1a1a2a",
+                          border: "1px solid #2a2a3a",
                         }}
                       >
                         더보기 ({insights.length - 3}건)
@@ -900,9 +900,9 @@ function StockContent() {
                         onClick={() => setShowMore(false)}
                         className="w-full py-2 text-xs rounded-lg transition-colors"
                         style={{
-                          color: "#6e6e82",
+                          color: "#aaaaaa",
                           background: "#0a0a0f",
-                          border: "1px solid #1a1a2a",
+                          border: "1px solid #2a2a3a",
                         }}
                       >
                         접기
@@ -924,7 +924,7 @@ export default function StockPage() {
     <Suspense
       fallback={
         <div className="min-h-screen flex items-center justify-center">
-          <p style={{ color: "#6e6e82" }}>로딩 중...</p>
+          <p style={{ color: "#aaaaaa" }}>로딩 중...</p>
         </div>
       }
     >

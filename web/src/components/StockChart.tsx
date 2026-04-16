@@ -155,7 +155,7 @@ export function StockChart({
       ctx.lineTo(W - pad.right, y);
       ctx.stroke();
       const price = maxP - (pRange / 4) * i;
-      ctx.fillStyle = "#8a8a9a";
+      ctx.fillStyle = "#aaaaaa";
       ctx.font = "10px monospace";
       ctx.textAlign = "right";
       ctx.fillText(fmtKRW(price), pad.left - 6, y + 4);
@@ -259,7 +259,7 @@ export function StockChart({
       ctx.moveTo(pad.left, y);
       ctx.lineTo(W - pad.right, y);
       ctx.stroke();
-      ctx.fillStyle = "#8a8a9a";
+      ctx.fillStyle = "#aaaaaa";
       ctx.font = "9px monospace";
       ctx.textAlign = "right";
       ctx.fillText(v.toString(), pad.left - 6, y + 3);
@@ -274,7 +274,7 @@ export function StockChart({
     ctx.fillRect(pad.left, y30, W - pad.left - pad.right, rsiTop + rsiH - y30);
 
     // RSI line
-    ctx.strokeStyle = "#f0a500";
+    ctx.strokeStyle = "#ffd700";
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     let rsiStarted = false;
@@ -299,7 +299,7 @@ export function StockChart({
     });
 
     // Labels
-    ctx.fillStyle = "#8a8a9a";
+    ctx.fillStyle = "#aaaaaa";
     ctx.font = "9px monospace";
     ctx.textAlign = "left";
     ctx.fillText("RSI", pad.left + 4, rsiTop + 10);
@@ -352,7 +352,7 @@ export function StockChart({
   return (
     <div
       className="rounded-xl p-5"
-      style={{ background: "#0f0f17", border: "1px solid #1a1a2a" }}
+      style={{ background: "#0f0f17", border: "1px solid #2a2a3a" }}
     >
       {/* 기간 + BB 토글 */}
       <div className="flex items-center justify-between mb-3">
@@ -363,8 +363,8 @@ export function StockChart({
               onClick={() => onPeriodChange(p)}
               className="px-3 py-1 text-[11px] rounded-full border transition-colors"
               style={{
-                borderColor: period === p ? "#f0a500" : "#1a1a2a",
-                color: period === p ? "#f0a500" : "#6e6e82",
+                borderColor: period === p ? "#ffd700" : "#2a2a3a",
+                color: period === p ? "#ffd700" : "#aaaaaa",
                 background: period === p ? "rgba(240,165,0,0.08)" : "transparent",
               }}
             >
@@ -376,8 +376,8 @@ export function StockChart({
           onClick={() => setShowBB(!showBB)}
           className="px-3 py-1 text-[11px] rounded-full border transition-colors"
           style={{
-            borderColor: showBB ? "#a855f7" : "#1a1a2a",
-            color: showBB ? "#a855f7" : "#6e6e82",
+            borderColor: showBB ? "#a855f7" : "#2a2a3a",
+            color: showBB ? "#a855f7" : "#aaaaaa",
             background: showBB ? "rgba(168,85,247,0.08)" : "transparent",
           }}
         >
@@ -390,9 +390,9 @@ export function StockChart({
         {hovered && (
           <div
             className="flex gap-3 text-[10px]"
-            style={{ fontFamily: "monospace", color: "#6e6e82" }}
+            style={{ fontFamily: "monospace", color: "#aaaaaa" }}
           >
-            <span style={{ color: "#f0a500" }}>{hovered.date}</span>
+            <span style={{ color: "#ffd700" }}>{hovered.date}</span>
             <span>
               O {fmtKRW(hovered.open)} H {fmtKRW(hovered.high)} L{" "}
               {fmtKRW(hovered.low)} C {fmtKRW(hovered.close)}

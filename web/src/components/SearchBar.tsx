@@ -32,7 +32,7 @@ export function SearchBar() {
             onClick={() =>
               router.push(`/stock?ticker=${encodeURIComponent(ticker)}`)
             }
-            className="px-3 py-1.5 text-xs rounded-full border border-[#2a2a3e] text-[#7a7a8c] hover:border-[#f0a500] hover:text-[#f0a500] transition-colors"
+            className="px-3 py-1.5 text-xs rounded-full border border-[#2a2a3e] text-[#aaaaaa] hover:border-[#ffd700] hover:text-[#ffd700] transition-colors"
           >
             {name}
           </button>
@@ -46,7 +46,7 @@ export function SearchBar() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="종목명 검색..."
-          className="w-48 px-4 py-2 text-sm bg-[#111118] border border-[#2a2a3e] rounded-lg text-white placeholder-[#555] focus:outline-none focus:border-[#f0a500] transition-colors"
+          className="w-48 px-4 py-2 text-sm bg-[#111118] border border-[#2a2a3e] rounded-lg text-white placeholder-[#555] focus:outline-none focus:border-[#ffd700] transition-colors"
         />
       </form>
     </div>
