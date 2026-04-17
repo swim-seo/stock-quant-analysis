@@ -25,6 +25,43 @@
   수집 (뉴스/유튜브/수급) → Supabase 저장 → Claude 분석 → 웹 표시
   yfinance (시장데이터) → 기술지표 계산 → ML 예측 → 웹 표시
 
+  [시스템 연결 구조]
+
+  ┌─────────────────────────────────────────────────────────────┐
+  │                  데이터 수집 (Python)                        │
+  │  youtube_collector.py ──┐                                   │
+  │  news_collector.py ─────┤  Railway Cron (자동)               │
+  │  railway_job.py ────────┤  or 로컬 수동 실행                  │
+  │  morning_briefing.py ───┘                                   │
+  └──────────────┬──────────────────────────────┬───────────────┘
+                 │ Claude API 분석              │ 저장
+                 │ (claude-sonnet-4-6)          │
+                 ▼                              ▼
+  ┌──────────────────────┐    ┌─────────────────────────────────┐
+  │   Claude API         │    │   Supabase (PostgreSQL)          │
+  │   - 영상 요약         │    │   - youtube_insights 테이블       │
+  │   - 감성 분석         │    │   - stock_news 테이블             │
+  │   - 종목/섹터 추출     │    │   - morning_briefing 테이블       │
+  │   - 투자 시그널       │    │                                  │
+  └──────────────────────┘    └──────────────┬──────────────────┘
+                                             │ API 호출
+                                             ▼
+                              ┌─────────────────────────────────┐
+                              │   Next.js 웹 (Vercel 배포)       │
+                              │   - src/lib/supabase.ts         │
+                              │     → Supabase에서 데이터 조회    │
+                              │   - src/app/api/                │
+                              │     → 주가(yfinance), 공포탐욕    │
+                              │   - src/components/             │
+                              │     → UI 렌더링                  │
+                              └─────────────────────────────────┘
+
+  역할 요약:
+  - DB:        Supabase (PostgreSQL) - 클라우드
+  - 분석:      Claude API + Python (yfinance, ML) - Railway(자동) / 로컬(수동)
+  - 인터페이스: Next.js + Vercel - 클라우드
+  - 연결:      Supabase가 중간 허브 — Python이 쓰고, Next.js가 읽음
+
   [자동 스케줄 (Railway Cron)]
   cron: 0 22,7 * * 1-5 (UTC) = 월~금 07:00/16:00 KST
 
