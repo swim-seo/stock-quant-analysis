@@ -73,6 +73,41 @@ PLAYLISTS = {
     },
 }
 
+# 채널 전체 영상 기반 수집 설정 (과거 데이터 수집용)
+CHANNELS = {
+    "삼프로TV": {
+        "url": "https://www.youtube.com/@3protv/videos",
+        "trading_focus": "both",
+    },
+    "슈카월드": {
+        "url": "https://www.youtube.com/@syukaworld/videos",
+        "trading_focus": "both",
+    },
+    "소수몽키": {
+        "url": "https://www.youtube.com/@sosumonkey/videos",
+        "trading_focus": "both",
+    },
+    "머니투데이": {
+        "url": "https://www.youtube.com/@moneytoday/videos",
+        "trading_focus": "both",
+    },
+}
+
+# 주식 관련 영상 필터링 키워드 (제목 1차 필터)
+STOCK_KEYWORDS = [
+    "주식", "코스피", "코스닥", "종목", "매수", "매도", "반도체", "바이오",
+    "2차전지", "배터리", "삼성전자", "SK하이닉스", "현대차", "기아", "NAVER", "카카오",
+    "셀트리온", "에코프로", "LG", "포스코", "증시", "시장", "급등", "급락",
+    "상한가", "하한가", "수급", "외국인", "기관", "개인", "공매도", "테마주",
+    "섹터", "업종", "지수", "선물", "옵션", "차트", "기술적", "이평선",
+    "지지", "저항", "추세", "돌파", "실적", "배당", "PER", "PBR",
+    "시총", "거래량", "투자", "트레이딩", "스윙", "단타", "장기투자",
+    "ETF", "펀드", "금리", "환율", "달러", "원화", "무역", "관세",
+    "AI", "HBM", "GPU", "전력", "조선", "방산", "원전", "로봇",
+    "자율주행", "전기차", "수소", "신재생", "헬스케어", "제약",
+    "금융", "은행", "보험", "증권", "리포트", "전망", "분석",
+]
+
 # 저장 경로
 DATA_DIR = Path("youtube_data")
 INSIGHTS_DIR = Path("youtube_insights")
@@ -80,6 +115,58 @@ DATA_DIR.mkdir(exist_ok=True)
 INSIGHTS_DIR.mkdir(exist_ok=True)
 
 MAX_VIDEOS_PER_PLAYLIST = 3
+
+
+def is_stock_related(title: str) -> bool:
+    """제목 기반 1차 필터: 주식/투자 관련 영상인지 판별"""
+    title_lower = title.lower()
+    return any(kw in title_lower for kw in STOCK_KEYWORDS)
+
+
+def get_channel_videos(channel_url: str, max_days: int = 180, max_videos: int = 500, stock_filter: bool = True) -> list:
+    """채널 전체 영상에서 기간 내 영상 가져오기 (과거 데이터 수집용)"""
+    ydl_opts = {
+        "quiet": True,
+        "extract_flat": True,
+        "playlist_items": f"1:{max_videos}",
+        "extractor_args": {"youtube": {"lang": ["ko"]}},
+    }
+    cutoff = datetime.now() - timedelta(days=max_days)
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(channel_url, download=False)
+        videos = []
+        skipped_non_stock = 0
+        for entry in info.get("entries", []):
+            if not entry:
+                continue
+            title = entry.get("title", "")
+            upload_date = entry.get("upload_date")
+
+            # 날짜 필터
+            if upload_date:
+                try:
+                    dt = datetime.strptime(upload_date, "%Y%m%d")
+                    if dt < cutoff:
+                        continue
+                except ValueError:
+                    pass
+
+            # 주식 관련 1차 필터
+            if stock_filter and not is_stock_related(title):
+                skipped_non_stock += 1
+                continue
+
+            videos.append({
+                "id": entry.get("id"),
+                "title": title,
+                "url": f"https://www.youtube.com/watch?v={entry.get('id')}",
+                "upload_date": upload_date,
+            })
+
+        if skipped_non_stock > 0:
+            print(f"  주식 무관 영상 {skipped_non_stock}건 필터링됨")
+        return videos
 
 
 def get_playlist_videos(playlist_url: str, max_days: int = 2, max_videos: int = MAX_VIDEOS_PER_PLAYLIST) -> list:
@@ -629,20 +716,106 @@ def collect_all():
 
 
 def collect_historical(days: int = 7):
-    """과거 N일치 영상 일괄 수집"""
+    """과거 N일치 영상 일괄 수집 (플레이리스트만)"""
     print(f"\n{'='*50}")
-    print(f"  과거 {days}일치 영상 일괄 수집")
+    print(f"  과거 {days}일치 영상 일괄 수집 (플레이리스트)")
     print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"{'='*50}")
 
     total = 0
     for name, config in PLAYLISTS.items():
-        # 과거 수집은 max_videos 제한 없이 (최대 30개까지 스캔)
         processed = process_playlist(name, config, max_days=days, max_videos=30)
         total += processed
 
     print(f"\n과거 수집 완료: 총 {total}개 영상 처리")
     _print_sentiment()
+
+
+def collect_backfill(days: int = 180, max_videos: int = 500, channels: list = None):
+    """과거 데이터 대량 수집 (채널 전체 영상 스캔, 주식 관련만 필터링)
+
+    Args:
+        days: 수집할 과거 일수 (기본: 180 = 6개월)
+        max_videos: 채널당 최대 스캔 영상 수 (기본: 500)
+        channels: 수집할 채널 이름 리스트 (None이면 전체)
+    """
+    print(f"\n{'='*60}")
+    print(f"  과거 {days}일 데이터 대량 수집 (backfill)")
+    print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"  대상: {', '.join(channels) if channels else '전체 채널'}")
+    print(f"{'='*60}")
+
+    # 1단계: 플레이리스트 수집
+    print(f"\n--- 플레이리스트 수집 ---")
+    total = 0
+    for name, config in PLAYLISTS.items():
+        processed = process_playlist(name, config, max_days=days, max_videos=50)
+        total += processed
+
+    # 2단계: 채널 전체 영상 수집
+    print(f"\n--- 채널 전체 영상 수집 (주식 관련만) ---")
+    target_channels = {k: v for k, v in CHANNELS.items() if not channels or k in channels}
+
+    for ch_name, ch_config in target_channels.items():
+        print(f"\n[{ch_name}] 과거 {days}일 영상 스캔 중...")
+        try:
+            videos = get_channel_videos(
+                ch_config["url"],
+                max_days=days,
+                max_videos=max_videos,
+                stock_filter=True,
+            )
+        except Exception as e:
+            print(f"  채널 로딩 실패: {e}")
+            continue
+
+        already = sum(1 for v in videos if is_already_processed(v["id"]))
+        new_videos = [v for v in videos if not is_already_processed(v["id"])]
+        print(f"  주식 관련 영상 {len(videos)}건 (이미 처리: {already}건, 신규: {len(new_videos)}건)")
+
+        for i, video in enumerate(new_videos):
+            if process_video(video, ch_name, ch_name, ch_config.get("trading_focus", "both")):
+                total += 1
+            if i < len(new_videos) - 1:
+                time.sleep(REQUEST_DELAY)
+
+    print(f"\n{'='*60}")
+    print(f"  backfill 완료: 총 {total}개 영상 처리")
+    print(f"{'='*60}")
+    _print_sentiment()
+
+
+def scan_channels(days: int = 180, max_videos: int = 500):
+    """채널별 수집 가능 영상 수 미리보기 (실제 수집 없이 확인만)"""
+    print(f"\n{'='*60}")
+    print(f"  채널별 수집 가능 영상 스캔 (과거 {days}일)")
+    print(f"{'='*60}")
+
+    grand_total = 0
+    grand_new = 0
+    for ch_name, ch_config in CHANNELS.items():
+        print(f"\n[{ch_name}] 스캔 중...")
+        try:
+            videos = get_channel_videos(
+                ch_config["url"],
+                max_days=days,
+                max_videos=max_videos,
+                stock_filter=True,
+            )
+            already = sum(1 for v in videos if is_already_processed(v["id"]))
+            new_count = len(videos) - already
+            grand_total += len(videos)
+            grand_new += new_count
+            print(f"  주식 관련: {len(videos)}건 | 이미 처리: {already}건 | 신규: {new_count}건")
+            if videos:
+                print(f"  최근: {videos[0]['title'][:50]}")
+                print(f"  최과거: {videos[-1]['title'][:50]}")
+        except Exception as e:
+            print(f"  에러: {e}")
+
+    print(f"\n{'='*60}")
+    print(f"  합계: 주식 관련 {grand_total}건 | 신규 수집 대상: {grand_new}건")
+    print(f"{'='*60}")
 
 
 def retry_failed():
@@ -738,6 +911,16 @@ if __name__ == "__main__":
     hist_parser = subparsers.add_parser("historical", help="과거 N일치 영상 일괄 수집")
     hist_parser.add_argument("--days", type=int, default=7, help="수집할 과거 일수 (기본: 7)")
 
+    # backfill (과거 대량 수집)
+    bf_parser = subparsers.add_parser("backfill", help="과거 데이터 대량 수집 (채널 전체 스캔, 주식 관련만)")
+    bf_parser.add_argument("--days", type=int, default=180, help="수집할 과거 일수 (기본: 180)")
+    bf_parser.add_argument("--max-videos", type=int, default=500, help="채널당 최대 스캔 수 (기본: 500)")
+    bf_parser.add_argument("--channels", nargs="*", help="수집할 채널 (예: 삼프로TV 슈카월드)")
+
+    # scan (수집 전 미리보기)
+    scan_parser = subparsers.add_parser("scan", help="채널별 수집 가능 영상 수 미리보기")
+    scan_parser.add_argument("--days", type=int, default=180, help="스캔할 과거 일수 (기본: 180)")
+
     # search
     search_parser = subparsers.add_parser("search", help="종목 검색")
     search_parser.add_argument("stock", nargs="?", default="삼성전자", help="검색할 종목명")
@@ -755,6 +938,10 @@ if __name__ == "__main__":
         start_scheduler()
     elif args.command == "historical":
         collect_historical(days=args.days)
+    elif args.command == "backfill":
+        collect_backfill(days=args.days, max_videos=args.max_videos, channels=args.channels)
+    elif args.command == "scan":
+        scan_channels(days=args.days)
     elif args.command == "retry":
         retry_failed()
     elif args.command == "morning":

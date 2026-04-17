@@ -1,6 +1,6 @@
 ================================================================================
   한국 주식 AI 분석 시스템 - 기술 분석 상세 문서
-  최종 업데이트: 2026-04-16
+  최종 업데이트: 2026-04-17
 ================================================================================
 
 
@@ -13,12 +13,13 @@
 
   [기술 스택]
   - Frontend: Next.js 16 + TypeScript + Tailwind CSS (Vercel 배포)
-  - Backend: Python (Streamlit, yfinance, XGBoost, LightGBM)
+  - Backend: Python (yfinance, XGBoost, LightGBM)
   - Database: Supabase (PostgreSQL)
   - Vector DB: ChromaDB + KR-SBERT
   - AI: Claude API (claude-sonnet-4-6)
   - 자동화: Railway Cron (월~금 07:00/16:00 KST)
   - 배포: Vercel (웹) + Railway (수집기)
+  - 참고: 기존 Streamlit UI는 _legacy/로 이관, Vercel로 완전 전환
 
   [데이터 흐름]
   수집 (뉴스/유튜브/수급) → Supabase 저장 → Claude 분석 → 웹 표시
@@ -397,21 +398,41 @@
 11. 유튜브 인사이트 수집 시스템
 ================================================================================
 
-  [수집 대상]
+  [수집 대상 - 재생목록 (일일 자동 수집)]
   - 한국경제TV: 마켓브리핑 (오전), 성공투자오후증시 (오후)
   - 매일경제TV: 투자의눈 (오전), 조선일의K1레이스 (오전)
 
+  [수집 대상 - 채널 전체 (과거 데이터 backfill용)]
+  - 삼프로TV (@3protv): 경제/투자 전반 (~370건/1년, 주식 관련 필터 후)
+  - 소수몽키 (@sosumonkey): 미국/한국 주식 (~288건/1년)
+  - 머니투데이 (@moneytoday): 시장 분석 (~93건/1년)
+  - 슈카월드 (@syukaworld): 경제/시사 (~91건/1년)
+
+  [주식 관련 영상 필터링 (전처리)]
+  슈카월드, 삼프로TV 등은 주식 외 콘텐츠도 많으므로 2단계 필터링:
+  1차: 제목 키워드 필터 (70개+ 키워드: 주식, 코스피, 반도체, 매수 등)
+      → 비관련 영상 사전 제거 (슈카월드 기준 ~82% 필터링)
+  2차: Claude API 분석 시 투자 관련 내용 자동 판별
+
+  [과거 데이터 수집 (backfill)]
+  명령어: python youtube_collector.py backfill --days 365
+  - 4개 채널에서 1년치 영상 스캔
+  - 주식 관련 영상만 필터링 후 수집
+  - 총 ~842건 수집 대상 (API 비용 ~$28)
+  - scan 명령어로 수집 전 건수 미리 확인 가능
+
   [수집 파이프라인]
-  1) yt-dlp로 재생목록에서 최근 2일 영상 가져오기
-  2) 자막 다운로드 (yt-dlp → youtube_transcript_api 폴백)
-  3) Claude API (claude-sonnet-4-6)로 분석:
+  1) yt-dlp로 재생목록/채널에서 영상 가져오기
+  2) 주식 관련 영상 1차 필터링 (제목 키워드)
+  3) 자막 다운로드 (yt-dlp → youtube_transcript_api 폴백)
+  4) Claude API (claude-sonnet-4-6)로 분석:
      - 3줄 요약
      - 시장 감성 (긍정/중립/부정)
      - 언급 종목, 섹터
      - 투자 신호, 리스크 요인
      - 매매 유형 (단타/스윙/장기)
      - 시급성 (오늘/이번주/장기)
-  4) Supabase 저장
+  5) Supabase + ChromaDB 저장
 
   [검색 방식: Hybrid RAG]
   - 벡터 검색: ChromaDB + KR-SBERT 임베딩
@@ -421,6 +442,11 @@
   [웹 표시]
   - 대시보드: 카드형 그리드 (썸네일 + 제목, 클릭 시 요약 펼침)
   - 종목 페이지: 해당 종목 관련 인사이트 3개 (접기/펼치기)
+  - 검색 결과: 종목명 검색 → 관련 영상 카드 목록
+    · 색깔 점(🟢🟡🔴)으로 시장 전망 한눈에 파악
+    · 매매유형(단타/스윙/장기)으로 투자 스타일 매칭
+    · 함께 언급된 종목 태그로 섹터 흐름 파악
+    · 투자 시그널로 실제 액션 판단
 
 
 12. 섹터별 심리 지수
@@ -433,7 +459,22 @@
   - 평균 점수: 긍정=+1, 중립=0, 부정=-1
   - 점수 > 0.2 → "긍정", < -0.2 → "부정", 그 외 → "중립"
 
-  [주요 섹터]
+  [종목 섹터 분류 (stocks.ts)]
+  - 반도체: 삼성전자, SK하이닉스, 한미반도체, 삼성전기
+  - 2차전지/에너지: LG에너지솔루션, LG화학, 삼성SDI, SK이노베이션,
+                   포스코퓨처엠, 에코프로비엠, 에코프로
+  - 바이오: 삼성바이오로직스, 셀트리온, 알테오젠
+  - 자동차: 현대차, 기아, 현대모비스
+  - IT/플랫폼: NAVER, 카카오, KT, SK텔레콤
+  - 금융: 신한지주, KB금융, 하나금융지주, 우리금융지주, 삼성생명
+  - 소재/산업재: LG, SK, 삼성물산, LG전자, 고려아연, HMM, 한국조선해양
+
+  활용 가능 API:
+  - STOCKS_BY_SECTOR["반도체"] → 해당 섹터 종목 리스트
+  - TICKER_TO_SECTOR["005930.KS"] → "반도체"
+  - SECTORS → 전체 섹터 목록
+
+  [유튜브 기반 섹터 심리]
   반도체, 에너지, 바이오, 방산, AI, 원전, 2차전지, 조선,
   자동차, 금융, LNG, 건설 등
 
@@ -477,7 +518,7 @@
 ================================================================================
 
   stock_analysis/
-  ├── web/                          # Next.js 웹 프론트엔드
+  ├── web/                          # Next.js 웹 프론트엔드 (Vercel 배포)
   │   ├── src/app/
   │   │   ├── page.tsx              # 대시보드 메인
   │   │   ├── stock/page.tsx        # 종목 분석 페이지
@@ -497,23 +538,24 @@
   │   │   └── SearchBar.tsx         # 종목 검색
   │   └── src/lib/
   │       ├── api.ts                # Supabase API 함수
-  │       ├── stocks.ts             # 종목코드 매핑
+  │       ├── stocks.ts             # 종목코드 + 섹터 매핑
   │       ├── types.ts              # TypeScript 타입
   │       └── supabase.ts           # Supabase 클라이언트
   │
-  ├── app.py                        # Streamlit 메인 앱
   ├── data_collector.py             # 주가 데이터 수집 (yfinance)
   ├── indicators.py                 # 기술 지표 계산 (12종)
   ├── multi_timeframe.py            # 다중 시간프레임 분석
   ├── ml_model.py                   # XGBoost+LightGBM 앙상블 모델
   ├── backtester.py                 # 백테스트 (슬리피지+수수료)
   ├── backtest_multi.py             # 다종목 백테스트 (20개)
-  │
-  ├── youtube_collector.py          # 유튜브 수집 (로컬용)
-  ├── news_collector.py             # 뉴스/수급 수집 (로컬용)
-  ├── morning_briefing.py           # 아침 브리핑 생성 (로컬용)
+  ├── factor_analysis.py            # 팩터 분석/스크리닝
+  ├── fear_greed.py                 # 공포탐욕 지수 (원본)
   ├── fear_greed_korea.py           # 한국판 공포탐욕 지수
-  ├── fix_titles.py                 # Supabase 영어 제목 → 한국어 수정
+  ├── morning_briefing.py           # 아침 브리핑 생성 (로컬용)
+  │
+  ├── youtube_collector.py          # 유튜브 수집 (로컬용, 6개 채널)
+  ├── news_collector.py             # 뉴스/수급 수집 (로컬용)
+  ├── upload_to_supabase.py         # Supabase 업로드
   │
   ├── railway_collector.py          # Railway용 유튜브 수집기
   ├── railway_job.py                # Railway 통합 수집기 (뉴스+유튜브+브리핑)
@@ -521,5 +563,28 @@
   ├── Dockerfile                    # Railway Docker 빌드
   ├── requirements-railway.txt      # Railway 의존성
   │
+  ├── _legacy/                      # Streamlit UI (Vercel 전환으로 이관)
+  │   └── app.py                    # 구 Streamlit 메인 앱
+  │
+  ├── youtube_data/                 # 유튜브 자막 원본 (.txt)
+  ├── youtube_insights/             # Claude 분석 결과 (.json)
+  │
   ├── README.md                     # 프로젝트 소개
   └── ANALYSIS_DETAIL.txt           # 이 문서
+
+
+15. CLI 명령어 모음
+================================================================================
+
+  [유튜브 수집기 (youtube_collector.py)]
+  python youtube_collector.py                # 전체 플레이리스트 1회 수집
+  python youtube_collector.py schedule       # 스케줄러 (08:00/16:00 자동)
+  python youtube_collector.py morning        # 오전 수집만
+  python youtube_collector.py afternoon      # 오후 수집만
+  python youtube_collector.py historical --days 7   # 과거 7일치 수집
+  python youtube_collector.py scan --days 180       # 6개월 수집 가능 건수 미리보기
+  python youtube_collector.py scan --days 365       # 1년 미리보기
+  python youtube_collector.py backfill --days 365   # 1년치 과거 대량 수집
+  python youtube_collector.py backfill --channels 삼프로TV 슈카월드  # 특정 채널만
+  python youtube_collector.py search 삼성전자        # 종목 검색
+  python youtube_collector.py retry                 # 실패 영상 재수집
