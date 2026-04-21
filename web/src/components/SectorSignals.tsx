@@ -2,147 +2,236 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import type { SectorSignal } from "@/app/api/sector-signals/route";
-import { NAME_TO_TICKER } from "@/lib/stocks";
+import type { SectorFearGreed } from "@/app/api/sector-signals/route";
 
-function SignalBadge({ signal }: { signal: SectorSignal["signal"] }) {
-  const cfg = {
-    매수관심: { bg: "#00ff8820", text: "#00ff88", border: "#00ff8840" },
-    관찰: { bg: "#ffd70020", text: "#ffd700", border: "#ffd70040" },
-    중립: { bg: "#44444420", text: "#888", border: "#44444440" },
-  }[signal];
-  return (
-    <span
-      className="text-[11px] font-bold px-2 py-0.5 rounded-full border"
-      style={{ background: cfg.bg, color: cfg.text, borderColor: cfg.border }}
-    >
-      {signal === "매수관심" ? "🟢 " : signal === "관찰" ? "🟡 " : "⚪ "}
-      {signal}
-    </span>
-  );
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function scoreColor(score: number): string {
+  if (score >= 80) return "#ff4d4d";
+  if (score >= 60) return "#ff9944";
+  if (score >= 40) return "#ffd700";
+  if (score >= 20) return "#66aaff";
+  return "#4488ff";
 }
 
-function ScoreBar({ value, max, color }: { value: number; max: number; color: string }) {
+function labelColor(label: string): string {
+  const map: Record<string, string> = {
+    "극도의 탐욕": "#ff4d4d",
+    "탐욕": "#ff9944",
+    "중립": "#ffd700",
+    "공포": "#66aaff",
+    "극도의 공포": "#4488ff",
+  };
+  return map[label] ?? "#888";
+}
+
+function formatFlow(n: number): string {
+  const abs = Math.abs(n);
+  const sign = n >= 0 ? "+" : "-";
+  if (abs >= 100_000_000) return `${sign}${(abs / 100_000_000).toFixed(1)}억`;
+  if (abs >= 1_000_000) return `${sign}${(abs / 1_000_000).toFixed(0)}백만`;
+  return `${sign}${abs.toLocaleString()}`;
+}
+
+// ── Gauge bar (horizontal gradient with pointer) ───────────────────────────────
+
+function GaugeBar({ score }: { score: number }) {
+  const pct = Math.max(0, Math.min(100, score));
   return (
-    <div className="flex-1 h-1.5 bg-[#1a1a2a] rounded-full overflow-hidden">
+    <div className="relative w-full">
+      {/* gradient track */}
       <div
-        className="h-full rounded-full transition-all"
-        style={{ width: `${Math.max(0, (value / max) * 100)}%`, background: color, opacity: 0.8 }}
+        className="h-2 rounded-full w-full"
+        style={{
+          background: "linear-gradient(to right, #4488ff, #66aaff 25%, #ffd700 50%, #ff9944 75%, #ff4d4d)",
+        }}
+      />
+      {/* pointer */}
+      <div
+        className="absolute -top-0.5 w-3 h-3 rounded-full border-2 border-white shadow-md"
+        style={{
+          left: `calc(${pct}% - 6px)`,
+          background: scoreColor(score),
+          boxShadow: `0 0 6px ${scoreColor(score)}`,
+        }}
       />
     </div>
   );
 }
 
+// ── Component bar ─────────────────────────────────────────────────────────────
+
+function CompRow({
+  icon, name, score, label, detail,
+}: {
+  icon: string; name: string; score: number; label: string; detail: string;
+}) {
+  const pct = (score / 20) * 100;
+  const color = scoreColor(score * 5); // scale 0-20 to 0-100
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-0.5">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[11px]">{icon}</span>
+          <span className="text-[11px] text-[#aaa]">{name}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px]" style={{ color }}>{label}</span>
+          <span className="text-[10px] text-[#555]">{detail}</span>
+          <span className="text-[11px] font-bold w-8 text-right" style={{ color }}>
+            {score.toFixed(0)}/20
+          </span>
+        </div>
+      </div>
+      <div className="h-1 bg-[#1a1a2a] rounded-full overflow-hidden mb-2">
+        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: color, opacity: 0.7 }} />
+      </div>
+    </div>
+  );
+}
+
+// ── Stock chip ────────────────────────────────────────────────────────────────
+
+function StockChip({ name, ticker, changePct, rsi }: { name: string; ticker: string; changePct: number; rsi: number }) {
+  const changeColor = changePct > 0 ? "#ff4444" : changePct < 0 ? "#4488ff" : "#888";
+  const rsiColor = rsi >= 70 ? "#ff4444" : rsi <= 30 ? "#4488ff" : "#888";
+  return (
+    <Link
+      href={`/stock?ticker=${ticker}`}
+      className="flex flex-col items-center px-2.5 py-1.5 rounded-lg border border-[#2a2a3a] hover:border-[#ffd70040] hover:bg-[#1a1a2a] transition-colors min-w-[60px]"
+    >
+      <span className="text-[10px] font-semibold text-white leading-tight">{name}</span>
+      <span className="text-[10px] font-bold" style={{ color: changeColor }}>
+        {changePct > 0 ? "+" : ""}{changePct}%
+      </span>
+      <span className="text-[9px]" style={{ color: rsiColor }}>RSI {rsi.toFixed(0)}</span>
+    </Link>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+
 export function SectorSignals() {
-  const [signals, setSignals] = useState<SectorSignal[]>([]);
+  const [sectors, setSectors] = useState<SectorFearGreed[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/sector-signals")
       .then(r => r.json())
-      .then(d => setSignals(Array.isArray(d) ? d : []))
+      .then(d => setSectors(Array.isArray(d) ? d : []))
       .finally(() => setLoading(false));
   }, []);
 
   if (loading) {
     return (
       <div className="space-y-2">
-        {[...Array(6)].map((_, i) => (
-          <div key={i} className="h-16 bg-[#1a1a2a] rounded-xl animate-pulse" />
+        {[...Array(7)].map((_, i) => (
+          <div key={i} className="h-20 bg-[#1a1a2a] rounded-xl animate-pulse" />
         ))}
+        <p className="text-center text-[11px] text-[#555] pt-1">기술지표 계산 중... (30초 소요)</p>
       </div>
     );
   }
 
   return (
     <div className="space-y-2">
-      {signals.map((s) => {
+      {/* Legend */}
+      <div className="flex justify-between px-1 pb-1">
+        {["극도의 공포", "공포", "중립", "탐욕", "극도의 탐욕"].map(l => (
+          <span key={l} className="text-[9px]" style={{ color: labelColor(l) }}>{l}</span>
+        ))}
+      </div>
+
+      {sectors.map(s => {
         const isOpen = expanded === s.sector;
+        const lColor = labelColor(s.label);
+        const netFlow = s.investorFlow.foreign5d + s.investorFlow.institution5d;
+
         return (
-          <div
-            key={s.sector}
-            className="bg-[#111118] border border-[#2a2a3a] rounded-xl overflow-hidden"
-          >
-            {/* Row */}
-            <button
-              className="w-full text-left px-4 py-3"
-              onClick={() => setExpanded(isOpen ? null : s.sector)}
-            >
-              <div className="flex items-center justify-between mb-1.5">
+          <div key={s.sector} className="bg-[#111118] border border-[#2a2a3a] rounded-xl overflow-hidden">
+            <button className="w-full text-left px-4 pt-3 pb-2.5" onClick={() => setExpanded(isOpen ? null : s.sector)}>
+              {/* Header row */}
+              <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold text-white">{s.sector}</span>
-                  <SignalBadge signal={s.signal} />
+                  <span
+                    className="text-[10px] font-bold px-1.5 py-0.5 rounded"
+                    style={{ color: lColor, background: `${lColor}18` }}
+                  >
+                    {s.label}
+                  </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-bold" style={{ color: s.score >= 55 ? "#00ff88" : s.score >= 35 ? "#ffd700" : "#888" }}>
-                    {s.score}점
-                  </span>
+                  <span className="text-sm font-black" style={{ color: lColor }}>{s.total}</span>
                   <span className="text-[10px] text-[#555]">{isOpen ? "▲" : "▼"}</span>
                 </div>
               </div>
-              {/* Score bars */}
-              <div className="flex gap-1.5 items-center">
-                <span className="text-[9px] text-[#555] w-10">유튜브</span>
-                <ScoreBar value={s.ytScore} max={40} color="#4d9fff" />
-                <span className="text-[9px] text-[#555] w-8">거래량</span>
-                <ScoreBar value={s.volumeScore} max={30} color="#ffd700" />
-                <span className="text-[9px] text-[#555] w-10">수급</span>
-                <ScoreBar value={Math.max(0, s.investorScore)} max={30} color="#00ff88" />
+
+              {/* Gauge */}
+              <GaugeBar score={s.total} />
+
+              {/* Quick stats */}
+              <div className="flex gap-3 mt-2">
+                <span className="text-[10px] text-[#555]">
+                  RSI <span className="text-[#aaa]">{s.components.rsi.detail.replace("RSI ", "")}</span>
+                </span>
+                <span className="text-[10px] text-[#555]">
+                  MA비율 <span className="text-[#aaa]">{s.components.maBreadth.detail.split("(")[1]?.replace(")", "") ?? ""}</span>
+                </span>
+                <span className="text-[10px] text-[#555]">
+                  5일 <span style={{ color: parseFloat(s.components.momentum.detail.split(" ")[2]) >= 0 ? "#ff4444" : "#4488ff" }}>
+                    {s.components.momentum.detail.split(" ")[2]}
+                  </span>
+                </span>
+                <span className="text-[10px] text-[#555]">
+                  수급 <span style={{ color: netFlow >= 0 ? "#ff4444" : "#4488ff" }}>
+                    {formatFlow(netFlow)}
+                  </span>
+                </span>
               </div>
-              <p className="text-[10px] text-[#8a8a9a] mt-1.5">{s.reason}</p>
             </button>
 
-            {/* Expanded detail */}
             {isOpen && (
-              <div className="border-t border-[#2a2a3a] px-4 py-3 bg-[#0d0d18] space-y-3">
-                {/* YouTube detail */}
+              <div className="border-t border-[#2a2a3a] px-4 py-3 bg-[#0d0d18] space-y-4">
+                {/* 5 components */}
                 <div>
-                  <p className="text-[11px] font-semibold text-[#4d9fff] mb-1">📺 유튜브 언급</p>
-                  <div className="flex gap-4 text-[11px] text-[#aaa]">
-                    <span>이번주 <span className="text-white font-bold">{s.ytDetail.thisWeek}건</span></span>
-                    <span>지난주 <span className="text-white font-bold">{s.ytDetail.lastWeek}건</span></span>
-                    <span className="text-[#00ff88]">긍정 {s.ytDetail.positive}건</span>
-                    <span className="text-[#ff4444]">부정 {s.ytDetail.negative}건</span>
+                  <p className="text-[10px] font-semibold text-[#555] uppercase tracking-wider mb-2">구성 지표</p>
+                  <CompRow icon="📈" name="RSI" score={s.components.rsi.score} label={s.components.rsi.label} detail={s.components.rsi.detail} />
+                  <CompRow icon="📊" name="MA20 비율" score={s.components.maBreadth.score} label={s.components.maBreadth.label} detail={s.components.maBreadth.detail} />
+                  <CompRow icon="🚀" name="5일 모멘텀" score={s.components.momentum.score} label={s.components.momentum.label} detail={s.components.momentum.detail} />
+                  <CompRow icon="🔥" name="거래량" score={s.components.volume.score} label={s.components.volume.label} detail={s.components.volume.detail} />
+                  <CompRow icon="📺" name="유튜브 심리" score={s.components.youtube.score} label={s.components.youtube.label} detail={s.components.youtube.detail} />
+                </div>
+
+                {/* Investor flow */}
+                <div>
+                  <p className="text-[10px] font-semibold text-[#555] uppercase tracking-wider mb-1.5">외국인/기관 수급 (5일)</p>
+                  <div className="flex gap-4 text-[11px]">
+                    <span className="text-[#aaa]">
+                      외국인 <span style={{ color: s.investorFlow.foreign5d >= 0 ? "#ff4444" : "#4488ff", fontWeight: "bold" }}>
+                        {formatFlow(s.investorFlow.foreign5d)}
+                      </span>
+                    </span>
+                    <span className="text-[#aaa]">
+                      기관 <span style={{ color: s.investorFlow.institution5d >= 0 ? "#ff4444" : "#4488ff", fontWeight: "bold" }}>
+                        {formatFlow(s.investorFlow.institution5d)}
+                      </span>
+                    </span>
                   </div>
                 </div>
-                {/* Volume detail */}
-                <div>
-                  <p className="text-[11px] font-semibold text-[#ffd700] mb-1">📊 거래량</p>
-                  <div className="text-[11px] text-[#aaa]">
-                    <span>평균 <span className="text-white font-bold">{s.volumeDetail.avgRatio}x</span></span>
-                    {s.volumeDetail.surgingStocks.length > 0 && (
-                      <span className="ml-3 text-[#ffd700]">급증: {s.volumeDetail.surgingStocks.slice(0, 3).join(", ")}</span>
-                    )}
+
+                {/* Top stocks */}
+                {s.topStocks.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-semibold text-[#555] uppercase tracking-wider mb-1.5">주요 종목</p>
+                    <div className="flex flex-wrap gap-2">
+                      {s.topStocks.map(st => (
+                        <StockChip key={st.ticker} {...st} />
+                      ))}
+                    </div>
                   </div>
-                </div>
-                {/* Investor detail */}
-                <div>
-                  <p className="text-[11px] font-semibold text-[#00ff88] mb-1">💰 외국인+기관 수급 (5일)</p>
-                  <div className="flex gap-4 text-[11px] text-[#aaa]">
-                    <span>외국인 <span className={s.investorDetail.foreign5d >= 0 ? "text-[#ff4444]" : "text-[#4488ff]"} style={{ fontWeight: "bold" }}>
-                      {s.investorDetail.foreign5d >= 0 ? "+" : ""}{(s.investorDetail.foreign5d / 100).toFixed(0)}백만
-                    </span></span>
-                    <span>기관 <span className={s.investorDetail.institution5d >= 0 ? "text-[#ff4444]" : "text-[#4488ff]"} style={{ fontWeight: "bold" }}>
-                      {s.investorDetail.institution5d >= 0 ? "+" : ""}{(s.investorDetail.institution5d / 100).toFixed(0)}백만
-                    </span></span>
-                  </div>
-                </div>
-                {/* Stock links */}
-                <div className="flex flex-wrap gap-1.5">
-                  {s.topStocks.map(name => {
-                    const ticker = NAME_TO_TICKER[name];
-                    return ticker ? (
-                      <Link
-                        key={name}
-                        href={`/stock?ticker=${ticker}`}
-                        className="text-[10px] px-2 py-0.5 rounded border border-[#2a2a3a] text-[#8a8a9a] hover:text-[#ffd700] hover:border-[#ffd70040] transition-colors"
-                      >
-                        {name} →
-                      </Link>
-                    ) : null;
-                  })}
-                </div>
+                )}
               </div>
             )}
           </div>
