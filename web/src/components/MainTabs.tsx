@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { InsightsFeed } from "./InsightsFeed";
+import { HotSectors } from "./HotSectors";
 import { searchByStock } from "@/lib/api";
 import type { YoutubeInsight } from "@/lib/types";
 
@@ -156,12 +157,22 @@ function StockSearchPanel() {
 }
 
 export function MainTabs() {
-  const [tab, setTab] = useState<"insights" | "search">("search");
+  const [tab, setTab] = useState<"search" | "insights" | "hot">("hot");
 
   return (
     <div>
       {/* 탭 버튼 */}
       <div className="flex gap-1 mb-5 bg-[#111118] p-1 rounded-lg border border-[#2a2a3a]">
+        <button
+          onClick={() => setTab("hot")}
+          className="flex-1 py-2 text-xs font-semibold rounded-md transition-colors"
+          style={{
+            background: tab === "hot" ? "#2a2a3a" : "transparent",
+            color: tab === "hot" ? "#ffffff" : "#aaaaaa",
+          }}
+        >
+          🔥 거래량
+        </button>
         <button
           onClick={() => setTab("search")}
           className="flex-1 py-2 text-xs font-semibold rounded-md transition-colors"
@@ -184,7 +195,9 @@ export function MainTabs() {
         </button>
       </div>
 
-      {tab === "insights" ? <InsightsFeed /> : <StockSearchPanel />}
+      {tab === "hot" && <HotSectors />}
+      {tab === "insights" && <InsightsFeed />}
+      {tab === "search" && <StockSearchPanel />}
     </div>
   );
 }

@@ -7,6 +7,11 @@ export type Sector =
   | "IT/플랫폼"
   | "금융"
   | "소재/산업재"
+  | "조선"
+  | "방산"
+  | "원자력"
+  | "건설"
+  | "우주항공"
   | "지수";
 
 export interface StockInfo {
@@ -56,7 +61,29 @@ export const STOCKS: StockInfo[] = [
   { ticker: "066570.KS", name: "LG전자", sector: "소재/산업재" },
   { ticker: "010130.KS", name: "고려아연", sector: "소재/산업재" },
   { ticker: "011200.KS", name: "HMM", sector: "소재/산업재" },
-  { ticker: "009540.KS", name: "한국조선해양", sector: "소재/산업재" },
+  // 조선
+  { ticker: "009540.KS", name: "HD한국조선해양", sector: "조선" },
+  { ticker: "010140.KS", name: "삼성중공업", sector: "조선" },
+  { ticker: "329180.KS", name: "HD현대중공업", sector: "조선" },
+  { ticker: "042660.KS", name: "한화오션", sector: "조선" },
+  // 방산
+  { ticker: "012450.KS", name: "한화에어로스페이스", sector: "방산" },
+  { ticker: "079550.KS", name: "LIG넥스원", sector: "방산" },
+  { ticker: "064350.KS", name: "현대로템", sector: "방산" },
+  { ticker: "272210.KS", name: "한화시스템", sector: "방산" },
+  // 원자력
+  { ticker: "034020.KS", name: "두산에너빌리티", sector: "원자력" },
+  { ticker: "051600.KS", name: "한전기술", sector: "원자력" },
+  // 건설
+  { ticker: "047040.KS", name: "대우건설", sector: "건설" },
+  { ticker: "006360.KS", name: "GS건설", sector: "건설" },
+  { ticker: "000720.KS", name: "현대건설", sector: "건설" },
+  // 우주항공
+  { ticker: "189300.KQ", name: "인텔리안테크", sector: "우주항공" },
+  { ticker: "099550.KQ", name: "쎄트렉아이", sector: "우주항공" },
+  { ticker: "462350.KQ", name: "이노스페이스", sector: "우주항공" },
+  { ticker: "082920.KQ", name: "비츠로넥스텍", sector: "우주항공" },
+  { ticker: "441270.KQ", name: "나라스페이스테크놀로지", sector: "우주항공" },
 ];
 
 // 한글 종목명 → 종목코드 매핑 (자동 생성)
