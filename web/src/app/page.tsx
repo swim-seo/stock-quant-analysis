@@ -22,6 +22,13 @@ export default function Home() {
           </div>
           <div className="flex items-center gap-3">
             <Link
+              href="/portfolio"
+              className="px-4 py-2 text-xs font-semibold rounded-lg transition-colors"
+              style={{ background: "#00ff8815", color: "#00ff88", border: "1px solid #00ff8840" }}
+            >
+              가상 투자
+            </Link>
+            <Link
               href="/briefing"
               className="px-4 py-2 text-xs font-semibold rounded-lg transition-colors"
               style={{ background: "#ffd70015", color: "#ffd700", border: "1px solid #ffd70040" }}
