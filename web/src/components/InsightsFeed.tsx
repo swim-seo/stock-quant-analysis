@@ -6,141 +6,80 @@ import type { YoutubeInsight } from "@/lib/types";
 
 function fmtDate(d: string | null) {
   if (!d) return "";
-  if (d.length === 8) return `${d.slice(0, 4)}.${d.slice(4, 6)}.${d.slice(6)}`;
+  if (d.length === 8) return `${d.slice(0,4)}.${d.slice(4,6)}.${d.slice(6)}`;
   return d.slice(0, 10);
 }
-
 function timeAgo(dateStr: string) {
   const diff = Date.now() - new Date(dateStr).getTime();
   const hours = Math.floor(diff / 3600000);
   if (hours < 1) return "방금 전";
   if (hours < 24) return `${hours}시간 전`;
-  const days = Math.floor(hours / 24);
-  return `${days}일 전`;
+  return `${Math.floor(hours / 24)}일 전`;
 }
 
 function SentimentBadge({ sentiment }: { sentiment: string }) {
-  const color =
-    sentiment === "긍정" ? "#00ff88" : sentiment === "부정" ? "#ff4444" : "#ffd700";
+  const color = sentiment === "긍정" ? "#00b493" : sentiment === "부정" ? "#f04452" : "#f5a623";
   return (
-    <span
-      className="text-[11px] font-semibold px-1.5 py-0.5 rounded"
-      style={{ color, background: `${color}15`, border: `1px solid ${color}30` }}
-    >
-      {sentiment}
-    </span>
+    <span style={{ fontSize: 12, fontWeight: 700, padding: "3px 9px", borderRadius: 6, color, background: `${color}18` }}>{sentiment}</span>
   );
 }
 
-function InsightCard({
-  insight,
-  expanded,
-  onToggle,
-}: {
-  insight: YoutubeInsight;
-  expanded: boolean;
-  onToggle: () => void;
-}) {
-  const thumbUrl = `https://img.youtube.com/vi/${insight.video_id}/mqdefault.jpg`;
-
+function InsightCard({ insight, expanded, onToggle }: { insight: YoutubeInsight; expanded: boolean; onToggle: () => void; }) {
   let signals: string[] = [];
   try {
-    signals =
-      typeof insight.investment_signals === "string"
-        ? JSON.parse(insight.investment_signals)
-        : insight.investment_signals || [];
-  } catch {
-    signals = [];
-  }
+    signals = typeof insight.investment_signals === "string" ? JSON.parse(insight.investment_signals) : insight.investment_signals || [];
+  } catch { signals = []; }
 
   return (
-    <div
-      className="bg-[#111118] border border-[#2a2a3a] rounded-xl overflow-hidden hover:border-[#2a2a3e] transition-all"
-    >
-      {/* 썸네일 */}
-      <button onClick={onToggle} className="w-full text-left">
-        <div className="relative w-full" style={{ aspectRatio: "16/9" }}>
-          <img
-            src={thumbUrl}
-            alt={insight.title}
-            className="w-full h-full object-cover"
-            loading="lazy"
-          />
-          {/* 오버레이 배지 */}
-          <div className="absolute top-2 left-2 flex gap-1">
+    <div style={{ background: "#fff", borderRadius: 16, overflow: "hidden", boxShadow: "var(--shadow)" }}>
+      <button onClick={onToggle} style={{ width: "100%", textAlign: "left", background: "none", border: "none", cursor: "pointer" }}>
+        <div style={{ position: "relative", width: "100%", aspectRatio: "16/9" }}>
+          <img src={`https://img.youtube.com/vi/${insight.video_id}/mqdefault.jpg`} alt={insight.title}
+            style={{ width: "100%", height: "100%", objectFit: "cover" }} loading="lazy" />
+          <div style={{ position: "absolute", top: 10, left: 10, display: "flex", gap: 6 }}>
             <SentimentBadge sentiment={insight.market_sentiment} />
             {insight.trading_type && (
-              <span
-                className="text-[11px] font-semibold px-1.5 py-0.5 rounded"
-                style={{
-                  color: insight.trading_type === "단타" ? "#ff6b35" : insight.trading_type === "스윙" ? "#4d9fff" : "#9c6bff",
-                  background: "rgba(0,0,0,0.6)",
-                  backdropFilter: "blur(4px)",
-                }}
-              >
+              <span style={{ fontSize: 12, fontWeight: 700, padding: "3px 9px", borderRadius: 6, background: "rgba(0,0,0,0.65)", color: "#fff", backdropFilter: "blur(4px)" }}>
                 {insight.trading_type}
               </span>
             )}
           </div>
           {insight.urgency === "오늘" && (
-            <div className="absolute top-2 right-2">
-              <span className="text-[11px] font-bold px-1.5 py-0.5 rounded bg-[#ff4444] text-white">
-                긴급
-              </span>
+            <div style={{ position: "absolute", top: 10, right: 10 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, padding: "3px 9px", borderRadius: 6, background: "#f04452", color: "#fff" }}>긴급</span>
             </div>
           )}
         </div>
-
-        {/* 제목 영역 */}
-        <div className="p-3">
-          <div className="flex items-center gap-2 mb-1.5">
-            <span className="text-xs text-[#aaaaaa]">{insight.channel}</span>
-            <span className="text-xs text-[#aaaaaa]">
-              {insight.processed_at ? timeAgo(insight.processed_at) : fmtDate(insight.upload_date)}
-            </span>
+        <div style={{ padding: "14px 16px" }}>
+          <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+            <span style={{ fontSize: 13, color: "var(--text-3)" }}>{insight.channel}</span>
+            <span style={{ fontSize: 13, color: "var(--text-3)" }}>{insight.processed_at ? timeAgo(insight.processed_at) : fmtDate(insight.upload_date)}</span>
           </div>
-          <h3 className="text-sm font-semibold text-[#ffffff] line-clamp-2 leading-snug">
+          <h3 style={{ fontSize: 15, fontWeight: 700, color: "var(--text-1)", lineHeight: 1.4, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
             {insight.title}
           </h3>
         </div>
       </button>
 
-      {/* 펼침 영역 */}
       {expanded && (
-        <div className="px-3 pb-3 border-t border-[#2a2a3a] pt-3 space-y-3">
-          <p className="text-xs text-[#e0e0e0] leading-relaxed">{insight.summary}</p>
-
-          {/* 종목 태그 */}
+        <div style={{ padding: "0 16px 16px", borderTop: "1px solid var(--border)" }}>
+          <p style={{ fontSize: 14, color: "var(--text-2)", lineHeight: 1.6, margin: "12px 0" }}>{insight.summary}</p>
           {(insight.key_stocks || []).length > 0 && (
-            <div className="flex flex-wrap gap-1">
-              {insight.key_stocks.map((s) => (
-                <span
-                  key={s}
-                  className="text-xs px-2 py-0.5 rounded bg-[#4d9fff10] text-[#4d9fff] border border-[#4d9fff30]"
-                >
-                  {s}
-                </span>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+              {insight.key_stocks.map(s => (
+                <span key={s} style={{ fontSize: 13, padding: "3px 10px", borderRadius: 6, background: "#e8f3ff", color: "var(--blue)", fontWeight: 600 }}>{s}</span>
               ))}
             </div>
           )}
-
-          {/* 투자 신호 */}
           {signals.length > 0 && (
-            <div>
+            <div style={{ marginBottom: 10 }}>
               {signals.slice(0, 2).map((s, i) => (
-                <p key={i} className="text-[11px] text-[#8a8a9a]">
-                  · {s}
-                </p>
+                <p key={i} style={{ fontSize: 13, color: "var(--text-2)", marginBottom: 3 }}>· {s}</p>
               ))}
             </div>
           )}
-
-          <a
-            href={insight.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-xs text-[#ff6b35] hover:underline font-medium"
-          >
+          <a href={insight.url} target="_blank" rel="noopener noreferrer"
+            style={{ fontSize: 14, color: "var(--blue)", fontWeight: 600, textDecoration: "none" }}>
             YouTube에서 보기 →
           </a>
         </div>
@@ -155,29 +94,20 @@ export function InsightsFeed() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   useEffect(() => {
-    getLatestInsights(20).then((data) => {
-      setInsights(data);
-      setLoading(false);
-    });
+    getLatestInsights(20).then(data => { setInsights(data); setLoading(false); });
   }, []);
 
   if (loading) {
     return (
       <div>
-        <h2 className="text-xs font-semibold text-[#aaaaaa] tracking-widest mb-4">
-          최근 인사이트
-        </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 14 }}>
           {[...Array(6)].map((_, i) => (
-            <div
-              key={i}
-              className="bg-[#111118] border border-[#2a2a3a] rounded-xl overflow-hidden animate-pulse"
-            >
-              <div className="w-full bg-[#2a2a3a]" style={{ aspectRatio: "16/9" }} />
-              <div className="p-3">
-                <div className="h-3 bg-[#2a2a3a] rounded w-1/3 mb-2" />
-                <div className="h-4 bg-[#2a2a3a] rounded w-full mb-1" />
-                <div className="h-4 bg-[#2a2a3a] rounded w-2/3" />
+            <div key={i} style={{ background: "#fff", borderRadius: 16, overflow: "hidden" }} className="animate-pulse">
+              <div style={{ width: "100%", aspectRatio: "16/9", background: "var(--border)" }} />
+              <div style={{ padding: 16 }}>
+                <div style={{ height: 12, background: "var(--border)", borderRadius: 6, width: "40%", marginBottom: 10 }} />
+                <div style={{ height: 16, background: "var(--border)", borderRadius: 6, width: "100%", marginBottom: 6 }} />
+                <div style={{ height: 16, background: "var(--border)", borderRadius: 6, width: "70%" }} />
               </div>
             </div>
           ))}
@@ -188,30 +118,19 @@ export function InsightsFeed() {
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="text-xs font-semibold text-[#aaaaaa] tracking-widest">
-          최근 인사이트
-        </h2>
-        <span className="text-xs text-[#aaaaaa]">{insights.length}개</span>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <h2 style={{ fontSize: 16, fontWeight: 700, color: "var(--text-1)" }}>최근 인사이트</h2>
+        <span style={{ fontSize: 13, color: "var(--text-3)" }}>{insights.length}개</span>
       </div>
-
       {insights.length === 0 ? (
-        <div className="bg-[#111118] border border-[#2a2a3a] rounded-xl p-12 text-center">
-          <p className="text-sm text-[#aaaaaa]">수집된 인사이트가 없습니다.</p>
+        <div style={{ background: "#fff", borderRadius: 16, padding: "48px", textAlign: "center" }}>
+          <p style={{ fontSize: 15, color: "var(--text-3)" }}>수집된 인사이트가 없습니다.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {insights.map((insight) => (
-            <InsightCard
-              key={insight.video_id}
-              insight={insight}
-              expanded={expandedId === insight.video_id}
-              onToggle={() =>
-                setExpandedId(
-                  expandedId === insight.video_id ? null : insight.video_id
-                )
-              }
-            />
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 14 }}>
+          {insights.map(insight => (
+            <InsightCard key={insight.video_id} insight={insight} expanded={expandedId === insight.video_id}
+              onToggle={() => setExpandedId(expandedId === insight.video_id ? null : insight.video_id)} />
           ))}
         </div>
       )}

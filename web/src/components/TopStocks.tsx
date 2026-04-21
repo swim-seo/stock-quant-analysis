@@ -8,19 +8,14 @@ export function TopStocks() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    getTopMentionedStocks(7, 10).then((data) => {
-      setStocks(data);
-      setLoading(false);
-    });
+    getTopMentionedStocks(7, 10).then(d => { setStocks(d); setLoading(false); });
   }, []);
 
   if (loading) {
     return (
-      <div className="bg-[#111118] border border-[#2a2a3a] rounded-xl p-6 animate-pulse">
-        <div className="h-4 bg-[#2a2a3a] rounded w-1/2 mb-4" />
-        {[...Array(5)].map((_, i) => (
-          <div key={i} className="h-6 bg-[#2a2a3a] rounded mb-2" />
-        ))}
+      <div style={{ background: "var(--card)", borderRadius: 20, padding: "24px", boxShadow: "var(--shadow)" }} className="animate-pulse">
+        <div style={{ height: 16, background: "var(--border)", borderRadius: 8, width: "50%", marginBottom: 20 }} />
+        {[...Array(5)].map((_, i) => <div key={i} style={{ height: 28, background: "var(--border)", borderRadius: 8, marginBottom: 10 }} />)}
       </div>
     );
   }
@@ -28,42 +23,32 @@ export function TopStocks() {
   const maxCount = stocks[0]?.count || 1;
 
   return (
-    <div className="bg-[#111118] border border-[#2a2a3a] rounded-xl p-6">
-      <h2 className="text-xs font-semibold text-[#aaaaaa] tracking-widest mb-4">
-        종목 언급 빈도 TOP 10
-      </h2>
+    <div style={{ background: "var(--card)", borderRadius: 20, padding: "24px", boxShadow: "var(--shadow)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <h2 style={{ fontSize: 16, fontWeight: 700, color: "var(--text-1)" }}>종목 언급 빈도 TOP 10</h2>
+        <span style={{ fontSize: 13, color: "var(--text-3)" }}>최근 7일</span>
+      </div>
 
       {stocks.length === 0 ? (
-        <p className="text-sm text-[#555]">데이터 없음</p>
+        <p style={{ fontSize: 14, color: "var(--text-3)" }}>데이터 없음</p>
       ) : (
-        <div className="space-y-2">
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {stocks.map((stock, i) => (
-            <div key={stock.name} className="flex items-center gap-3">
-              <span className="text-xs text-[#555] w-5 text-right">
-                {i + 1}
-              </span>
-              <div className="flex-1">
-                <div className="flex justify-between items-center mb-1">
-                  <span className="text-sm text-white">{stock.name}</span>
-                  <span className="text-xs text-[#aaaaaa]">
-                    {stock.count}회
-                  </span>
+            <div key={stock.name} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <span style={{ fontSize: 13, color: "var(--text-3)", width: 20, textAlign: "right", flexShrink: 0 }}>{i + 1}</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
+                  <span style={{ fontSize: 15, fontWeight: 600, color: "var(--text-1)" }}>{stock.name}</span>
+                  <span style={{ fontSize: 13, color: "var(--text-2)" }}>{stock.count}회</span>
                 </div>
-                <div className="h-1 bg-[#2a2a3a] rounded-full overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-[#4d9fff] transition-all duration-500"
-                    style={{
-                      width: `${(stock.count / maxCount) * 100}%`,
-                    }}
-                  />
+                <div style={{ height: 5, background: "var(--border)", borderRadius: 99, overflow: "hidden" }}>
+                  <div style={{ width: `${(stock.count / maxCount) * 100}%`, height: "100%", background: "var(--blue)", borderRadius: 99 }} />
                 </div>
               </div>
             </div>
           ))}
         </div>
       )}
-
-      <div className="mt-3 text-xs text-[#555]">최근 7일 기준</div>
     </div>
   );
 }

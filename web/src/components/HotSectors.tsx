@@ -12,17 +12,13 @@ function formatValue(n: number): string {
 }
 
 function ChangeText({ pct }: { pct: number }) {
-  const color = pct > 0 ? "#ff4444" : pct < 0 ? "#4488ff" : "#888";
-  return (
-    <span className="text-xs font-semibold" style={{ color }}>
-      {pct > 0 ? "+" : ""}{pct}%
-    </span>
-  );
+  const color = pct > 0 ? "#f04452" : pct < 0 ? "#3182f6" : "var(--text-3)";
+  return <span style={{ fontSize: 14, fontWeight: 700, color }}>{pct > 0 ? "+" : ""}{pct}%</span>;
 }
 
 function VolumeBadge({ ratio }: { ratio: number }) {
-  if (ratio >= 2.0) return <span className="text-[10px] px-1.5 py-0.5 rounded font-bold" style={{ background: "#ff444420", color: "#ff4444" }}>🔥 {ratio}x</span>;
-  if (ratio >= 1.5) return <span className="text-[10px] px-1.5 py-0.5 rounded font-bold" style={{ background: "#ffd70020", color: "#ffd700" }}>↑ {ratio}x</span>;
+  if (ratio >= 2.0) return <span style={{ fontSize: 11, padding: "2px 7px", borderRadius: 6, background: "#fff0f1", color: "#f04452", fontWeight: 700 }}>🔥 {ratio}x</span>;
+  if (ratio >= 1.5) return <span style={{ fontSize: 11, padding: "2px 7px", borderRadius: 6, background: "#fff8e6", color: "#f5a623", fontWeight: 700 }}>↑ {ratio}x</span>;
   return null;
 }
 
@@ -42,66 +38,43 @@ export function HotSectors() {
   const maxSectorValue = sectors[0]?.totalValue ?? 1;
 
   return (
-    <div className="bg-[#111118] border border-[#2a2a3a] rounded-xl overflow-hidden">
-      {/* 헤더 */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-[#2a2a3a]">
-        <p className="text-xs font-bold text-white">거래대금 현황</p>
-        <div className="flex gap-1 bg-[#0a0a12] p-0.5 rounded-lg">
+    <div style={{ background: "var(--card)", borderRadius: 20, overflow: "hidden", boxShadow: "var(--shadow)" }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 20px", borderBottom: "1px solid var(--border)" }}>
+        <p style={{ fontSize: 16, fontWeight: 700, color: "var(--text-1)" }}>거래대금 현황</p>
+        <div style={{ display: "flex", gap: 4, background: "var(--bg)", padding: 3, borderRadius: 10 }}>
           {(["sectors", "stocks"] as const).map(t => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className="px-3 py-1 text-[11px] font-semibold rounded-md transition-colors"
-              style={{
-                background: tab === t ? "#2a2a3a" : "transparent",
-                color: tab === t ? "#ffffff" : "#555",
-              }}
-            >
+            <button key={t} onClick={() => setTab(t)} style={{ padding: "6px 14px", borderRadius: 8, border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer", background: tab === t ? "var(--blue)" : "transparent", color: tab === t ? "#fff" : "var(--text-3)" }}>
               {t === "sectors" ? "섹터" : "종목"}
             </button>
           ))}
         </div>
       </div>
 
-      <div className="p-3">
+      <div style={{ padding: 16 }}>
         {loading ? (
-          <div className="space-y-2">
-            {[...Array(5)].map((_, i) => (
-              <div key={i} className="h-8 bg-[#1a1a2a] rounded animate-pulse" />
-            ))}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {[...Array(5)].map((_, i) => <div key={i} style={{ height: 52, background: "var(--border)", borderRadius: 10 }} className="animate-pulse" />)}
           </div>
         ) : tab === "sectors" ? (
-          /* 섹터 탭 */
-          <div className="space-y-2">
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             {sectors.map((s, i) => (
               <div key={s.sector}>
-                <div className="flex items-center justify-between mb-0.5">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-[#555] w-3">{i + 1}</span>
-                    <span className="text-xs font-semibold text-white">{s.sector}</span>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ fontSize: 13, color: "var(--text-3)", width: 16 }}>{i + 1}</span>
+                    <span style={{ fontSize: 15, fontWeight: 700, color: "var(--text-1)" }}>{s.sector}</span>
                     <ChangeText pct={s.avgChangePct} />
                   </div>
-                  <span className="text-[11px] text-[#aaa]">{formatValue(s.totalValue)}</span>
+                  <span style={{ fontSize: 14, color: "var(--text-2)", fontWeight: 600 }}>{formatValue(s.totalValue)}</span>
                 </div>
-                {/* 바 차트 */}
-                <div className="ml-5 h-1.5 bg-[#1a1a2a] rounded-full overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all"
-                    style={{
-                      width: `${(s.totalValue / maxSectorValue) * 100}%`,
-                      background: s.avgChangePct >= 0 ? "#ff4444" : "#4488ff",
-                      opacity: 0.7,
-                    }}
-                  />
+                <div style={{ marginLeft: 26, height: 5, background: "var(--border)", borderRadius: 99, overflow: "hidden", marginBottom: 6 }}>
+                  <div style={{ width: `${(s.totalValue / maxSectorValue) * 100}%`, height: "100%", background: s.avgChangePct >= 0 ? "#f04452" : "#3182f6", opacity: 0.7, borderRadius: 99 }} />
                 </div>
-                {/* 섹터 내 종목 태그 */}
-                <div className="ml-5 flex flex-wrap gap-1 mt-1">
+                <div style={{ marginLeft: 26, display: "flex", flexWrap: "wrap", gap: 6 }}>
                   {s.stocks.slice(0, 3).map(st => (
-                    <Link
-                      key={st.ticker}
-                      href={`/stock?ticker=${st.ticker}`}
-                      className="text-[10px] px-1.5 py-0.5 rounded border border-[#2a2a3a] text-[#8a8a9a] hover:text-[#ffd700] hover:border-[#ffd70040] transition-colors"
-                    >
+                    <Link key={st.ticker} href={`/stock?ticker=${st.ticker}`}
+                      style={{ fontSize: 13, padding: "3px 10px", borderRadius: 20, border: "1px solid var(--border)", color: "var(--text-2)", textDecoration: "none", fontWeight: 500 }}>
                       {st.name}
                     </Link>
                   ))}
@@ -110,26 +83,22 @@ export function HotSectors() {
             ))}
           </div>
         ) : (
-          /* 종목 탭 */
-          <div className="space-y-1">
+          <div style={{ display: "flex", flexDirection: "column" }}>
             {stocks.map((s, i) => (
-              <Link
-                key={s.ticker}
-                href={`/stock?ticker=${s.ticker}`}
-                className="flex items-center justify-between py-1.5 border-b border-[#1a1a2a] last:border-b-0 hover:bg-[#1a1a2a] px-1 rounded transition-colors"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-[#555] w-4">{i + 1}</span>
+              <Link key={s.ticker} href={`/stock?ticker=${s.ticker}`}
+                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 8px", borderBottom: i < stocks.length - 1 ? "1px solid var(--border)" : "none", textDecoration: "none" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <span style={{ fontSize: 13, color: "var(--text-3)", width: 20 }}>{i + 1}</span>
                   <div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs font-semibold text-white">{s.name}</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 15, fontWeight: 700, color: "var(--text-1)" }}>{s.name}</span>
                       <VolumeBadge ratio={s.volumeRatio} />
                     </div>
-                    <span className="text-[10px] text-[#555]">{s.sector}</span>
+                    <span style={{ fontSize: 13, color: "var(--text-3)" }}>{s.sector}</span>
                   </div>
                 </div>
-                <div className="text-right">
-                  <p className="text-[11px] text-[#aaa]">{formatValue(s.tradingValue)}</p>
+                <div style={{ textAlign: "right" }}>
+                  <p style={{ fontSize: 13, color: "var(--text-2)" }}>{formatValue(s.tradingValue)}</p>
                   <ChangeText pct={s.changePct} />
                 </div>
               </Link>
