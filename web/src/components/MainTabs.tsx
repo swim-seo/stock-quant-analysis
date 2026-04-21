@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { InsightsFeed } from "./InsightsFeed";
 import { HotSectors } from "./HotSectors";
+import { SectorSignals } from "./SectorSignals";
 import { searchByStock } from "@/lib/api";
 import type { YoutubeInsight } from "@/lib/types";
 
@@ -157,45 +158,32 @@ function StockSearchPanel() {
 }
 
 export function MainTabs() {
-  const [tab, setTab] = useState<"search" | "insights" | "hot">("hot");
+  const [tab, setTab] = useState<"search" | "insights" | "hot" | "signals">("hot");
 
   return (
     <div>
       {/* 탭 버튼 */}
-      <div className="flex gap-1 mb-5 bg-[#111118] p-1 rounded-lg border border-[#2a2a3a]">
-        <button
-          onClick={() => setTab("hot")}
-          className="flex-1 py-2 text-xs font-semibold rounded-md transition-colors"
-          style={{
-            background: tab === "hot" ? "#2a2a3a" : "transparent",
-            color: tab === "hot" ? "#ffffff" : "#aaaaaa",
-          }}
-        >
-          🔥 거래량
-        </button>
-        <button
-          onClick={() => setTab("search")}
-          className="flex-1 py-2 text-xs font-semibold rounded-md transition-colors"
-          style={{
-            background: tab === "search" ? "#2a2a3a" : "transparent",
-            color: tab === "search" ? "#ffffff" : "#aaaaaa",
-          }}
-        >
-          종목 검색
-        </button>
-        <button
-          onClick={() => setTab("insights")}
-          className="flex-1 py-2 text-xs font-semibold rounded-md transition-colors"
-          style={{
-            background: tab === "insights" ? "#2a2a3a" : "transparent",
-            color: tab === "insights" ? "#ffffff" : "#aaaaaa",
-          }}
-        >
-          최근 인사이트
-        </button>
+      <div className="grid grid-cols-4 gap-1 mb-5 bg-[#111118] p-1 rounded-lg border border-[#2a2a3a]">
+        {(["hot", "signals", "search", "insights"] as const).map((t) => {
+          const labels = { hot: "🔥 거래량", signals: "⚡ 타이밍", search: "종목 검색", insights: "인사이트" };
+          return (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className="py-2 text-xs font-semibold rounded-md transition-colors"
+              style={{
+                background: tab === t ? "#2a2a3a" : "transparent",
+                color: tab === t ? "#ffffff" : "#aaaaaa",
+              }}
+            >
+              {labels[t]}
+            </button>
+          );
+        })}
       </div>
 
       {tab === "hot" && <HotSectors />}
+      {tab === "signals" && <SectorSignals />}
       {tab === "insights" && <InsightsFeed />}
       {tab === "search" && <StockSearchPanel />}
     </div>
