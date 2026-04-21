@@ -218,7 +218,8 @@ def save_news_to_supabase(stock_code: str, stock_name: str,
     }
 
     try:
-        url = f"{SUPABASE_URL}/rest/v1/stock_news"
+        # stock_code UNIQUE constraint 기준 upsert → 종목당 항상 최신 1행만 유지
+        url = f"{SUPABASE_URL}/rest/v1/stock_news?on_conflict=stock_code"
         body = json.dumps(row).encode("utf-8")
         headers = {**SB_HEADERS, "Prefer": "resolution=merge-duplicates,return=minimal"}
         req = urllib.request.Request(url, data=body, headers=headers, method="POST")
@@ -234,16 +235,41 @@ def save_news_to_supabase(stock_code: str, stock_name: str,
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 WATCH_STOCKS = {
+    # 반도체
     "삼성전자": "005930",
     "SK하이닉스": "000660",
+    "한미반도체": "042700",
+    # 2차전지/에너지
+    "LG에너지솔루션": "373220",
+    "삼성SDI": "006400",
+    "에코프로비엠": "247540",
+    # 바이오
+    "삼성바이오로직스": "207940",
+    "셀트리온": "068270",
+    # 자동차
     "현대차": "005380",
+    "기아": "000270",
+    # IT/플랫폼
     "NAVER": "035420",
     "카카오": "035720",
-    "LG에너지솔루션": "373220",
-    "셀트리온": "068270",
-    "기아": "000270",
+    # 금융
     "KB금융": "105560",
-    "한미반도체": "042700",
+    "신한지주": "055550",
+    # 소재/산업재
+    "LG전자": "066570",
+    "삼성물산": "028260",
+    # 조선
+    "HD한국조선해양": "009540",
+    "삼성중공업": "010140",
+    # 방산
+    "한화에어로스페이스": "012450",
+    "LIG넥스원": "079550",
+    # 원자력
+    "두산에너빌리티": "034020",
+    # 건설
+    "현대건설": "000720",
+    # 우주항공
+    "인텔리안테크": "189300",
 }
 
 
