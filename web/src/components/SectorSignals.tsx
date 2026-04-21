@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import type { SectorFearGreed, RotationPhase } from "@/app/api/sector-signals/route";
+import type { SectorFearGreed, RotationPhase } from "@/lib/market-types";
 
 // ── Palette ───────────────────────────────────────────────────────────────────
 

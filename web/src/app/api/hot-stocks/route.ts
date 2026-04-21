@@ -1,26 +1,10 @@
 import { NextResponse } from "next/server";
 import YahooFinance from "yahoo-finance2";
 import { STOCKS } from "@/lib/stocks";
+import type { StockHeat, SectorHeat } from "@/lib/market-types";
 
-export const revalidate = 300;
-
-export interface StockHeat {
-  ticker: string;
-  name: string;
-  sector: string;
-  price: number;
-  changePct: number;
-  volume: number;
-  tradingValue: number;
-  volumeRatio: number;
-}
-
-export interface SectorHeat {
-  sector: string;
-  totalValue: number;
-  avgChangePct: number;
-  stocks: StockHeat[];
-}
+export { type StockHeat, type SectorHeat };
+export const dynamic = "force-dynamic";
 
 async function fetchOne(ticker: string, name: string, sector: string): Promise<StockHeat | null> {
   try {

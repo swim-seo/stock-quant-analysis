@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import type { StockHeat, SectorHeat } from "@/app/api/hot-stocks/route";
+import type { StockHeat, SectorHeat } from "@/lib/market-types";
 
 function formatValue(n: number): string {
   if (n >= 1_000_000_000_000) return (n / 1_000_000_000_000).toFixed(1) + "조";

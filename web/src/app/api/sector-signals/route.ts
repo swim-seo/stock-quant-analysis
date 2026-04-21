@@ -1,44 +1,16 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import YahooFinance from "yahoo-finance2";
-import { STOCKS, SECTORS, type Sector } from "@/lib/stocks";
+import { STOCKS, SECTORS } from "@/lib/stocks";
+import type { ComponentScore, RotationPhase, SectorFearGreed } from "@/lib/market-types";
 
-export const revalidate = 600;
+export { type ComponentScore, type RotationPhase, type SectorFearGreed };
+export const dynamic = "force-dynamic";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
-
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-export interface ComponentScore {
-  score: number;   // 0–20
-  label: string;
-  detail: string;
-}
-
-export type RotationPhase = "침체" | "진입기" | "상승기" | "과열" | "하락기";
-
-export interface SectorFearGreed {
-  sector: Sector;
-  total: number;             // 0–100 현재 점수
-  label: "극도의 공포" | "공포" | "중립" | "탐욕" | "극도의 탐욕";
-  signal: "매수관심" | "관찰" | "중립";
-  // 4주 추이: [T-20, T-15, T-10, T-5, T-0] — 각 0-100
-  weeklyTrend: number[];
-  rotationPhase: RotationPhase;
-  rotationNote: string;      // "2주 연속 상승 → 진입 초기" 같은 자연어 설명
-  components: {
-    rsi: ComponentScore;
-    maBreadth: ComponentScore;
-    momentum: ComponentScore;
-    volume: ComponentScore;
-    youtube: ComponentScore;
-  };
-  topStocks: { name: string; ticker: string; changePct: number; rsi: number }[];
-  investorFlow: { foreign5d: number; institution5d: number };
-}
 
 // ── Price data ────────────────────────────────────────────────────────────────
 
