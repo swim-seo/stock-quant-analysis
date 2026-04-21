@@ -258,14 +258,30 @@ def generate_briefing():
                                      messages=[{"role": "user", "content": prompt}])
         text = msg.content[0].text.strip()
         # 마크다운 코드블록 제거
-        text = re.sub(r'^```(?:json)?\s*', '', text, flags=re.MULTILINE)
-        text = re.sub(r'\s*```$', '', text, flags=re.MULTILINE)
-        match = re.search(r'\{.*\}', text, re.DOTALL)
-        if match:
-            briefing = json.loads(match.group())
-    except json.JSONDecodeError as e:
-        print(f"  브리핑 JSON 파싱 실패: {e}")
-        briefing = {"market_summary": "JSON 파싱 실패"}
+        text = re.sub(r'```(?:json)?\s*', '', text)
+        # JSON 파싱 시도
+        try:
+            match = re.search(r'\{.*\}', text, re.DOTALL)
+            if match:
+                briefing = json.loads(match.group())
+        except json.JSONDecodeError:
+            # 폴백: 각 필드를 개별 정규식으로 추출
+            def extract_str(key):
+                m = re.search(rf'"{key}"\s*:\s*"(.*?)"(?=\s*[,}}])', text, re.DOTALL)
+                return m.group(1).replace('\n', ' ').strip() if m else ""
+            def extract_list(key):
+                m = re.search(rf'"{key}"\s*:\s*(\[.*?\])', text, re.DOTALL)
+                if not m: return []
+                try: return json.loads(m.group(1))
+                except: return []
+            briefing = {
+                "market_summary": extract_str("market_summary"),
+                "top_stocks": extract_list("top_stocks"),
+                "sector_outlook": extract_list("sector_outlook"),
+                "expert_consensus": extract_str("expert_consensus"),
+                "risk_alerts": extract_list("risk_alerts"),
+            }
+            print(f"  폴백 파싱 사용")
     except Exception as e:
         print(f"  브리핑 생성 실패: {e}")
         briefing = {"market_summary": "생성 실패"}
