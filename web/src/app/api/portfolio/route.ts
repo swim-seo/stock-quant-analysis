@@ -415,11 +415,15 @@ async function runSimulation() {
   const benchmarkMap = new Map<string, number>();
   for (const q of benchmarkQuotes) benchmarkMap.set(q.date, q.close);
 
+  // benchmarkStart: tradingDates 첫 날과 가장 가까운 KOSPI 날짜의 종가 사용
   let benchmarkStart = 0;
-  for (const d of tradingDates) {
-    const v = benchmarkMap.get(d);
-    if (v) { benchmarkStart = v; break; }
+  const sortedBenchDates = Array.from(benchmarkMap.keys()).sort();
+  const firstTradingDate = tradingDates[0];
+  for (const d of sortedBenchDates) {
+    if (d >= firstTradingDate) { benchmarkStart = benchmarkMap.get(d)!; break; }
   }
+  if (!benchmarkStart && sortedBenchDates.length)
+    benchmarkStart = benchmarkMap.get(sortedBenchDates.at(-1)!)!;
 
   if (!tradingDates.length || !benchmarkStart) {
     return { startDate: START_DATE, startCapital: START_CAPITAL, benchmark: { returnPct: 0 }, strategies: [] };
@@ -429,9 +433,13 @@ async function runSimulation() {
     STRATEGIES.map((st) => runStrategy(st, stocksData, quoteMap, tradingDates, benchmarkMap, benchmarkStart, sentimentMaps.ytMap, sentimentMaps.newsMap))
   );
 
-  // Benchmark return
+  // Benchmark return: 마지막 거래일 이전 가장 가까운 KOSPI 종가
   const lastDate = tradingDates.at(-1)!;
-  const bLast = benchmarkMap.get(lastDate) ?? benchmarkStart;
+  let bLast = benchmarkStart;
+  for (const d of sortedBenchDates) {
+    if (d <= lastDate) bLast = benchmarkMap.get(d)!;
+    else break;
+  }
   const benchmarkReturnPct = Math.round(((bLast - benchmarkStart) / benchmarkStart) * 10000) / 100;
 
   return { startDate: START_DATE, startCapital: START_CAPITAL, benchmark: { returnPct: benchmarkReturnPct }, strategies };
