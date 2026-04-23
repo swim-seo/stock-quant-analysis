@@ -7,6 +7,7 @@ export async function getLatestInsights(
   const { data, error } = await supabase
     .from("youtube_insights")
     .select("*")
+    .neq("summary", "파싱 실패")
     .order("processed_at", { ascending: false })
     .limit(limit);
 
@@ -18,17 +19,32 @@ export async function searchByStock(
   stockName: string,
   limit: number = 10
 ): Promise<YoutubeInsight[]> {
-  const { data, error } = await supabase
+  // key_stocks 배열에 직접 포함된 것 우선 조회 (강한 매칭)
+  const { data: primary } = await supabase
     .from("youtube_insights")
     .select("*")
-    .or(
-      `key_stocks.cs.{${stockName}},title.ilike.%${stockName}%,summary.ilike.%${stockName}%`
-    )
-    .order("processed_at", { ascending: false })
+    .neq("summary", "파싱 실패")
+    .contains("key_stocks", [stockName])
+    .order("upload_date", { ascending: false, nullsFirst: false })
     .limit(limit);
 
-  if (error) throw error;
-  return data || [];
+  if ((primary?.length ?? 0) >= limit) return primary!;
+
+  // 부족하면 제목 매칭 추가 (약한 매칭)
+  const { data: secondary } = await supabase
+    .from("youtube_insights")
+    .select("*")
+    .neq("summary", "파싱 실패")
+    .ilike("title", `%${stockName}%`)
+    .order("upload_date", { ascending: false, nullsFirst: false })
+    .limit(limit - (primary?.length ?? 0));
+
+  const seen = new Set((primary || []).map((r) => r.video_id));
+  const merged = [
+    ...(primary || []),
+    ...(secondary || []).filter((r) => !seen.has(r.video_id)),
+  ];
+  return merged.slice(0, limit);
 }
 
 export async function getMarketSentiment(): Promise<MarketSentiment> {

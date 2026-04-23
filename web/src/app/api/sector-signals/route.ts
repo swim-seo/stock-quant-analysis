@@ -2,10 +2,10 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import YahooFinance from "yahoo-finance2";
 import { STOCKS, SECTORS } from "@/lib/stocks";
-import type { ComponentScore, RotationPhase, SectorFearGreed } from "@/lib/market-types";
+import type { ComponentScore, RotationPhase, SectorFearGreed, SectorFundamental, EntryGrade } from "@/lib/market-types";
 
 export { type ComponentScore, type RotationPhase, type SectorFearGreed };
-export const dynamic = "force-dynamic";
+export const revalidate = 600;
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -207,7 +207,7 @@ async function getInvestorFlowBySector() {
     .from("stock_news")
     .select("stock_code,investor_data")
     .order("collected_at", { ascending: false })
-    .limit(60);
+    .limit(300);
 
   const stockFlow = new Map<string, { foreign5d: number; institution5d: number }>();
   for (const row of data ?? []) {
@@ -235,6 +235,88 @@ async function getInvestorFlowBySector() {
   return sectorMap;
 }
 
+// ── Fundamental data ──────────────────────────────────────────────────────────
+
+async function fetchFundamental(ticker: string): Promise<SectorFundamental> {
+  try {
+    const yf = new YahooFinance();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result: any = await yf.quoteSummary(ticker, {
+      modules: ["defaultKeyStatistics", "financialData"],
+    });
+    const per: number | null = result?.defaultKeyStatistics?.trailingPE ?? null;
+    const pbr: number | null = result?.defaultKeyStatistics?.priceToBook ?? null;
+    const recMean: number | null = result?.financialData?.recommendationMean ?? null;
+
+    const analystLabel =
+      recMean == null ? "정보없음"
+      : recMean <= 1.5 ? "강력매수"
+      : recMean <= 2.5 ? "매수"
+      : recMean <= 3.5 ? "중립"
+      : recMean <= 4.5 ? "매도"
+      : "강력매도";
+
+    const valuationLabel =
+      per == null ? "정보없음"
+      : per < 10 ? "저평가"
+      : per < 20 ? "적정"
+      : per < 30 ? "다소고평가"
+      : "고평가";
+
+    return { avgPER: per ? Math.round(per * 10) / 10 : null, avgPBR: pbr ? Math.round(pbr * 10) / 10 : null, avgAnalystRating: recMean ? Math.round(recMean * 10) / 10 : null, analystLabel, valuationLabel };
+  } catch {
+    return { avgPER: null, avgPBR: null, avgAnalystRating: null, analystLabel: "정보없음", valuationLabel: "정보없음" };
+  }
+}
+
+// ── Entry grade ───────────────────────────────────────────────────────────────
+
+function calcEntryGrade(
+  phase: RotationPhase,
+  avgRsi: number,
+  flow: { foreign5d: number; institution5d: number },
+  fund: SectorFundamental
+): { grade: EntryGrade; reason: string } {
+  let score = 0;
+  const pos: string[] = [];
+  const neg: string[] = [];
+
+  if (phase === "진입기") { score += 2; pos.push("진입기"); }
+  else if (phase === "상승기") score += 1;
+  else if (phase === "과열") { score -= 1; neg.push("과열"); }
+  else if (phase === "하락기" || phase === "침체") { score -= 2; neg.push(phase); }
+
+  if (avgRsi > 70) { score -= 1; neg.push(`RSI ${avgRsi.toFixed(0)} 과매수`); }
+  else if (avgRsi >= 40 && avgRsi <= 65) score += 1;
+
+  const bothNeg = flow.foreign5d < 0 && flow.institution5d < 0;
+  const bothPos = flow.foreign5d > 0 && flow.institution5d > 0;
+  if (bothNeg) { score -= 1; neg.push("수급 이탈"); }
+  else if (bothPos) { score += 1; pos.push("수급 유입"); }
+
+  if (fund.avgPER != null) {
+    if (fund.avgPER < 15) { score += 1; pos.push(`PER ${fund.avgPER} 저평가`); }
+    else if (fund.avgPER > 25) { score -= 1; neg.push(`PER ${fund.avgPER} 고평가`); }
+  }
+  if (fund.avgAnalystRating != null) {
+    if (fund.avgAnalystRating <= 2) { score += 1; pos.push(`애널 ${fund.analystLabel}`); }
+    else if (fund.avgAnalystRating >= 3.5) { score -= 1; neg.push(`애널 ${fund.analystLabel}`); }
+  }
+
+  const grade: EntryGrade =
+    score >= 3 ? "매력적"
+    : score >= 1 ? "적정"
+    : score >= -1 ? "주의"
+    : "위험";
+
+  const reason =
+    grade === "매력적" || grade === "적정"
+      ? (pos.slice(0, 2).join(" · ") || (phase === "상승기" ? "상승 추세 유효" : "조건 충족"))
+      : (neg.slice(0, 2).join(" · ") || "조건 미충족");
+
+  return { grade, reason };
+}
+
 function toLabel(n: number): SectorFearGreed["label"] {
   if (n >= 80) return "극도의 탐욕";
   if (n >= 60) return "탐욕";
@@ -251,11 +333,20 @@ function toSignal(n: number): SectorFearGreed["signal"] {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 export async function GET() {
-  const [allData, ytMap, invMap] = await Promise.all([
+  // One representative ticker per sector (first in STOCKS list)
+  const repTickers = new Map<string, string>();
+  for (const s of STOCKS.filter(s => s.sector !== "지수")) {
+    if (!repTickers.has(s.sector)) repTickers.set(s.sector, s.ticker);
+  }
+
+  const [allData, ytMap, invMap, fundEntries] = await Promise.all([
     Promise.all(STOCKS.filter(s => s.sector !== "지수").map(s => fetchStockData(s.ticker, s.name, s.sector))),
     getYtBySector(),
     getInvestorFlowBySector(),
+    Promise.all(Array.from(repTickers.entries()).map(async ([sec, ticker]) => [sec, await fetchFundamental(ticker)] as [string, SectorFundamental])),
   ]);
+
+  const fundMap = new Map<string, SectorFundamental>(fundEntries);
 
   const valid = allData.filter((d): d is StockData => d !== null);
 
@@ -286,6 +377,8 @@ export async function GET() {
 
     const total = weeklyTrend[4]; // T-0
     const { phase, note } = classifyRotation(weeklyTrend);
+    const fundamental = fundMap.get(sector) ?? { avgPER: null, avgPBR: null, avgAnalystRating: null, analystLabel: "정보없음", valuationLabel: "정보없음" };
+    const { grade: entryGrade, reason: entryReason } = calcEntryGrade(phase, avgRsi, invMap.get(sector) ?? { foreign5d: 0, institution5d: 0 }, fundamental);
 
     const topStocks = stocks
       .map((s, i) => ({
@@ -315,6 +408,9 @@ export async function GET() {
       },
       topStocks,
       investorFlow: invMap.get(sector) ?? { foreign5d: 0, institution5d: 0 },
+      fundamental,
+      entryGrade,
+      entryReason,
     };
   });
 

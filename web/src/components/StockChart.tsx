@@ -142,11 +142,11 @@ export function StockChart({
     const bodyW = Math.max(candleW * 0.6, 1);
 
     // BG
-    ctx.fillStyle = "#0a0a0f";
+    ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, W, H);
 
     // Grid
-    ctx.strokeStyle = "#14141f";
+    ctx.strokeStyle = "#e5e8eb";
     ctx.lineWidth = 0.5;
     for (let i = 0; i <= 4; i++) {
       const y = (chartH / 4) * i;
@@ -155,7 +155,7 @@ export function StockChart({
       ctx.lineTo(W - pad.right, y);
       ctx.stroke();
       const price = maxP - (pRange / 4) * i;
-      ctx.fillStyle = "#aaaaaa";
+      ctx.fillStyle = "#8b95a1";
       ctx.font = "10px monospace";
       ctx.textAlign = "right";
       ctx.fillText(fmtKRW(price), pad.left - 6, y + 4);
@@ -251,7 +251,7 @@ export function StockChart({
     drawMA(ma60, "#a855f7", 1.2);
 
     // RSI grid
-    ctx.strokeStyle = "#14141f";
+    ctx.strokeStyle = "#e5e8eb";
     ctx.lineWidth = 0.5;
     [30, 50, 70].forEach((v) => {
       const y = rsiTop + ((100 - v) / 100) * rsiH;
@@ -259,7 +259,7 @@ export function StockChart({
       ctx.moveTo(pad.left, y);
       ctx.lineTo(W - pad.right, y);
       ctx.stroke();
-      ctx.fillStyle = "#aaaaaa";
+      ctx.fillStyle = "#8b95a1";
       ctx.font = "9px monospace";
       ctx.textAlign = "right";
       ctx.fillText(v.toString(), pad.left - 6, y + 3);
@@ -274,7 +274,7 @@ export function StockChart({
     ctx.fillRect(pad.left, y30, W - pad.left - pad.right, rsiTop + rsiH - y30);
 
     // RSI line
-    ctx.strokeStyle = "#ffd700";
+    ctx.strokeStyle = "#f5a623";
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     let rsiStarted = false;
@@ -299,7 +299,7 @@ export function StockChart({
     });
 
     // Labels
-    ctx.fillStyle = "#aaaaaa";
+    ctx.fillStyle = "#8b95a1";
     ctx.font = "9px monospace";
     ctx.textAlign = "left";
     ctx.fillText("RSI", pad.left + 4, rsiTop + 10);
@@ -316,13 +316,14 @@ export function StockChart({
       const lx = pad.left + 4 + i * 62;
       ctx.fillStyle = c;
       ctx.fillRect(lx, ly - 5, 10, 3);
+      ctx.fillStyle = "#4e5968";
       ctx.fillText(l, lx + 14, ly);
     });
 
     // Hover crosshair
     if (hoveredIdx !== null && hoveredIdx >= 0 && hoveredIdx < quotes.length) {
       const x = pad.left + candleW * hoveredIdx + candleW / 2;
-      ctx.strokeStyle = "rgba(240,165,0,0.3)";
+      ctx.strokeStyle = "rgba(49,130,246,0.4)";
       ctx.lineWidth = 0.5;
       ctx.setLineDash([3, 3]);
       ctx.beginPath();
@@ -352,7 +353,7 @@ export function StockChart({
   return (
     <div
       className="rounded-xl p-5"
-      style={{ background: "#0f0f17", border: "1px solid #2a2a3a" }}
+      style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow)" }}
     >
       {/* 기간 + BB 토글 */}
       <div className="flex items-center justify-between mb-3">
@@ -361,11 +362,11 @@ export function StockChart({
             <button
               key={p}
               onClick={() => onPeriodChange(p)}
-              className="px-3 py-1 text-[11px] rounded-full border transition-colors"
+              className="px-3 py-1 text-[12px] rounded-full border transition-colors font-medium"
               style={{
-                borderColor: period === p ? "#ffd700" : "#2a2a3a",
-                color: period === p ? "#ffd700" : "#aaaaaa",
-                background: period === p ? "rgba(240,165,0,0.08)" : "transparent",
+                borderColor: period === p ? "#3182f6" : "var(--border)",
+                color: period === p ? "#3182f6" : "var(--text-3)",
+                background: period === p ? "rgba(49,130,246,0.08)" : "transparent",
               }}
             >
               {p}
@@ -374,10 +375,10 @@ export function StockChart({
         </div>
         <button
           onClick={() => setShowBB(!showBB)}
-          className="px-3 py-1 text-[11px] rounded-full border transition-colors"
+          className="px-3 py-1 text-[12px] rounded-full border transition-colors font-medium"
           style={{
-            borderColor: showBB ? "#a855f7" : "#2a2a3a",
-            color: showBB ? "#a855f7" : "#aaaaaa",
+            borderColor: showBB ? "#a855f7" : "var(--border)",
+            color: showBB ? "#a855f7" : "var(--text-3)",
             background: showBB ? "rgba(168,85,247,0.08)" : "transparent",
           }}
         >
@@ -389,10 +390,10 @@ export function StockChart({
       <div className="h-4 mb-1">
         {hovered && (
           <div
-            className="flex gap-3 text-[10px]"
-            style={{ fontFamily: "monospace", color: "#aaaaaa" }}
+            className="flex gap-3 text-[11px]"
+            style={{ fontFamily: "monospace", color: "var(--text-3)" }}
           >
-            <span style={{ color: "#ffd700" }}>{hovered.date}</span>
+            <span style={{ color: "#3182f6" }}>{hovered.date}</span>
             <span>
               O {fmtKRW(hovered.open)} H {fmtKRW(hovered.high)} L{" "}
               {fmtKRW(hovered.low)} C {fmtKRW(hovered.close)}
@@ -406,7 +407,7 @@ export function StockChart({
       <canvas
         ref={canvasRef}
         className="w-full rounded-lg cursor-crosshair"
-        style={{ height: 520, background: "#0a0a0f" }}
+        style={{ height: 520, background: "#ffffff" }}
       />
     </div>
   );

@@ -1,5 +1,15 @@
 // Shared types used by both API routes and client components
 
+export interface SectorFundamental {
+  avgPER: number | null;
+  avgPBR: number | null;
+  avgAnalystRating: number | null;
+  analystLabel: string;
+  valuationLabel: string;
+}
+
+export type EntryGrade = "매력적" | "적정" | "주의" | "위험";
+
 export interface StockHeat {
   ticker: string;
   name: string;
@@ -43,4 +53,7 @@ export interface SectorFearGreed {
   };
   topStocks: { name: string; ticker: string; changePct: number; rsi: number }[];
   investorFlow: { foreign5d: number; institution5d: number };
+  fundamental: SectorFundamental;
+  entryGrade: EntryGrade;
+  entryReason: string;
 }

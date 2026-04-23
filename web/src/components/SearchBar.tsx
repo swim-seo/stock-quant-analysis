@@ -14,7 +14,11 @@ export function SearchBar() {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    if (query.trim()) router.push(`/stock?ticker=${encodeURIComponent(query.trim())}`);
+    if (query.trim()) {
+      router.push(`/stock?ticker=${encodeURIComponent(query.trim())}`);
+    } else {
+      router.push("/search");
+    }
   };
 
   return (
@@ -26,6 +30,10 @@ export function SearchBar() {
             {name}
           </button>
         ))}
+        <button onClick={() => router.push("/search")}
+          style={{ padding: "7px 14px", borderRadius: 20, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text-2)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+          📋 전체종목
+        </button>
       </div>
       <form onSubmit={handleSearch}>
         <input type="text" value={query} onChange={e => setQuery(e.target.value)}

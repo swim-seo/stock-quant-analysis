@@ -33,7 +33,7 @@ except Exception:
 try:
     import chromadb
     from sentence_transformers import SentenceTransformer
-    _chroma_client = chromadb.PersistentClient(path="./chroma_db")
+    _chroma_client = chromadb.PersistentClient(path=str(Path(__file__).parent / "chroma_db"))
     _collection = _chroma_client.get_or_create_collection("youtube_insights")
     _embedder = SentenceTransformer("snunlp/KR-SBERT-V40K-klueNLI-augSTS")
     CHROMA_AVAILABLE = True
@@ -293,6 +293,61 @@ def is_already_processed(video_id: str) -> bool:
     return insight_file.exists()
 
 
+_INSIGHT_DEFAULTS = {
+    "summary": "파싱 실패",
+    "market_sentiment": "중립",
+    "key_stocks": [],
+    "key_sectors": [],
+    "investment_signals": [],
+    "risk_factors": [],
+    "keywords": [],
+    "trading_type": "스윙",
+    "urgency": "이번주",
+}
+
+
+def _extract_json_from_text(text: str) -> dict | None:
+    """Claude 응답에서 JSON 객체 추출. 중괄호 depth 추적으로 올바른 범위 탐색."""
+    # 직접 파싱 시도 (모델이 JSON만 반환한 경우)
+    stripped = text.strip()
+    if stripped.startswith('{'):
+        try:
+            return json.loads(stripped)
+        except json.JSONDecodeError:
+            pass
+
+    # 첫 { 위치부터 depth 추적하여 매칭되는 } 탐색
+    start = text.find('{')
+    if start == -1:
+        return None
+    depth = 0
+    in_string = False
+    escape_next = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if escape_next:
+            escape_next = False
+            continue
+        if ch == '\\' and in_string:
+            escape_next = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == '{':
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 0:
+                try:
+                    return json.loads(text[start:i + 1])
+                except json.JSONDecodeError:
+                    return None
+    return None
+
+
 def analyze_with_claude(title: str, transcript: str, channel: str, trading_focus: str = "both") -> dict:
     """Claude API로 투자 인사이트 추출. trading_focus에 따라 분석 관점 조정."""
     client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
@@ -315,9 +370,9 @@ def analyze_with_claude(title: str, transcript: str, channel: str, trading_focus
 {focus_instruction}
 
 스크립트:
-{transcript[:8000]}
+{transcript[:12000]}
 
-다음 항목을 JSON 형식으로 추출해주세요:
+다음 항목을 JSON 형식으로 추출해주세요. **반드시 JSON만 출력하고, 설명 텍스트는 절대 포함하지 마세요.**
 
 1. summary: 영상 핵심 내용 3줄 요약
 2. market_sentiment: 시장 전망 ("긍정"/"중립"/"부정" 중 하나)
@@ -335,23 +390,29 @@ def analyze_with_claude(title: str, transcript: str, channel: str, trading_focus
    - 이번주: 이번주 내 주목할 이슈/종목 언급 시
    - 장기: 중장기 관점의 종목/섹터 언급 시
 
-JSON만 출력하세요."""
+출력 형식: {{"summary": "...", "market_sentiment": "...", ...}} 형태의 JSON만 출력."""
 
     message = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=1024,
-        messages=[{"role": "user", "content": prompt}],
+        max_tokens=1500,
+        messages=[
+            {"role": "user", "content": prompt},
+        ],
     )
 
     try:
         content = message.content[0].text
-        json_match = re.search(r'\{.*\}', content, re.DOTALL)
-        if json_match:
-            return json.loads(json_match.group())
-    except Exception:
-        pass
+        result = _extract_json_from_text(content)
+        if result:
+            for key, default in _INSIGHT_DEFAULTS.items():
+                if key not in result:
+                    result[key] = default
+            return result
+        print(f"  [WARN] JSON 파싱 실패 — 응답 앞부분: {content[:200]}", file=sys.stderr)
+    except Exception as e:
+        print(f"  [WARN] 분석 오류 ({type(e).__name__}): {e}", file=sys.stderr)
 
-    return {"summary": "파싱 실패", "market_sentiment": "중립", "trading_type": "스윙", "urgency": "이번주"}
+    return dict(_INSIGHT_DEFAULTS)
 
 
 def save_to_supabase(video_id: str, title: str, channel: str, url: str,

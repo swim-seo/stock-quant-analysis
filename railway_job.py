@@ -52,20 +52,24 @@ def sb_post(table, data, on_conflict=None):
 WATCH_STOCKS = {
     # 반도체
     "삼성전자": "005930", "SK하이닉스": "000660", "한미반도체": "042700",
+    "리노공업": "058470", "DB하이텍": "000990",
     # 2차전지/에너지
     "LG에너지솔루션": "373220", "삼성SDI": "006400", "에코프로비엠": "247540",
     # 바이오
     "삼성바이오로직스": "207940", "셀트리온": "068270",
+    "유한양행": "000100", "HLB": "028300",
     # 자동차
     "현대차": "005380", "기아": "000270",
     # IT/플랫폼
     "NAVER": "035420", "카카오": "035720",
+    "카카오뱅크": "323410", "크래프톤": "259960",
     # 금융
-    "KB금융": "105560", "신한지주": "055550",
+    "KB금융": "105560", "신한지주": "055550", "메리츠금융지주": "138040",
     # 소재/산업재
     "LG전자": "066570", "삼성물산": "028260",
+    "아모레퍼시픽": "090430", "CJ제일제당": "097950",
     # 조선
-    "HD한국조선해양": "009540", "삼성중공업": "010140",
+    "HD한국조선해양": "009540", "삼성중공업": "010140", "현대미포조선": "010620",
     # 방산
     "한화에어로스페이스": "012450", "LIG넥스원": "079550",
     # 원자력
@@ -327,11 +331,125 @@ def generate_briefing():
         "expert_consensus": briefing.get("expert_consensus", ""),
         "risk_alerts": json.dumps(briefing.get("risk_alerts", []), ensure_ascii=False),
         "investor_flow": json.dumps(investor_flow, ensure_ascii=False),
-        "raw_data": json.dumps({"market": market}, ensure_ascii=False),
+        "raw_data": json.dumps({"market": market, "generated_at": datetime.now().isoformat()}, ensure_ascii=False),
     }, on_conflict="briefing_date")
 
     print(f"  브리핑 저장 완료")
     print(f"  요약: {briefing.get('market_summary', '')[:100]}...")
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# STEP 4: 예측 로그 저장 (Option B 실시간 적중률)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def _calc_rsi(closes, period=14):
+    if len(closes) < period + 1:
+        return 50.0
+    gains, losses = [], []
+    for i in range(1, period + 1):
+        diff = closes[i] - closes[i - 1]
+        gains.append(max(diff, 0))
+        losses.append(max(-diff, 0))
+    avg_gain = sum(gains) / period
+    avg_loss = sum(losses) / period
+    for i in range(period + 1, len(closes)):
+        diff = closes[i] - closes[i - 1]
+        avg_gain = (avg_gain * (period - 1) + max(diff, 0)) / period
+        avg_loss = (avg_loss * (period - 1) + max(-diff, 0)) / period
+    if avg_loss == 0:
+        return 100.0
+    return 100 - 100 / (1 + avg_gain / avg_loss)
+
+
+def _prediction_score(closes):
+    """같은 로직을 Python으로 (TypeScript predictionScore 미러)"""
+    n = len(closes) - 1
+    if n < 20:
+        return 0.5
+    rsi = _calc_rsi(closes)
+    m5 = sum(closes[max(n - 4, 0):n + 1]) / min(5, n + 1)
+    m20 = sum(closes[max(n - 19, 0):n + 1]) / min(20, n + 1)
+    score = 0.5
+    if rsi < 30:   score += 0.12
+    elif rsi < 40: score += 0.06
+    elif rsi > 70: score -= 0.12
+    elif rsi > 60: score -= 0.04
+    score += 0.06 if m5 > m20 else -0.06
+    ret5 = (closes[n] - closes[max(n - 5, 0)]) / closes[max(n - 5, 0)]
+    score += ret5 * 0.5
+    return max(0.15, min(0.85, score))
+
+
+def sb_patch(table, match_params, data):
+    """Supabase REST PATCH (부분 업데이트)"""
+    query = "&".join(f"{k}=eq.{v}" for k, v in match_params.items())
+    url = f"{SUPABASE_URL}/rest/v1/{table}?{query}"
+    headers = {**SB_HEADERS, "Prefer": "return=minimal"}
+    body = json.dumps(data).encode("utf-8")
+    req = urllib.request.Request(url, data=body, headers=headers, method="PATCH")
+    try:
+        urllib.request.urlopen(req)
+    except Exception as e:
+        print(f"  PATCH 실패: {e}")
+
+
+def save_predictions():
+    """오전 수집 후 오늘 예측 저장 + 어제 결과 업데이트"""
+    print("\n[예측 로그 저장]")
+    try:
+        import yfinance as yf
+    except ImportError:
+        print("  yfinance 없음, 스킵")
+        return
+
+    today = date.today().isoformat()
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+
+    for name, code in WATCH_STOCKS.items():
+        ticker_sym = f"{code}.KS" if int(code) >= 200000 or len(code) == 6 and code[0] in "0123456789" else f"{code}.KQ"
+        # 코스피/코스닥 구분은 단순하게: 6자리 코드 중 일부 코스닥은 .KQ
+        # 간단히: 000-099 코스닥, 100+ 혼재 → KS로 기본, 실패시 KQ
+        try:
+            closes = []
+            for suffix in [".KS", ".KQ"]:
+                hist = yf.Ticker(f"{code}{suffix}").history(period="3mo")
+                if not hist.empty:
+                    closes = hist["Close"].tolist()
+                    ticker_sym = f"{code}{suffix}"
+                    break
+            if len(closes) < 21:
+                continue
+
+            prob = _prediction_score(closes)
+            predicted_up = prob >= 0.5
+
+            # 오늘 예측 저장
+            sb_post("prediction_log", {
+                "date": today,
+                "ticker": ticker_sym,
+                "predicted_up": predicted_up,
+                "probability": round(prob, 4),
+            }, on_conflict="date,ticker")
+
+            # 어제 예측의 actual_up + correct 업데이트
+            yesterday_rows = sb_get("prediction_log",
+                f"date=eq.{yesterday}&ticker=eq.{ticker_sym}&select=predicted_up")
+            if yesterday_rows:
+                actual_up = closes[-1] > closes[-2] if len(closes) >= 2 else None
+                if actual_up is not None:
+                    sb_patch("prediction_log",
+                        {"date": yesterday, "ticker": ticker_sym},
+                        {
+                            "actual_up": actual_up,
+                            "correct": yesterday_rows[0]["predicted_up"] == actual_up,
+                        }
+                    )
+
+        except Exception as e:
+            print(f"  {name} 예측 실패: {e}")
+        time.sleep(0.3)
+
+    print("  예측 로그 저장 완료")
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -349,6 +467,14 @@ def auto_detect_mode():
         return "afternoon"
 
 
+def _run_theme_scanner():
+    try:
+        from theme_scanner import run as theme_run
+        theme_run()
+    except Exception as e:
+        print(f"  [테마 스캐너 오류] {e}", file=sys.stderr)
+
+
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else auto_detect_mode()
     print(f"{'='*50}")
@@ -360,6 +486,8 @@ def main():
         collect_news()
         collect_youtube(collect_time="morning")
         generate_briefing()
+        save_predictions()
+        _run_theme_scanner()
 
     elif mode == "afternoon":
         collect_news()
@@ -370,6 +498,7 @@ def main():
         collect_news()
         collect_youtube()
         generate_briefing()
+        _run_theme_scanner()
 
     print(f"\n{'='*50}")
     print(f"  완료! {datetime.now().strftime('%H:%M:%S')}")

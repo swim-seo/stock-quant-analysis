@@ -256,6 +256,7 @@ def main():
                 "market": market_data,
                 "youtube_count": len(youtube),
                 "news_count": len(news),
+                "generated_at": datetime.now().isoformat(),
             }, ensure_ascii=False),
         }
         sb_upsert("morning_briefing", row)

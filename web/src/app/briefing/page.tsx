@@ -24,6 +24,8 @@ interface Briefing {
   expert_consensus: string;
   risk_alerts: string | string[];
   investor_flow: string | Record<string, { foreign_5d: number; institution_5d: number }>;
+  latest_insight_at: string | null;
+  generated_at: string | null;
 }
 
 function parse<T>(val: string | T): T {
@@ -34,24 +36,18 @@ function parse<T>(val: string | T): T {
 }
 
 function SignalBadge({ signal }: { signal: string }) {
-  const color = signal === "매수관심" ? "#00ff88" : signal === "주의" ? "#ff4444" : "#ffd700";
+  const color = signal === "매수관심" ? "#00b493" : signal === "주의" ? "#f04452" : "#f5a623";
   return (
-    <span
-      className="text-[11px] font-bold px-2 py-0.5 rounded-full"
-      style={{ color, background: `${color}15`, border: `1px solid ${color}40` }}
-    >
+    <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 6, color, background: `${color}18` }}>
       {signal}
     </span>
   );
 }
 
 function OutlookBadge({ outlook }: { outlook: string }) {
-  const color = outlook === "긍정" ? "#00ff88" : outlook === "부정" ? "#ff4444" : "#ffd700";
+  const color = outlook === "긍정" ? "#00b493" : outlook === "부정" ? "#f04452" : "#f5a623";
   return (
-    <span
-      className="text-[11px] font-bold px-2 py-0.5 rounded-full"
-      style={{ color, background: `${color}15` }}
-    >
+    <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 6, color, background: `${color}18` }}>
       {outlook}
     </span>
   );
@@ -71,12 +67,12 @@ export default function BriefingPage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen">
-        <div className="max-w-4xl mx-auto p-6">
-          <div className="animate-pulse space-y-6">
-            <div className="h-8 bg-[#2a2a3a] rounded w-1/3" />
-            <div className="h-40 bg-[#2a2a3a] rounded" />
-            <div className="h-32 bg-[#2a2a3a] rounded" />
+      <main style={{ minHeight: "100vh", background: "var(--bg)" }}>
+        <div style={{ maxWidth: 900, margin: "0 auto", padding: "24px" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {[...Array(3)].map((_, i) => (
+              <div key={i} style={{ height: i === 0 ? 40 : 120, background: "var(--border)", borderRadius: 16 }} className="animate-pulse" />
+            ))}
           </div>
         </div>
       </main>
@@ -85,10 +81,10 @@ export default function BriefingPage() {
 
   if (!briefing) {
     return (
-      <main className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-lg text-[#aaaaaa] mb-4">아직 브리핑이 생성되지 않았습니다.</p>
-          <Link href="/" className="text-sm text-[#ffd700] hover:underline">← 대시보드로</Link>
+      <main style={{ minHeight: "100vh", background: "var(--bg)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ textAlign: "center" }}>
+          <p style={{ fontSize: 15, color: "var(--text-3)", marginBottom: 16 }}>아직 브리핑이 생성되지 않았습니다.</p>
+          <Link href="/" style={{ fontSize: 14, color: "var(--blue)" }}>← 대시보드로</Link>
         </div>
       </main>
     );
@@ -100,57 +96,74 @@ export default function BriefingPage() {
   const investorFlow = parse<Record<string, { foreign_5d: number; institution_5d: number }>>(briefing.investor_flow);
 
   return (
-    <main className="min-h-screen">
+    <main style={{ minHeight: "100vh", background: "var(--bg)" }}>
       {/* 헤더 */}
-      <header className="border-b border-[#2a2a3a] px-6 py-4">
-        <div className="max-w-4xl mx-auto flex items-center justify-between">
-          <Link href="/" className="text-sm text-[#aaaaaa] hover:text-white transition-colors">
-            ← 대시보드
-          </Link>
-          <span className="text-xs text-[#aaaaaa]">{briefing.briefing_date}</span>
+      <header style={{ background: "#fff", borderBottom: "1px solid var(--border)", padding: "16px 24px" }}>
+        <div style={{ maxWidth: 900, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <Link href="/" style={{ fontSize: 14, color: "var(--text-3)" }}>← 대시보드</Link>
+          <span style={{ fontSize: 12, color: "var(--text-3)" }}>{briefing.briefing_date}</span>
         </div>
       </header>
 
-      <div className="max-w-4xl mx-auto p-6 space-y-6">
+      <div style={{ maxWidth: 900, margin: "0 auto", padding: "24px", display: "flex", flexDirection: "column", gap: 20 }}>
+
         {/* 타이틀 */}
-        <div>
-          <p className="text-[11px] tracking-[3px] text-[#ffd700] font-bold mb-2">MORNING BRIEFING</p>
-          <h1 className="text-2xl font-bold text-white">오늘의 시장 브리핑</h1>
-          <p className="text-sm text-[#aaaaaa] mt-1">{briefing.briefing_date} 기준</p>
+        <div style={{ background: "#fff", borderRadius: 16, padding: "20px 24px", boxShadow: "var(--shadow)" }}>
+          <p style={{ fontSize: 11, letterSpacing: 3, color: "var(--blue)", fontWeight: 700, marginBottom: 4 }}>MORNING BRIEFING</p>
+          <h1 style={{ fontSize: 22, fontWeight: 800, color: "var(--text-1)", marginBottom: 4 }}>오늘의 시장 브리핑</h1>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 13, color: "var(--text-3)" }}>{briefing.briefing_date} 기준</span>
+            {briefing.generated_at && (
+              <span style={{ fontSize: 12, color: "#00b493" }}>
+                · 생성{" "}
+                {new Date(briefing.generated_at).toLocaleString("ko-KR", {
+                  month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit",
+                })}
+              </span>
+            )}
+            {briefing.latest_insight_at && (
+              <span style={{ fontSize: 12, color: "var(--text-3)" }}>
+                · 최근 영상{" "}
+                {new Date(briefing.latest_insight_at).toLocaleString("ko-KR", {
+                  month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit",
+                })}
+              </span>
+            )}
+          </div>
         </div>
 
         {/* 시장 요약 */}
-        <div className="bg-[#111118] border border-[#2a2a3a] rounded-xl p-6">
-          <h2 className="text-xs font-semibold text-[#aaaaaa] tracking-widest mb-3">MARKET SUMMARY</h2>
-          <p className="text-sm text-[#e0e0e0] leading-relaxed whitespace-pre-line">
+        <div style={{ background: "#fff", borderRadius: 16, padding: "20px 24px", boxShadow: "var(--shadow)" }}>
+          <p style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", letterSpacing: 2, marginBottom: 12 }}>MARKET SUMMARY</p>
+          <p style={{ fontSize: 14, color: "var(--text-2)", lineHeight: 1.8, whiteSpace: "pre-line" }}>
             {briefing.market_summary}
           </p>
         </div>
 
         {/* 주목 종목 + 섹터 전망 */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+
           {/* 주목 종목 */}
-          <div className="bg-[#111118] border border-[#2a2a3a] rounded-xl p-6">
-            <h2 className="text-xs font-semibold text-[#aaaaaa] tracking-widest mb-4">TOP STOCKS</h2>
-            <div className="space-y-3">
+          <div style={{ background: "#fff", borderRadius: 16, padding: "20px 24px", boxShadow: "var(--shadow)" }}>
+            <p style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", letterSpacing: 2, marginBottom: 14 }}>TOP STOCKS</p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {Array.isArray(topStocks) && topStocks.map((stock, i) => (
                 <button
                   key={i}
                   onClick={() => router.push(`/stock?ticker=${encodeURIComponent(stock.name)}`)}
-                  className="w-full text-left rounded-lg p-3 hover:bg-[#1a1a2a] transition-colors"
-                  style={{ background: "#0a0a12" }}
+                  style={{ width: "100%", textAlign: "left", padding: "12px 14px", borderRadius: 12, border: "1px solid var(--border)", background: "var(--bg)", cursor: "pointer" }}
                 >
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-sm font-semibold text-white">{stock.name}</span>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: "var(--text-1)" }}>{stock.name}</span>
                     <SignalBadge signal={stock.signal} />
                   </div>
-                  <p className="text-xs text-[#aaaaaa]">{stock.reason}</p>
+                  <p style={{ fontSize: 12, color: "var(--text-3)", marginBottom: investorFlow[stock.name] ? 6 : 0 }}>{stock.reason}</p>
                   {investorFlow[stock.name] && (
-                    <div className="flex gap-3 mt-1.5 text-[11px]">
-                      <span style={{ color: investorFlow[stock.name].foreign_5d >= 0 ? "#ff4444" : "#4d9fff" }}>
+                    <div style={{ display: "flex", gap: 12 }}>
+                      <span style={{ fontSize: 11, color: investorFlow[stock.name].foreign_5d >= 0 ? "#f04452" : "var(--blue)" }}>
                         외인 {investorFlow[stock.name].foreign_5d >= 0 ? "+" : ""}{investorFlow[stock.name].foreign_5d.toLocaleString("ko-KR")}
                       </span>
-                      <span style={{ color: investorFlow[stock.name].institution_5d >= 0 ? "#ff4444" : "#4d9fff" }}>
+                      <span style={{ fontSize: 11, color: investorFlow[stock.name].institution_5d >= 0 ? "#f04452" : "var(--blue)" }}>
                         기관 {investorFlow[stock.name].institution_5d >= 0 ? "+" : ""}{investorFlow[stock.name].institution_5d.toLocaleString("ko-KR")}
                       </span>
                     </div>
@@ -161,16 +174,16 @@ export default function BriefingPage() {
           </div>
 
           {/* 섹터 전망 */}
-          <div className="bg-[#111118] border border-[#2a2a3a] rounded-xl p-6">
-            <h2 className="text-xs font-semibold text-[#aaaaaa] tracking-widest mb-4">SECTOR OUTLOOK</h2>
-            <div className="space-y-3">
+          <div style={{ background: "#fff", borderRadius: 16, padding: "20px 24px", boxShadow: "var(--shadow)" }}>
+            <p style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", letterSpacing: 2, marginBottom: 14 }}>SECTOR OUTLOOK</p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {Array.isArray(sectorOutlook) && sectorOutlook.map((sector, i) => (
-                <div key={i} className="rounded-lg p-3" style={{ background: "#0a0a12" }}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-sm font-semibold text-white">{sector.sector}</span>
+                <div key={i} style={{ padding: "12px 14px", borderRadius: 12, border: "1px solid var(--border)", background: "var(--bg)" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: "var(--text-1)" }}>{sector.sector}</span>
                     <OutlookBadge outlook={sector.outlook} />
                   </div>
-                  <p className="text-xs text-[#aaaaaa]">{sector.reason}</p>
+                  <p style={{ fontSize: 12, color: "var(--text-3)" }}>{sector.reason}</p>
                 </div>
               ))}
             </div>
@@ -178,22 +191,22 @@ export default function BriefingPage() {
         </div>
 
         {/* 전문가 종합 의견 */}
-        <div className="bg-[#111118] border border-[#2a2a3a] rounded-xl p-6">
-          <h2 className="text-xs font-semibold text-[#aaaaaa] tracking-widest mb-3">EXPERT CONSENSUS</h2>
-          <p className="text-sm text-[#e0e0e0] leading-relaxed whitespace-pre-line">
+        <div style={{ background: "#fff", borderRadius: 16, padding: "20px 24px", boxShadow: "var(--shadow)" }}>
+          <p style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", letterSpacing: 2, marginBottom: 12 }}>EXPERT CONSENSUS</p>
+          <p style={{ fontSize: 14, color: "var(--text-2)", lineHeight: 1.8, whiteSpace: "pre-line" }}>
             {briefing.expert_consensus}
           </p>
         </div>
 
         {/* 리스크 알림 */}
         {Array.isArray(riskAlerts) && riskAlerts.length > 0 && (
-          <div className="bg-[#111118] border border-[#ff444430] rounded-xl p-6">
-            <h2 className="text-xs font-semibold text-[#ff4444] tracking-widest mb-3">RISK ALERTS</h2>
-            <div className="space-y-2">
+          <div style={{ background: "#fff", borderRadius: 16, padding: "20px 24px", boxShadow: "var(--shadow)", borderLeft: "4px solid #f04452" }}>
+            <p style={{ fontSize: 11, fontWeight: 700, color: "#f04452", letterSpacing: 2, marginBottom: 12 }}>RISK ALERTS</p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {riskAlerts.map((risk, i) => (
-                <div key={i} className="flex items-start gap-2">
-                  <span className="text-sm">⚠️</span>
-                  <p className="text-sm text-[#e0e0e0]">{risk}</p>
+                <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                  <span style={{ fontSize: 14, flexShrink: 0 }}>⚠️</span>
+                  <p style={{ fontSize: 14, color: "var(--text-2)", lineHeight: 1.6 }}>{risk}</p>
                 </div>
               ))}
             </div>
@@ -201,7 +214,7 @@ export default function BriefingPage() {
         )}
 
         {/* 면책 */}
-        <p className="text-[11px] text-center text-[#aaaaaa] pb-4">
+        <p style={{ fontSize: 11, textAlign: "center", color: "var(--text-3)", paddingBottom: 16 }}>
           본 브리핑은 AI가 자동 생성한 참고자료이며, 투자 판단의 근거로 사용할 수 없습니다.
         </p>
       </div>

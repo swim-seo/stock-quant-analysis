@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import type { SectorFearGreed, RotationPhase } from "@/lib/market-types";
+import type { SectorFearGreed, RotationPhase, EntryGrade } from "@/lib/market-types";
 
 function scoreColor(n: number) {
   if (n >= 75) return "#f04452";
@@ -18,6 +18,13 @@ const PHASE_CFG: Record<RotationPhase, { color: string; bg: string; icon: string
   과열:  { color: "#f04452", bg: "#fff0f1", icon: "🔥" },
   하락기: { color: "#3182f6", bg: "#e8f3ff", icon: "📉" },
   침체:  { color: "#8b95a1", bg: "#f2f4f6", icon: "💤" },
+};
+
+const GRADE_CFG: Record<EntryGrade, { color: string; bg: string; icon: string }> = {
+  매력적: { color: "#00b493", bg: "#e5f9f4", icon: "🟢" },
+  적정:   { color: "#3182f6", bg: "#e8f3ff", icon: "🔵" },
+  주의:   { color: "#f5a623", bg: "#fff8e6", icon: "🟡" },
+  위험:   { color: "#f04452", bg: "#fff0f1", icon: "🔴" },
 };
 
 function formatFlow(n: number) {
@@ -173,11 +180,19 @@ function SectorCard({ s, expanded, setExpanded }: { s: SectorFearGreed; expanded
         onClick={() => setExpanded(isOpen ? null : s.sector)}>
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
           <div style={{ flex: 1, marginRight: 12 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
               <span style={{ fontSize: 17, fontWeight: 800, color: "var(--text-1)", letterSpacing: -0.3 }}>{s.sector}</span>
               <span style={{ fontSize: 13, fontWeight: 700, padding: "3px 10px", borderRadius: 20, color: cfg.color, background: cfg.bg }}>{cfg.icon} {s.rotationPhase}</span>
+              {s.entryGrade && (() => {
+                const gc = GRADE_CFG[s.entryGrade];
+                return <span style={{ fontSize: 13, fontWeight: 700, padding: "3px 10px", borderRadius: 20, color: gc.color, background: gc.bg }}>{gc.icon} {s.entryGrade}</span>;
+              })()}
             </div>
-            <p style={{ fontSize: 14, color: "var(--text-2)", marginBottom: 10, lineHeight: 1.4 }}>{s.rotationNote}</p>
+            <p style={{ fontSize: 14, color: "var(--text-2)", marginBottom: 6, lineHeight: 1.4 }}>{s.rotationNote}</p>
+            {s.entryReason && (() => {
+              const gc = GRADE_CFG[s.entryGrade];
+              return <p style={{ fontSize: 13, color: gc.color, fontWeight: 600, marginBottom: 10 }}>{s.entryReason}</p>;
+            })()}
             <GaugeBar score={s.total} />
             <div style={{ display: "flex", gap: 12, marginTop: 10, flexWrap: "wrap" }}>
               <span style={{ fontSize: 13, color: "var(--text-3)" }}>RSI <b style={{ color: "var(--text-2)" }}>{s.components.rsi.detail.replace("RSI ","")}</b></span>
@@ -233,6 +248,26 @@ function SectorCard({ s, expanded, setExpanded }: { s: SectorFearGreed; expanded
               <span style={{ color: "var(--text-2)" }}>기관 <b style={{ color: s.investorFlow.institution5d >= 0 ? "#f04452" : "#3182f6" }}>{formatFlow(s.investorFlow.institution5d)}</b></span>
             </div>
           </div>
+
+          {/* Fundamentals */}
+          {s.fundamental && (
+            <div>
+              <p style={{ fontSize: 13, fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>펀더멘털</p>
+              <div style={{ display: "flex", gap: 20, flexWrap: "wrap", fontSize: 14 }}>
+                <span style={{ color: "var(--text-2)" }}>
+                  PER <b style={{ color: "var(--text-1)" }}>{s.fundamental.avgPER != null ? s.fundamental.avgPER : "—"}</b>
+                  {s.fundamental.avgPER != null && <span style={{ fontSize: 12, color: s.fundamental.valuationLabel === "저평가" ? "#00b493" : s.fundamental.valuationLabel.includes("고평가") ? "#f04452" : "var(--text-3)", marginLeft: 4 }}>({s.fundamental.valuationLabel})</span>}
+                </span>
+                <span style={{ color: "var(--text-2)" }}>
+                  PBR <b style={{ color: "var(--text-1)" }}>{s.fundamental.avgPBR != null ? s.fundamental.avgPBR : "—"}</b>
+                </span>
+                <span style={{ color: "var(--text-2)" }}>
+                  애널리스트 <b style={{ color: s.fundamental.avgAnalystRating != null && s.fundamental.avgAnalystRating <= 2 ? "#00b493" : s.fundamental.avgAnalystRating != null && s.fundamental.avgAnalystRating >= 3.5 ? "#f04452" : "var(--text-1)" }}>{s.fundamental.analystLabel}</b>
+                  {s.fundamental.avgAnalystRating != null && <span style={{ fontSize: 12, color: "var(--text-3)", marginLeft: 4 }}>({s.fundamental.avgAnalystRating.toFixed(1)})</span>}
+                </span>
+              </div>
+            </div>
+          )}
 
           {/* Top stocks */}
           {s.topStocks.length > 0 && (
