@@ -14,7 +14,15 @@ import json
 import re
 import time
 import urllib.request
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
+
+KST = timezone(timedelta(hours=9))
+
+def today_kst() -> date:
+    return datetime.now(KST).date()
+
+def now_kst() -> datetime:
+    return datetime.now(KST)
 
 # Railway 환경변수
 SUPABASE_URL = os.environ["SUPABASE_URL"]
@@ -184,7 +192,7 @@ def collect_news():
         sb_post("stock_news", {
             "stock_code": code,
             "stock_name": name,
-            "collected_at": datetime.now().isoformat(),
+            "collected_at": now_kst().isoformat(),
             "articles": json.dumps(articles[:10], ensure_ascii=False),
             "analysis": json.dumps(analysis, ensure_ascii=False),
             "investor_data": json.dumps(investor[:10], ensure_ascii=False),
@@ -256,7 +264,7 @@ def generate_briefing():
     kospi = market.get("kospi", {})
     market_text = f"코스피: {kospi.get('close','?')} ({kospi.get('change_pct',0):+.2f}%)"
 
-    prompt = f"""한국 주식 시장 전문 애널리스트로서 오늘({date.today()}) 아침 브리핑을 작성하세요.
+    prompt = f"""한국 주식 시장 전문 애널리스트로서 오늘({today_kst()}) 아침 브리핑을 작성하세요.
 
 시장: {market_text}
 유튜브: {yt_text}
@@ -324,14 +332,14 @@ def generate_briefing():
             }
 
     sb_post("morning_briefing", {
-        "briefing_date": date.today().isoformat(),
+        "briefing_date": today_kst().isoformat(),
         "market_summary": briefing.get("market_summary", ""),
         "top_stocks": json.dumps(briefing.get("top_stocks", []), ensure_ascii=False),
         "sector_outlook": json.dumps(briefing.get("sector_outlook", []), ensure_ascii=False),
         "expert_consensus": briefing.get("expert_consensus", ""),
         "risk_alerts": json.dumps(briefing.get("risk_alerts", []), ensure_ascii=False),
         "investor_flow": json.dumps(investor_flow, ensure_ascii=False),
-        "raw_data": json.dumps({"market": market, "generated_at": datetime.now().isoformat()}, ensure_ascii=False),
+        "raw_data": json.dumps({"market": market, "generated_at": now_kst().isoformat()}, ensure_ascii=False),
     }, on_conflict="briefing_date")
 
     print(f"  브리핑 저장 완료")
@@ -402,8 +410,8 @@ def save_predictions():
         print("  yfinance 없음, 스킵")
         return
 
-    today = date.today().isoformat()
-    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    today = today_kst().isoformat()
+    yesterday = (today_kst() - timedelta(days=1)).isoformat()
 
     for name, code in WATCH_STOCKS.items():
         ticker_sym = f"{code}.KS" if int(code) >= 200000 or len(code) == 6 and code[0] in "0123456789" else f"{code}.KQ"
@@ -479,7 +487,7 @@ def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else auto_detect_mode()
     print(f"{'='*50}")
     print(f"  Railway 통합 수집기 [{mode}]")
-    print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"  {now_kst().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"{'='*50}")
 
     if mode == "morning":
@@ -501,7 +509,7 @@ def main():
         _run_theme_scanner()
 
     print(f"\n{'='*50}")
-    print(f"  완료! {datetime.now().strftime('%H:%M:%S')}")
+    print(f"  완료! {now_kst().strftime('%H:%M:%S')}")
     print(f"{'='*50}")
 
 

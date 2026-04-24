@@ -7,7 +7,11 @@ import sys
 import json
 import re
 import urllib.request
-from datetime import datetime, date
+from datetime import datetime, date, timedelta, timezone
+
+KST = timezone(timedelta(hours=9))
+def today_kst() -> date: return datetime.now(KST).date()
+def now_kst() -> datetime: return datetime.now(KST)
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -137,7 +141,7 @@ def generate_briefing(market_data, youtube_insights, stock_news):
     prompt = f"""당신은 한국 주식 시장 전문 애널리스트입니다.
 아래 데이터를 종합해서 오늘의 아침 브리핑을 작성해주세요.
 
-오늘 날짜: {date.today().strftime('%Y년 %m월 %d일')}
+오늘 날짜: {today_kst().strftime('%Y년 %m월 %d일')}
 
 === 전일 시장 ===
 {market_text}
@@ -185,7 +189,7 @@ JSON만 출력하세요."""
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def main():
-    today = date.today().isoformat()
+    today = today_kst().isoformat()
     print("=" * 50)
     print(f"  아침 브리핑 생성 - {today}")
     print("=" * 50)
@@ -256,7 +260,7 @@ def main():
                 "market": market_data,
                 "youtube_count": len(youtube),
                 "news_count": len(news),
-                "generated_at": datetime.now().isoformat(),
+                "generated_at": now_kst().isoformat(),
             }, ensure_ascii=False),
         }
         sb_upsert("morning_briefing", row)
