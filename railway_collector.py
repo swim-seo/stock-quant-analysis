@@ -96,8 +96,8 @@ def get_playlist_videos(playlist_url: str, max_days: int = 2, max_videos: int = 
 
 
 # ── 자막 수집 ─────────────────────────────────────────────────────
-def get_transcript(video_id: str) -> str:
-    """yt-dlp로 자막 추출"""
+def get_transcript(video_id: str) -> tuple:
+    """yt-dlp로 자막 + 업로드 날짜 추출. (transcript_str, upload_date_str) 반환"""
     url = f"https://www.youtube.com/watch?v={video_id}"
     with tempfile.TemporaryDirectory() as tmpdir:
         ydl_opts = {
@@ -111,11 +111,19 @@ def get_transcript(video_id: str) -> str:
         }
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                upload_date = info.get("upload_date") if info else None
+                if upload_date:
+                    try:
+                        dt = datetime.strptime(upload_date, "%Y%m%d")
+                        upload_date = dt.strftime("%Y-%m-%d")
+                    except ValueError:
+                        upload_date = None
                 ydl.download([url])
 
             sub_files = glob.glob(os.path.join(tmpdir, "*.json3"))
             if not sub_files:
-                return None
+                return None, upload_date
 
             with open(sub_files[0], "r", encoding="utf-8") as f:
                 data = json.load(f)
@@ -130,10 +138,11 @@ def get_transcript(video_id: str) -> str:
                 if text and text != "\n":
                     lines.append(f"{timestamp} {text}")
 
-            return "\n".join(lines) if lines else None
+            transcript = "\n".join(lines) if lines else None
+            return transcript, upload_date
         except Exception as e:
             print(f"  [자막실패] {type(e).__name__}: {str(e)[:80]}")
-            return None
+            return None, None
 
 
 # ── Supabase 중복 체크 ────────────────────────────────────────────
@@ -244,10 +253,14 @@ def process_video(video: dict, channel: str, playlist_name: str, trading_focus: 
 
     print(f"  [처리] {title[:40]}...")
 
-    transcript = get_transcript(video_id)
+    transcript, upload_date = get_transcript(video_id)
     if not transcript:
         print(f"  자막 없음, 스킵")
         return False
+
+    # 재생목록 스캔 때 None이었으면 자막 다운로드 시 가져온 날짜로 대체
+    if not video.get("upload_date") and upload_date:
+        video["upload_date"] = upload_date
 
     insight = analyze_with_claude(title, transcript, channel, trading_focus)
 
