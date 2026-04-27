@@ -250,7 +250,7 @@ def generate_briefing():
                      "select=title,channel,summary,market_sentiment,key_stocks,key_sectors,trading_type,urgency"
                      "&order=processed_at.desc&limit=20")
     news = sb_get("stock_news",
-                  "select=stock_name,stock_code,analysis,investor_data,sentiment"
+                  "select=stock_name,stock_code,analysis,articles,investor_data,sentiment"
                   "&order=collected_at.desc&limit=10")
 
     # 시장 데이터
