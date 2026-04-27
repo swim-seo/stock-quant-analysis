@@ -121,12 +121,11 @@ JSON 배열만 출력하세요."""
         max_tokens=2000,
         messages=[
             {"role": "user", "content": prompt},
-            {"role": "assistant", "content": "["},
         ],
     )
 
     try:
-        content = "[" + message.content[0].text
+        content = message.content[0].text
         start = content.find("[")
         if start == -1:
             return []
