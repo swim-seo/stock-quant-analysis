@@ -11,9 +11,13 @@ import sys
 import tempfile
 import glob
 from datetime import datetime, timedelta
+from pathlib import Path
+from dotenv import load_dotenv
 import yt_dlp
 import anthropic
 from supabase import create_client
+
+load_dotenv(Path(__file__).parent / ".env")
 
 # ── 환경변수 ──────────────────────────────────────────────────────
 SUPABASE_URL = os.environ["SUPABASE_URL"]
@@ -211,7 +215,6 @@ def save_to_supabase(video_id: str, title: str, channel: str, playlist: str,
             "url": url,
             "upload_date": upload_date,
             "processed_at": datetime.now().isoformat(),
-            "trading_focus": trading_focus,
             "summary": insight.get("summary", ""),
             "market_sentiment": insight.get("market_sentiment", "중립"),
             "key_stocks": insight.get("key_stocks", []),
