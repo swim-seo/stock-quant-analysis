@@ -184,15 +184,16 @@ def analyze_with_claude(title: str, transcript: str, channel: str, trading_focus
 
 다음 항목을 JSON 형식으로 추출해주세요:
 
-1. summary: 영상 핵심 내용 3줄 요약
-2. market_sentiment: 시장 전망 ("긍정"/"중립"/"부정" 중 하나)
-3. key_stocks: 언급된 주요 종목 리스트 (예: ["삼성전자", "SK하이닉스"])
-4. key_sectors: 언급된 주요 섹터/업종 리스트 (예: ["반도체", "바이오"])
-5. investment_signals: 매수/매도/관망 관련 핵심 언급 내용 리스트
-6. risk_factors: 언급된 리스크 요인 리스트
-7. keywords: 핵심 키워드 5개 리스트
-8. trading_type: 투자 성격 ("단타"/"스윙"/"장기" 중 하나)
-9. urgency: 투자 시급성 ("오늘"/"이번주"/"장기" 중 하나)
+1. title_ko: 영상 제목을 한국어로 번역 (이미 한국어면 그대로, 영어면 자연스러운 한국어로 번역)
+2. summary: 영상 핵심 내용 3줄 요약
+3. market_sentiment: 시장 전망 ("긍정"/"중립"/"부정" 중 하나)
+4. key_stocks: 언급된 주요 종목 리스트 (예: ["삼성전자", "SK하이닉스"])
+5. key_sectors: 언급된 주요 섹터/업종 리스트 (예: ["반도체", "바이오"])
+6. investment_signals: 매수/매도/관망 관련 핵심 언급 내용 리스트
+7. risk_factors: 언급된 리스크 요인 리스트
+8. keywords: 핵심 키워드 5개 리스트
+9. trading_type: 투자 성격 ("단타"/"스윙"/"장기" 중 하나)
+10. urgency: 투자 시급성 ("오늘"/"이번주"/"장기" 중 하나)
 
 JSON만 출력하세요."""
 
@@ -264,12 +265,15 @@ def process_video(video: dict, channel: str, playlist_name: str, trading_focus: 
 
     insight = analyze_with_claude(title, transcript, channel, trading_focus)
 
+    # 영어 제목이면 Claude가 번역한 한국어 제목 사용
+    display_title = insight.pop("title_ko", None) or title
+
     ok = save_to_supabase(
-        video_id, title, channel, playlist_name,
+        video_id, display_title, channel, playlist_name,
         video["url"], video.get("upload_date"), trading_focus, insight,
     )
 
-    print(f"  완료: {title[:40]}")
+    print(f"  완료: {display_title[:40]}")
     print(f"  시장전망: {insight.get('market_sentiment')} | "
           f"매매유형: {insight.get('trading_type')} | "
           f"시급성: {insight.get('urgency')} | "
