@@ -160,18 +160,30 @@ def fetch_investor_trading(stock_code):
 
 
 def analyze_news(stock_name, articles):
-    """Claude로 뉴스 분석"""
+    """Claude로 뉴스 분석 (심화 버전)"""
     import anthropic
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
     if not articles:
-        return {"summary": "뉴스 없음", "sentiment": "중립", "key_points": []}
+        return {"summary": "뉴스 없음", "sentiment": "중립", "key_points": [],
+                "catalysts": [], "risk_factors": [], "trading_signal": "관망",
+                "news_impact_score": 50, "price_direction": "중립"}
 
     news_text = "\n".join([f"- [{a['date']}] {a['title']} ({a['source']})" for a in articles[:15]])
-    prompt = f"""'{stock_name}' 관련 최근 뉴스입니다.
+    prompt = f"""당신은 한국 주식 전문 애널리스트입니다. '{stock_name}' 관련 최근 뉴스를 분석해주세요.
 
 {news_text}
 
-JSON으로 작성: 1.summary(3줄 요약) 2.sentiment("호재"/"중립"/"악재") 3.key_points(핵심 3~5개) 4.risk_factors(리스크 1~3개) 5.catalysts(촉매 1~3개). JSON만 출력."""
+다음 JSON 형식으로만 출력하세요:
+{{
+  "summary": "전체 흐름 2~3줄 요약",
+  "sentiment": "호재" | "중립" | "악재",
+  "key_points": ["핵심 포인트 1", "핵심 포인트 2", "핵심 포인트 3"],
+  "catalysts": ["주가 상승 촉매 1", "촉매 2"],
+  "risk_factors": ["리스크 1", "리스크 2"],
+  "trading_signal": "매수관심" | "관망" | "주의",
+  "news_impact_score": 0~100 사이 숫자 (뉴스가 주가에 미치는 긍정적 영향도),
+  "price_direction": "상승" | "중립" | "하락"
+}}"""
 
     try:
         msg = client.messages.create(model="claude-sonnet-4-6", max_tokens=1024,
@@ -181,7 +193,9 @@ JSON으로 작성: 1.summary(3줄 요약) 2.sentiment("호재"/"중립"/"악재"
             return json.loads(match.group())
     except Exception as e:
         print(f"  Claude 분석 실패: {e}")
-    return {"summary": "분석 실패", "sentiment": "중립", "key_points": []}
+    return {"summary": "분석 실패", "sentiment": "중립", "key_points": [],
+            "catalysts": [], "risk_factors": [], "trading_signal": "관망",
+            "news_impact_score": 50, "price_direction": "중립"}
 
 
 def collect_news():
@@ -260,19 +274,37 @@ def generate_briefing():
         for i in youtube[:15]
     ]) or "없음"
 
-    news_text = "\n".join([
-        f"- {i['stock_name']}: {(json.loads(i['analysis']) if isinstance(i['analysis'], str) else i.get('analysis',{})).get('sentiment','중립')}"
-        for i in news[:10]
-    ]) or "없음"
+    # 종목별 뉴스 상세 (기사 제목 + 분석 포함)
+    news_lines = []
+    for i in news[:10]:
+        a = json.loads(i['analysis']) if isinstance(i['analysis'], str) else i.get('analysis', {})
+        arts = json.loads(i['articles']) if isinstance(i.get('articles', '[]'), str) else i.get('articles', [])
+        top_titles = " / ".join(x['title'] for x in arts[:3]) if arts else ""
+        catalysts = ", ".join(a.get('catalysts', [])[:2])
+        risks = ", ".join(a.get('risk_factors', [])[:2])
+        signal = a.get('trading_signal', '')
+        score = a.get('news_impact_score', '')
+        line = (f"- {i['stock_name']} [{a.get('sentiment','중립')}][{signal}][영향{score}]"
+                f"\n  뉴스: {top_titles}"
+                f"\n  촉매: {catalysts} | 리스크: {risks}")
+        news_lines.append(line)
+    news_text = "\n".join(news_lines) or "없음"
 
     kospi = market.get("kospi", {})
-    market_text = f"코스피: {kospi.get('close','?')} ({kospi.get('change_pct',0):+.2f}%)"
+    kosdaq = market.get("kosdaq", {})
+    market_text = (f"코스피: {kospi.get('close','?')} ({kospi.get('change_pct',0):+.2f}%)\n"
+                   f"코스닥: {kosdaq.get('close','?')} ({kosdaq.get('change_pct',0):+.2f}%)")
 
     prompt = f"""한국 주식 시장 전문 애널리스트로서 오늘({today_kst()}) 아침 브리핑을 작성하세요.
 
-시장: {market_text}
-유튜브: {yt_text}
-종목 뉴스: {news_text}
+=== 시장 지수 ===
+{market_text}
+
+=== 유튜브 전문가 의견 ===
+{yt_text}
+
+=== 종목별 뉴스 + 수급 분석 ===
+{news_text}
 
 아래 JSON 형식으로만 응답하세요. 마크다운, 코드블록, 주석 없이 순수 JSON만 출력하세요.
 
@@ -464,6 +496,157 @@ def save_predictions():
     print("  예측 로그 저장 완료")
 
 
+def save_portfolio_signals():
+    """오늘 신호 ≥4점 종목을 portfolio_signals에 저장 (진입가 = 당일 종가)"""
+    print("\n[포트폴리오 신호 저장]")
+    try:
+        import yfinance as yf
+    except ImportError:
+        print("  yfinance 없음, 스킵")
+        return
+
+    today = today_kst().isoformat()
+
+    for name, code in WATCH_STOCKS.items():
+        try:
+            closes = []
+            ticker_sym = None
+            for suffix in [".KS", ".KQ"]:
+                hist = yf.Ticker(f"{code}{suffix}").history(period="3mo")
+                if not hist.empty:
+                    closes = hist["Close"].tolist()
+                    ticker_sym = f"{code}{suffix}"
+                    break
+            if len(closes) < 21 or not ticker_sym:
+                continue
+
+            score = _entry_signal_score(closes)
+            if score < 4.0:
+                continue
+
+            entry_price = closes[-1]
+            sb_post("portfolio_signals", {
+                "signal_date": today,
+                "ticker": ticker_sym,
+                "stock_name": name,
+                "entry_price": round(entry_price, 0),
+                "current_price": round(entry_price, 0),
+                "return_pct": 0.0,
+                "signal_score": score,
+                "status": "holding",
+                "updated_at": now_kst().isoformat(),
+            }, on_conflict="signal_date,ticker")
+            print(f"  {name} 신호저장 | score={score} | 진입가={entry_price:,.0f}")
+
+        except Exception as e:
+            print(f"  {name} 포트폴리오 신호 실패: {e}")
+        time.sleep(0.3)
+
+    print("  포트폴리오 신호 저장 완료")
+
+
+def _entry_signal_score(closes):
+    """5조건 진입 신호 점수 (≥4 = 매수관심)"""
+    n = len(closes) - 1
+    if n < 60:
+        return 0.0
+    score = 0.0
+
+    # 1. MA 정배열 (MA5 > MA20 > MA60)
+    ma5  = sum(closes[n-4:n+1]) / 5
+    ma20 = sum(closes[n-19:n+1]) / 20
+    ma60 = sum(closes[n-59:n+1]) / 60
+    if ma5 > ma20 > ma60:
+        score += 1.0
+    elif ma5 > ma20 or ma20 > ma60:
+        score += 0.5
+
+    # 2. 골든크로스 (최근 10일 내 MA5가 MA20 상향돌파)
+    crossed = False
+    for i in range(max(0, n-10), n):
+        prev_ma5  = sum(closes[max(0,i-4):i+1]) / min(5, i+1)
+        prev_ma20 = sum(closes[max(0,i-19):i+1]) / min(20, i+1)
+        cur_ma5   = sum(closes[max(0,i-3):i+2]) / min(5, i+2)
+        cur_ma20  = sum(closes[max(0,i-18):i+2]) / min(20, i+2)
+        if prev_ma5 <= prev_ma20 and cur_ma5 > cur_ma20:
+            crossed = True
+            break
+    score += 1.0 if crossed else 0.0
+
+    # 3. RSI 40~60
+    rsi = _calc_rsi(closes)
+    if 40 <= rsi <= 60:
+        score += 1.0
+    elif 35 <= rsi <= 65:
+        score += 0.5
+
+    # 4. 주간 추세 (5일 전 대비 상승)
+    weekly_ret = (closes[n] - closes[max(0, n-5)]) / closes[max(0, n-5)]
+    if weekly_ret > 0:
+        score += 1.0
+    elif weekly_ret > -0.02:
+        score += 0.5
+
+    # 5. 거래량 (단순 근사: 최근 거래량 대비 — yfinance 종가만 있으면 스킵)
+    score += 1.0  # 기본 1점 부여 (거래량 데이터 없는 경우)
+
+    return score
+
+
+def update_portfolio_returns():
+    """오후 파이프라인: holding 상태 포트폴리오의 현재가 + 수익률 업데이트"""
+    print("\n[포트폴리오 수익률 업데이트]")
+    try:
+        import yfinance as yf
+    except ImportError:
+        print("  yfinance 없음, 스킵")
+        return
+
+    try:
+        holdings = sb_get("portfolio_signals",
+                          "select=signal_date,ticker,stock_name,entry_price"
+                          "&status=eq.holding&order=signal_date.desc&limit=200")
+    except Exception as e:
+        print(f"  조회 실패: {e}")
+        return
+
+    if not holdings:
+        print("  보유 종목 없음")
+        return
+
+    # 티커별로 묶어서 한 번만 yfinance 조회
+    tickers = list({h["ticker"] for h in holdings})
+    prices = {}
+    for ticker in tickers:
+        try:
+            hist = yf.Ticker(ticker).history(period="2d")
+            if not hist.empty:
+                prices[ticker] = float(hist["Close"].iloc[-1])
+        except:
+            pass
+        time.sleep(0.2)
+
+    updated = 0
+    for h in holdings:
+        ticker = h["ticker"]
+        if ticker not in prices:
+            continue
+        cur = prices[ticker]
+        entry = h["entry_price"]
+        ret_pct = round((cur - entry) / entry * 100, 2) if entry else 0.0
+        try:
+            sb_patch("portfolio_signals",
+                     {"signal_date": h["signal_date"], "ticker": ticker},
+                     {"current_price": round(cur, 0),
+                      "return_pct": ret_pct,
+                      "updated_at": now_kst().isoformat()})
+            updated += 1
+        except Exception as e:
+            print(f"  {h['stock_name']} 업데이트 실패: {e}")
+
+    print(f"  {updated}개 종목 수익률 업데이트 완료")
+
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 메인
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -499,17 +682,22 @@ def main():
         collect_youtube(collect_time="morning")
         generate_briefing()
         save_predictions()
+        save_portfolio_signals()
         _run_theme_scanner()
 
     elif mode == "afternoon":
         collect_news()
         collect_youtube(collect_time="afternoon")
         generate_briefing()
+        update_portfolio_returns()
 
     else:
         collect_news()
         collect_youtube()
         generate_briefing()
+        save_predictions()
+        save_portfolio_signals()
+        update_portfolio_returns()
         _run_theme_scanner()
 
     print(f"\n{'='*50}")

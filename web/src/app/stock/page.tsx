@@ -597,15 +597,62 @@ function StockContent() {
                     })()}
                   </div>
 
-                  {/* Claude 분석 요약 */}
+                  {/* Claude 분석 요약 + 심화 */}
                   {(() => {
                     const analysis = typeof newsData.analysis === "string"
                       ? JSON.parse(newsData.analysis) : newsData.analysis || {};
-                    return analysis.summary ? (
-                      <p className="text-sm leading-relaxed mb-3" style={{ color: "var(--text-2)" }}>
-                        {analysis.summary}
-                      </p>
-                    ) : null;
+                    const signal = analysis.trading_signal;
+                    const signalColor = signal === "매수관심" ? "#00b493" : signal === "주의" ? "#f04452" : "#f5a623";
+                    const score = analysis.news_impact_score;
+                    const catalysts: string[] = analysis.catalysts || [];
+                    const risks: string[] = analysis.risk_factors || [];
+                    return (
+                      <>
+                        {/* 매매신호 + 영향도 */}
+                        {(signal || score !== undefined) && (
+                          <div className="flex items-center gap-2 mb-3">
+                            {signal && (
+                              <span className="text-xs font-bold px-2 py-0.5 rounded-full"
+                                style={{ color: signalColor, background: `${signalColor}18`, border: `1px solid ${signalColor}40` }}>
+                                {signal}
+                              </span>
+                            )}
+                            {score !== undefined && (
+                              <span className="text-xs" style={{ color: "var(--text-3)" }}>
+                                뉴스 영향도 <span className="font-bold" style={{ color: score >= 60 ? "#00b493" : score <= 40 ? "#f04452" : "#f5a623" }}>{score}</span>/100
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        {analysis.summary && (
+                          <p className="text-sm leading-relaxed mb-3" style={{ color: "var(--text-2)" }}>
+                            {analysis.summary}
+                          </p>
+                        )}
+                        {/* 촉매 */}
+                        {catalysts.length > 0 && (
+                          <div className="mb-2">
+                            <span className="text-xs font-bold" style={{ color: "#00b493" }}>▲ 상승 촉매</span>
+                            <ul className="mt-1 space-y-0.5">
+                              {catalysts.map((c, i) => (
+                                <li key={i} className="text-xs pl-2" style={{ color: "var(--text-2)" }}>· {c}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {/* 리스크 */}
+                        {risks.length > 0 && (
+                          <div className="mb-3">
+                            <span className="text-xs font-bold" style={{ color: "#f04452" }}>▼ 리스크</span>
+                            <ul className="mt-1 space-y-0.5">
+                              {risks.map((r, i) => (
+                                <li key={i} className="text-xs pl-2" style={{ color: "var(--text-2)" }}>· {r}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </>
+                    );
                   })()}
 
                   {/* 뉴스 목록 */}

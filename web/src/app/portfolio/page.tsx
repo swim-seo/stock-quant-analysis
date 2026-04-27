@@ -170,6 +170,15 @@ function TradeCard({ trade, isLast }: { trade: Trade; isLast: boolean }) {
 // ── Main page ─────────────────────────────────────────────────
 type TabId = "holdings" | "trades";
 
+interface LiveSignal {
+  signal_date: string; ticker: string; stock_name: string;
+  entry_price: number; current_price: number; return_pct: number;
+  signal_score: number; status: string; updated_at: string;
+}
+interface LiveGroup {
+  date: string; rows: LiveSignal[]; avgReturn: number; winners: number; total: number;
+}
+
 export default function PortfolioPage() {
   const [data, setData] = useState<PortfolioData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -178,6 +187,9 @@ export default function PortfolioPage() {
   const [tab, setTab] = useState<TabId>("holdings");
   const [startDate, setStartDate] = useState("2025-01-01");
   const [inputDate, setInputDate] = useState("2025-01-01");
+  const [mainTab, setMainTab] = useState<"backtest" | "live">("live");
+  const [liveGroups, setLiveGroups] = useState<LiveGroup[]>([]);
+  const [liveLoading, setLiveLoading] = useState(true);
 
   const fetchData = (date: string) => {
     setLoading(true);
@@ -189,7 +201,14 @@ export default function PortfolioPage() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { fetchData(startDate); }, []);
+  useEffect(() => {
+    fetchData(startDate);
+    fetch("/api/portfolio-live")
+      .then((r) => r.json())
+      .then((d) => setLiveGroups(d.groups ?? []))
+      .catch(() => {})
+      .finally(() => setLiveLoading(false));
+  }, []);
 
   if (loading) return (
     <main style={{ minHeight: "100vh", background: "var(--bg)" }}>
@@ -250,7 +269,90 @@ export default function PortfolioPage() {
         </div>
       </header>
 
-      <div style={{ maxWidth: 1000, margin: "0 auto", padding: 24, display: "flex", flexDirection: "column", gap: 20 }}>
+      {/* Main tab switcher */}
+      <div style={{ background: "#fff", borderBottom: "1px solid var(--border)" }}>
+        <div style={{ maxWidth: 1000, margin: "0 auto", display: "flex" }}>
+          {(["live", "backtest"] as const).map((t) => (
+            <button key={t} onClick={() => setMainTab(t)}
+              style={{ padding: "12px 24px", fontSize: 14, fontWeight: 600, border: "none", background: "none", cursor: "pointer",
+                color: mainTab === t ? "var(--blue)" : "var(--text-3)",
+                borderBottom: mainTab === t ? "2px solid var(--blue)" : "2px solid transparent" }}>
+              {t === "live" ? "📡 실시간 신호" : "📊 백테스트"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── LIVE TAB ── */}
+      {mainTab === "live" && (
+        <div style={{ maxWidth: 1000, margin: "0 auto", padding: 24, display: "flex", flexDirection: "column", gap: 20 }}>
+          <div style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "var(--shadow)" }}>
+            <h2 style={{ fontSize: 15, fontWeight: 700, color: "var(--text-1)", marginBottom: 4 }}>실시간 포트폴리오</h2>
+            <p style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 20 }}>
+              매일 아침 신호 점수 ≥4점 종목을 자동 매수 기록 → 오후에 수익률 업데이트
+            </p>
+            {liveLoading ? (
+              <div style={{ padding: 40, textAlign: "center", color: "var(--text-3)", fontSize: 13 }}>불러오는 중…</div>
+            ) : liveGroups.length === 0 ? (
+              <div style={{ padding: 40, textAlign: "center" }}>
+                <p style={{ fontSize: 14, color: "var(--text-3)" }}>아직 신호 데이터가 없습니다</p>
+                <p style={{ fontSize: 12, color: "var(--text-3)", marginTop: 8 }}>다음 영업일 오전 파이프라인 실행 후 데이터가 쌓입니다</p>
+              </div>
+            ) : liveGroups.map((g) => (
+              <div key={g.date} style={{ marginBottom: 24 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 12, padding: "8px 12px", borderRadius: 10, background: "var(--bg)" }}>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: "var(--text-1)" }}>{g.date} 매수신호</span>
+                  <span style={{ fontSize: 12, color: "var(--text-3)" }}>{g.total}종목</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: g.avgReturn >= 0 ? "#f04452" : "#3182f6" }}>
+                    평균 {g.avgReturn >= 0 ? "+" : ""}{g.avgReturn}%
+                  </span>
+                  <span style={{ fontSize: 12, color: "#00b493" }}>수익 {g.winners}/{g.total}</span>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 10 }}>
+                  {g.rows.map((r) => {
+                    const retColor = r.return_pct > 0 ? "#f04452" : r.return_pct < 0 ? "#3182f6" : "var(--text-3)";
+                    return (
+                      <a key={r.ticker} href={`/stock?ticker=${r.ticker}`}
+                        style={{ display: "block", padding: 14, borderRadius: 12, background: "var(--bg)",
+                          border: "1px solid var(--border)", textDecoration: "none",
+                          transition: "box-shadow .15s" }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-1)", marginBottom: 4 }}>{r.stock_name}</div>
+                        <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 8 }}>{r.ticker}</div>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <div>
+                            <div style={{ fontSize: 11, color: "var(--text-3)" }}>진입가</div>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-1)", fontFamily: "monospace" }}>
+                              {r.entry_price.toLocaleString("ko-KR")}
+                            </div>
+                          </div>
+                          <div style={{ textAlign: "right" }}>
+                            <div style={{ fontSize: 11, color: "var(--text-3)" }}>현재가</div>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: retColor, fontFamily: "monospace" }}>
+                              {r.current_price.toLocaleString("ko-KR")}
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{ marginTop: 8, textAlign: "center", padding: "4px 0", borderRadius: 6,
+                          background: r.return_pct > 0 ? "#f0445218" : r.return_pct < 0 ? "#3182f618" : "transparent" }}>
+                          <span style={{ fontSize: 14, fontWeight: 800, color: retColor }}>
+                            {r.return_pct > 0 ? "+" : ""}{r.return_pct}%
+                          </span>
+                        </div>
+                        <div style={{ marginTop: 6, fontSize: 10, color: "var(--text-3)", textAlign: "center" }}>
+                          신호점수 {r.signal_score}
+                        </div>
+                      </a>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── BACKTEST TAB ── */}
+      {mainTab === "backtest" && <div style={{ maxWidth: 1000, margin: "0 auto", padding: 24, display: "flex", flexDirection: "column", gap: 20 }}>
 
         {/* Strategy comparison header */}
         <div style={{ display: "grid", gridTemplateColumns: `repeat(${data.strategies.length + 1}, 1fr)`, gap: 12 }}>
@@ -381,7 +483,8 @@ export default function PortfolioPage() {
           })()}
         </div>
 
-      </div>
+      </div>}
+
     </main>
   );
 }
