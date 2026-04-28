@@ -1137,6 +1137,11 @@ def main():
         save_portfolio_signals()
         _run_theme_scanner()
         send_daily_report()
+        try:
+            from monthly_agent import run_monthly_agent
+            run_monthly_agent()
+        except Exception as e:
+            print(f"  [월급에이전트 오류] {e}", file=sys.stderr)
 
     elif mode == "afternoon":
         collect_news()
