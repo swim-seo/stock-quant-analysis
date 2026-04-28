@@ -92,6 +92,22 @@ WATCH_STOCKS = {
     "인텔리안테크": "189300",
 }
 
+SECTOR_MAP = {
+    "삼성전자": "반도체", "SK하이닉스": "반도체", "한미반도체": "반도체",
+    "리노공업": "반도체", "DB하이텍": "반도체",
+    "LG에너지솔루션": "2차전지", "삼성SDI": "2차전지", "에코프로비엠": "2차전지",
+    "삼성바이오로직스": "바이오", "셀트리온": "바이오", "유한양행": "바이오", "HLB": "바이오",
+    "현대차": "자동차", "기아": "자동차",
+    "NAVER": "IT플랫폼", "카카오": "IT플랫폼", "카카오뱅크": "IT플랫폼", "크래프톤": "IT플랫폼",
+    "KB금융": "금융", "신한지주": "금융", "메리츠금융지주": "금융",
+    "LG전자": "산업재", "삼성물산": "산업재", "아모레퍼시픽": "산업재", "CJ제일제당": "산업재",
+    "HD한국조선해양": "조선", "삼성중공업": "조선", "현대미포조선": "조선",
+    "한화에어로스페이스": "방산", "LIG넥스원": "방산",
+    "두산에너빌리티": "원자력",
+    "현대건설": "건설",
+    "인텔리안테크": "우주항공",
+}
+
 
 def fetch_naver_news(stock_code, max_pages=2):
     """네이버 모바일 API로 뉴스 수집"""
@@ -669,6 +685,46 @@ def _volume_surge_score(volumes: list) -> float:
     return 0.3 if avg_vol > 0 and volumes[-1] > avg_vol * 3 else 0.0
 
 
+def _compute_sector_momentum(stock_data: dict) -> dict:
+    """종목별 종가 데이터로 섹터별 5일 수익률 평균 계산
+    Returns: {섹터명: avg_5d_return_pct}
+    """
+    sector_returns: dict = {}
+    for name, (closes, _) in stock_data.items():
+        sector = SECTOR_MAP.get(name)
+        if not sector or len(closes) < 6:
+            continue
+        ret5 = (closes[-1] - closes[-6]) / closes[-6] * 100
+        sector_returns.setdefault(sector, []).append(ret5)
+
+    result = {}
+    for sector, rets in sector_returns.items():
+        avg = sum(rets) / len(rets)
+        result[sector] = round(avg, 2)
+        print(f"  [섹터모멘텀] {sector}: {avg:+.2f}% ({len(rets)}종목)")
+    return result
+
+
+def _sector_momentum_score(name: str, sector_momentum: dict) -> float:
+    """섹터 모멘텀 점수 (-0.3 ~ +0.3)
+    섹터 5일 평균 수익률: +3%이상 → +0.3, +1~3% → +0.15
+                         -3%이하 → -0.3, -1~-3% → -0.15
+    """
+    sector = SECTOR_MAP.get(name)
+    if not sector:
+        return 0.0
+    avg = sector_momentum.get(sector, 0.0)
+    if avg >= 3.0:
+        return 0.3
+    elif avg >= 1.0:
+        return 0.15
+    elif avg <= -3.0:
+        return -0.3
+    elif avg <= -1.0:
+        return -0.15
+    return 0.0
+
+
 def _news_score_for(name: str, news_by_stock: dict) -> float:
     """뉴스 점수: sentiment × trading_signal × impact → 합산 (max 2.0)"""
     rows = news_by_stock.get(name, [])
@@ -749,13 +805,15 @@ def _ml_score_from_prob(prob: float) -> float:
 
 def _composite_score(tech: float, prob: float, news: float, yt: float,
                      foreign: float = 0.0, market: float = 0.0,
-                     breakout: float = 0.0, vol_surge: float = 0.0) -> float:
+                     breakout: float = 0.0, vol_surge: float = 0.0,
+                     sector: float = 0.0) -> float:
     """종합 신뢰도 점수
     기술(0~5) + ML(0~2) + 뉴스(-1~2) + 유튜브(-0.5~1) + 외국인(-0.5~0.5)
-    + 시장필터(-1~0) + 52주신고가(0~0.5) + 거래량폭발(0~0.3) = 이론상 최대 11.8
+    + 시장필터(-1~0) + 52주신고가(0~0.5) + 거래량폭발(0~0.3) + 섹터모멘텀(-0.3~0.3)
+    = 이론상 최대 12.1
     """
     return round(tech + _ml_score_from_prob(prob) + news + yt + foreign
-                 + market + breakout + vol_surge, 2)
+                 + market + breakout + vol_surge + sector, 2)
 
 
 def save_predictions():
@@ -769,10 +827,26 @@ def save_predictions():
     _market_filter_cache.clear()
     market = _market_filter_score()
 
+    # 1차: 전 종목 OHLCV 수집 (섹터 모멘텀 계산용)
+    stock_data: dict = {}
     for name, code in WATCH_STOCKS.items():
-        ticker_sym = _ticker_sym(code)
         try:
             closes, volumes = fetch_naver_ohlcv(code, count=260)
+            if closes:
+                stock_data[name] = (closes, volumes)
+        except Exception:
+            pass
+        time.sleep(0.3)
+
+    sector_momentum = _compute_sector_momentum(stock_data)
+
+    # 2차: 점수 계산 + 저장
+    for name, code in WATCH_STOCKS.items():
+        ticker_sym = _ticker_sym(code)
+        if name not in stock_data:
+            continue
+        try:
+            closes, volumes = stock_data[name]
             if len(closes) < 21:
                 continue
 
@@ -783,7 +857,8 @@ def save_predictions():
             foreign = _foreign_flow_score(name, news_by_stock)
             breakout = _breakout_score(closes)
             vol_surge = _volume_surge_score(volumes)
-            composite = _composite_score(tech, prob, news, yt, foreign, market, breakout, vol_surge)
+            sector = _sector_momentum_score(name, sector_momentum)
+            composite = _composite_score(tech, prob, news, yt, foreign, market, breakout, vol_surge, sector)
 
             sb_post("prediction_log", {
                 "date": today,
@@ -813,7 +888,6 @@ def save_predictions():
 
         except Exception as e:
             print(f"  {name} 예측 실패: {e}")
-        time.sleep(0.3)
 
     print("  예측 로그 저장 완료")
 
@@ -828,10 +902,26 @@ def save_portfolio_signals():
     news_by_stock, yt_rows = _load_recent_signals(days=3)
     market = _market_filter_score()  # 캐시에서 재사용
 
+    # 섹터 모멘텀은 save_predictions에서 이미 계산됨 — stock_data 재활용 불가하므로 재수집
+    # (두 함수는 독립 실행 가능해야 하므로 별도 수집)
+    stock_data_p: dict = {}
     for name, code in WATCH_STOCKS.items():
-        ticker_sym = _ticker_sym(code)
         try:
             closes, volumes = fetch_naver_ohlcv(code, count=260)
+            if closes:
+                stock_data_p[name] = (closes, volumes)
+        except Exception:
+            pass
+        time.sleep(0.3)
+
+    sector_momentum = _compute_sector_momentum(stock_data_p)
+
+    for name, code in WATCH_STOCKS.items():
+        ticker_sym = _ticker_sym(code)
+        if name not in stock_data_p:
+            continue
+        try:
+            closes, volumes = stock_data_p[name]
             if len(closes) < 61:
                 continue
 
@@ -842,7 +932,8 @@ def save_portfolio_signals():
             foreign = _foreign_flow_score(name, news_by_stock)
             breakout = _breakout_score(closes)
             vol_surge = _volume_surge_score(volumes)
-            composite = _composite_score(tech, prob, news, yt, foreign, market, breakout, vol_surge)
+            sector = _sector_momentum_score(name, sector_momentum)
+            composite = _composite_score(tech, prob, news, yt, foreign, market, breakout, vol_surge, sector)
 
             if tech < 4.0 and composite < 5.5:
                 continue
@@ -859,11 +950,10 @@ def save_portfolio_signals():
                 "status": "holding",
                 "updated_at": now_kst().isoformat(),
             }, on_conflict="signal_date,ticker")
-            print(f"  {name} 신호저장 | 복합={composite} (기술={tech}/뉴스={news}/YT={yt}/외국인={foreign}/52주={breakout}/거래량={vol_surge}/시장={market}) | 진입가={entry_price:,.0f}")
+            print(f"  {name} 신호저장 | 복합={composite} (기술={tech}/섹터={sector}/외국인={foreign}/52주={breakout}/거래량={vol_surge}/시장={market}) | 진입가={entry_price:,.0f}")
 
         except Exception as e:
             print(f"  {name} 포트폴리오 신호 실패: {e}")
-        time.sleep(0.3)
 
     print("  포트폴리오 신호 저장 완료")
 
