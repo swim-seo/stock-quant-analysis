@@ -138,6 +138,49 @@ def fetch_naver_news(stock_code, max_pages=2):
     return articles
 
 
+def fetch_short_balance(stock_code: str) -> list:
+    """네이버 금융 공매도 잔고 데이터 수집 (최근 5거래일)
+    Returns: [{"date": "2026.04.28", "balance_ratio": 1.23, "balance_qty": 12345}, ...]
+    최신 순 (days[0] = 가장 최근)
+    """
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    url = f"https://finance.naver.com/item/srt.naver?code={stock_code}&page=1"
+    try:
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            html = resp.read().decode("euc-kr", errors="replace")
+    except Exception:
+        return []
+
+    def strip(text):
+        return re.sub(r'<[^>]+>', '', text).strip().replace(",", "")
+
+    def to_float(text):
+        try: return float(strip(text))
+        except: return 0.0
+
+    results = []
+    rows = re.findall(r'<tr[^>]*>(.*?)</tr>', html, re.DOTALL)
+    for row in rows:
+        cells = re.findall(r'<td[^>]*>(.*?)</td>', row, re.DOTALL)
+        if len(cells) < 6:
+            continue
+        date_match = re.search(r'(\d{4}\.\d{2}\.\d{2})', cells[0])
+        if not date_match:
+            continue
+        # 컬럼: 날짜|공매도거래량|총거래량|공매도비율|공매도잔고|직전잔고대비|공매도잔고비율
+        results.append({
+            "date": date_match.group(1),
+            "short_vol": to_float(cells[1]),
+            "short_ratio": to_float(cells[3]),       # 공매도비율(%)
+            "balance_qty": to_float(cells[4]),        # 공매도잔고(주)
+            "balance_ratio": to_float(cells[6]) if len(cells) > 6 else 0.0,  # 잔고비율(%)
+        })
+        if len(results) >= 5:
+            break
+    return results
+
+
 def fetch_investor_trading(stock_code):
     """네이버 금융에서 외국인/기관 수급"""
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
@@ -215,12 +258,13 @@ def analyze_news(stock_name, articles):
 
 
 def collect_news():
-    """전체 관심 종목 뉴스 + 수급 수집"""
-    print("\n[뉴스/수급 수집]")
+    """전체 관심 종목 뉴스 + 수급 + 공매도 잔고 수집"""
+    print("\n[뉴스/수급/공매도 수집]")
     for name, code in WATCH_STOCKS.items():
         print(f"  {name}...", end=" ")
         articles = fetch_naver_news(code)
         investor = fetch_investor_trading(code)
+        short = fetch_short_balance(code)
         analysis = analyze_news(name, articles)
 
         sb_post("stock_news", {
@@ -230,9 +274,11 @@ def collect_news():
             "articles": json.dumps(articles[:10], ensure_ascii=False),
             "analysis": json.dumps(analysis, ensure_ascii=False),
             "investor_data": json.dumps(investor[:10], ensure_ascii=False),
+            "short_data": json.dumps(short[:5], ensure_ascii=False),
             "sentiment": analysis.get("sentiment", "중립"),
         }, on_conflict="stock_code")
-        print(f"뉴스 {len(articles)}개 | {analysis.get('sentiment', '?')}")
+        short_info = f" | 공매도잔고 {short[0]['balance_ratio']:.2f}%" if short else ""
+        print(f"뉴스 {len(articles)}개 | {analysis.get('sentiment', '?')}{short_info}")
         time.sleep(1)
 
 
@@ -541,7 +587,7 @@ def _load_recent_signals(days: int = 3):
     try:
         news_rows = sb_get("stock_news",
             f"collected_at=gte.{since}T00:00:00"
-            f"&select=stock_name,sentiment,trading_signal,news_impact_score,investor_data"
+            f"&select=stock_name,sentiment,trading_signal,news_impact_score,investor_data,short_data"
             f"&order=collected_at.desc&limit=500")
     except Exception:
         news_rows = []
@@ -725,6 +771,51 @@ def _sector_momentum_score(name: str, sector_momentum: dict) -> float:
     return 0.0
 
 
+def _short_balance_score(name: str, news_by_stock: dict) -> float:
+    """공매도 잔고 감소 점수 (-0.2 ~ +0.2)
+
+    [기준] 공매도잔고비율(%) 5일 추세
+      잔고비율 감소 > 0.5%p AND 최신 잔고비율 < 1.5%  → +0.2 (숏커버링 본격화)
+      잔고비율 감소 > 0.2%p                            → +0.1 (완만한 감소)
+      잔고비율 증가 > 0.5%p                            → -0.2 (공매도 확대)
+      잔고비율 증가 > 0.2%p                            → -0.1 (소폭 증가)
+      데이터 없음 / 변동 없음                           → 0.0
+    """
+    rows = news_by_stock.get(name, [])
+    short_data = []
+    for r in rows:
+        raw = r.get("short_data")
+        if not raw:
+            continue
+        try:
+            parsed = json.loads(raw) if isinstance(raw, str) else raw
+            if parsed:
+                short_data = parsed[:5]
+                break
+        except Exception:
+            pass
+
+    if len(short_data) < 2:
+        return 0.0
+
+    ratios = [d.get("balance_ratio", 0.0) for d in short_data if d.get("balance_ratio") is not None]
+    if len(ratios) < 2:
+        return 0.0
+
+    # ratios[0] = 가장 최근, ratios[-1] = 가장 오래된
+    change = ratios[-1] - ratios[0]  # 양수 = 잔고 감소 (오래된 - 최신)
+
+    if change >= 0.5 and ratios[0] < 1.5:
+        return 0.2   # 잔고 크게 줄고 절대값도 낮음 → 숏커버 마무리
+    elif change >= 0.2:
+        return 0.1   # 완만한 감소
+    elif change <= -0.5:
+        return -0.2  # 공매도 확대
+    elif change <= -0.2:
+        return -0.1  # 소폭 증가
+    return 0.0
+
+
 def _news_score_for(name: str, news_by_stock: dict) -> float:
     """뉴스 점수: sentiment × trading_signal × impact → 합산 (max 2.0)"""
     rows = news_by_stock.get(name, [])
@@ -806,14 +897,14 @@ def _ml_score_from_prob(prob: float) -> float:
 def _composite_score(tech: float, prob: float, news: float, yt: float,
                      foreign: float = 0.0, market: float = 0.0,
                      breakout: float = 0.0, vol_surge: float = 0.0,
-                     sector: float = 0.0) -> float:
+                     sector: float = 0.0, short: float = 0.0) -> float:
     """종합 신뢰도 점수
     기술(0~5) + ML(0~2) + 뉴스(-1~2) + 유튜브(-0.5~1) + 외국인(-0.5~0.5)
     + 시장필터(-1~0) + 52주신고가(0~0.5) + 거래량폭발(0~0.3) + 섹터모멘텀(-0.3~0.3)
-    = 이론상 최대 12.1
+    + 공매도잔고(-0.2~0.2) = 이론상 최대 12.3
     """
     return round(tech + _ml_score_from_prob(prob) + news + yt + foreign
-                 + market + breakout + vol_surge + sector, 2)
+                 + market + breakout + vol_surge + sector + short, 2)
 
 
 def save_predictions():
@@ -858,7 +949,8 @@ def save_predictions():
             breakout = _breakout_score(closes)
             vol_surge = _volume_surge_score(volumes)
             sector = _sector_momentum_score(name, sector_momentum)
-            composite = _composite_score(tech, prob, news, yt, foreign, market, breakout, vol_surge, sector)
+            short = _short_balance_score(name, news_by_stock)
+            composite = _composite_score(tech, prob, news, yt, foreign, market, breakout, vol_surge, sector, short)
 
             sb_post("prediction_log", {
                 "date": today,
@@ -933,7 +1025,8 @@ def save_portfolio_signals():
             breakout = _breakout_score(closes)
             vol_surge = _volume_surge_score(volumes)
             sector = _sector_momentum_score(name, sector_momentum)
-            composite = _composite_score(tech, prob, news, yt, foreign, market, breakout, vol_surge, sector)
+            short = _short_balance_score(name, news_by_stock)
+            composite = _composite_score(tech, prob, news, yt, foreign, market, breakout, vol_surge, sector, short)
 
             if tech < 4.0 and composite < 5.5:
                 continue
@@ -950,7 +1043,7 @@ def save_portfolio_signals():
                 "status": "holding",
                 "updated_at": now_kst().isoformat(),
             }, on_conflict="signal_date,ticker")
-            print(f"  {name} 신호저장 | 복합={composite} (기술={tech}/섹터={sector}/외국인={foreign}/52주={breakout}/거래량={vol_surge}/시장={market}) | 진입가={entry_price:,.0f}")
+            print(f"  {name} 신호저장 | 복합={composite} (기술={tech}/섹터={sector}/외국인={foreign}/공매도={short}/52주={breakout}/거래량={vol_surge}/시장={market}) | 진입가={entry_price:,.0f}")
 
         except Exception as e:
             print(f"  {name} 포트폴리오 신호 실패: {e}")
