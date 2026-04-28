@@ -437,37 +437,60 @@ def sb_patch(table, match_params, data):
         print(f"  PATCH 실패: {e}")
 
 
-def save_predictions():
-    """오전 수집 후 오늘 예측 저장 + 어제 결과 업데이트"""
-    print("\n[예측 로그 저장]")
+def fetch_naver_closes(code: str, count: int = 90) -> list:
+    """네이버 fchart API로 일별 종가 리스트 반환 (오래된 순)"""
+    url = (f"https://fchart.stock.naver.com/sise.nhn"
+           f"?symbol={code}&timeframe=day&count={count}&requestType=0")
+    headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://finance.naver.com"}
     try:
-        import yfinance as yf
-    except ImportError:
-        print("  yfinance 없음, 스킵")
-        return
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            raw = resp.read().decode("euc-kr", errors="replace")
+        # XML: <item data="YYYYMMDD|open|high|low|close|volume"/>
+        items = re.findall(r'data="([^"]+)"', raw)
+        closes = []
+        for item in items:
+            parts = item.split("|")
+            if len(parts) >= 5 and parts[4]:
+                try:
+                    closes.append(float(parts[4]))
+                except ValueError:
+                    pass
+        return closes  # 이미 오래된 순(시간 순)
+    except Exception as e:
+        print(f"  네이버 시세 수집 실패({code}): {e}")
+        return []
+
+
+def _ticker_sym(code: str) -> str:
+    """종목코드 → ticker 심볼 (코스닥 판별)"""
+    kosdaq_prefixes = ("0", "1", "2", "3")  # 코스닥은 보통 0으로 시작
+    # 코스피 대형주 코드 범위로 간단 구분
+    kospi_codes = {"005930","000660","207940","068270","005380","000270",
+                   "035420","035720","105560","055550","138040","066570",
+                   "028260","097950","009540","010140","012450","034020",
+                   "000720","006400","090430","028300","373220","010620",
+                   "000100","079550","189300","323410","259960"}
+    return f"{code}.KS" if code in kospi_codes else f"{code}.KQ"
+
+
+def save_predictions():
+    """오전 수집 후 오늘 예측 저장 + 어제 결과 업데이트 (네이버 API)"""
+    print("\n[예측 로그 저장]")
 
     today = today_kst().isoformat()
     yesterday = (today_kst() - timedelta(days=1)).isoformat()
 
     for name, code in WATCH_STOCKS.items():
-        ticker_sym = f"{code}.KS" if int(code) >= 200000 or len(code) == 6 and code[0] in "0123456789" else f"{code}.KQ"
-        # 코스피/코스닥 구분은 단순하게: 6자리 코드 중 일부 코스닥은 .KQ
-        # 간단히: 000-099 코스닥, 100+ 혼재 → KS로 기본, 실패시 KQ
+        ticker_sym = _ticker_sym(code)
         try:
-            closes = []
-            for suffix in [".KS", ".KQ"]:
-                hist = yf.Ticker(f"{code}{suffix}").history(period="3mo")
-                if not hist.empty:
-                    closes = hist["Close"].tolist()
-                    ticker_sym = f"{code}{suffix}"
-                    break
+            closes = fetch_naver_closes(code, count=90)
             if len(closes) < 21:
                 continue
 
             prob = _prediction_score(closes)
             predicted_up = prob >= 0.5
 
-            # 오늘 예측 저장
             sb_post("prediction_log", {
                 "date": today,
                 "ticker": ticker_sym,
@@ -497,27 +520,16 @@ def save_predictions():
 
 
 def save_portfolio_signals():
-    """오늘 신호 ≥4점 종목을 portfolio_signals에 저장 (진입가 = 당일 종가)"""
+    """오늘 신호 ≥4점 종목을 portfolio_signals에 저장 (진입가 = 당일 종가, 네이버 API)"""
     print("\n[포트폴리오 신호 저장]")
-    try:
-        import yfinance as yf
-    except ImportError:
-        print("  yfinance 없음, 스킵")
-        return
 
     today = today_kst().isoformat()
 
     for name, code in WATCH_STOCKS.items():
+        ticker_sym = _ticker_sym(code)
         try:
-            closes = []
-            ticker_sym = None
-            for suffix in [".KS", ".KQ"]:
-                hist = yf.Ticker(f"{code}{suffix}").history(period="3mo")
-                if not hist.empty:
-                    closes = hist["Close"].tolist()
-                    ticker_sym = f"{code}{suffix}"
-                    break
-            if len(closes) < 21 or not ticker_sym:
+            closes = fetch_naver_closes(code, count=90)
+            if len(closes) < 61:
                 continue
 
             score = _entry_signal_score(closes)
@@ -594,13 +606,8 @@ def _entry_signal_score(closes):
 
 
 def update_portfolio_returns():
-    """오후 파이프라인: holding 상태 포트폴리오의 현재가 + 수익률 업데이트"""
+    """오후 파이프라인: holding 상태 포트폴리오의 현재가 + 수익률 업데이트 (네이버 API)"""
     print("\n[포트폴리오 수익률 업데이트]")
-    try:
-        import yfinance as yf
-    except ImportError:
-        print("  yfinance 없음, 스킵")
-        return
 
     try:
         holdings = sb_get("portfolio_signals",
@@ -614,14 +621,22 @@ def update_portfolio_returns():
         print("  보유 종목 없음")
         return
 
-    # 티커별로 묶어서 한 번만 yfinance 조회
-    tickers = list({h["ticker"] for h in holdings})
+    # 네이버 현재가 조회 (ticker → code 역변환)
     prices = {}
-    for ticker in tickers:
+    seen_codes = set()
+    for h in holdings:
+        code = h["ticker"].split(".")[0]
+        if code in seen_codes:
+            continue
+        seen_codes.add(code)
         try:
-            hist = yf.Ticker(ticker).history(period="2d")
-            if not hist.empty:
-                prices[ticker] = float(hist["Close"].iloc[-1])
+            url = f"https://m.stock.naver.com/api/stock/{code}/basic"
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read())
+            price = float(data.get("closePrice", "0").replace(",", ""))
+            if price > 0:
+                prices[h["ticker"]] = price
         except:
             pass
         time.sleep(0.2)
