@@ -131,7 +131,7 @@ export const STOCKS: StockInfo[] = [
   { ticker: "010140.KS", name: "삼성중공업", sector: "조선" },
   { ticker: "329180.KS", name: "HD현대중공업", sector: "조선" },
   { ticker: "042660.KS", name: "한화오션", sector: "조선" },
-  { ticker: "010620.KS", name: "현대미포조선", sector: "조선" },
+  { ticker: "010620.KQ", name: "현대미포조선", sector: "조선" },
   { ticker: "460930.KQ", name: "현대힘스", sector: "조선" },
   { ticker: "023160.KS", name: "태광", sector: "조선" },
   { ticker: "017960.KS", name: "한국카본", sector: "조선" },
