@@ -181,36 +181,95 @@ def calc_volatility(ohlcv: list) -> float:
     return round(sum(ranges) / len(ranges), 2) if ranges else 99.0
 
 
-def calc_score(window: dict, vol: float) -> float:
+# 코스피 종목 코드 목록 (railway_job.py 와 동일)
+_KOSPI_CODES = {
+    "005930","000660","207940","068270","005380","000270",
+    "035420","035720","105560","055550","138040","066570",
+    "028260","097950","009540","010140","012450","034020",
+    "000720","006400","090430","028300","373220","010620",
+    "000100","079550","189300","323410","259960",
+}
+
+def _to_ticker(code: str) -> str:
+    return f"{code}.KS" if code in _KOSPI_CODES else f"{code}.KQ"
+
+
+def calc_score(window: dict, vol: float,
+               composite: float | None = None,
+               foreign_flow: str | None = None) -> float:
+    """
+    기본 100점 (과거 통계) +
+    composite_score 보너스 최대 +20점 +
+    외국인 순매수 보너스 +5점
+    """
     if not window:
         return 0.0
     score = 0.0
+
+    # ① 승률 (40점)
     score += min(40, window["win_rate"] * 0.5)
+
+    # ② 평균 수익률 (30점)
     avg = window["avg_return"]
     if avg >= 5:   score += 30
     elif avg >= 3: score += 20 + (avg - 3) * 5
     elif avg >= 1: score += 10 + (avg - 1) * 5
     elif avg > 0:  score += 5
+
+    # ③ 최대 손실 (20점)
     loss = abs(window["max_loss"])
-    if loss <= 3:   score += 20
-    elif loss <= 5: score += 15
+    if loss <= 3:    score += 20
+    elif loss <= 5:  score += 15
     elif loss <= 10: score += 8
     elif loss <= 15: score += 3
+
+    # ④ 변동성 (10점)
     if vol <= 1.5:   score += 10
     elif vol <= 2.5: score += 7
     elif vol <= 3.5: score += 4
     elif vol <= 5.0: score += 2
+
+    # ⑤ composite_score 보너스 (최대 +20점)
+    if composite is not None:
+        if composite >= 7.0:   score += 20
+        elif composite >= 6.0: score += 14
+        elif composite >= 5.5: score += 8
+        elif composite >= 4.0: score += 2
+        else:                  score -= 5  # 낮은 신호 패널티
+
+    # ⑥ 외국인 순매수 보너스 (+5점)
+    if foreign_flow and "순매수" in str(foreign_flow):
+        score += 5
+
     return round(score, 1)
 
 
-# ── 복합 점수 (prediction_log에서 오늘치 composite_score 조회) ────
+# ── 복합 점수 + 외국인 수급 조회 ─────────────────────────────────
 def _get_composite_scores() -> dict:
-    """종목별 최신 composite_score 조회"""
+    """prediction_log에서 오늘치 ticker → composite_score 조회"""
     today = datetime.now(KST).strftime("%Y-%m-%d")
     try:
         rows = sb_get("prediction_log",
             f"date=eq.{today}&select=ticker,composite_score&limit=100")
-        return {r["ticker"]: r["composite_score"] for r in rows if r.get("composite_score")}
+        return {r["ticker"]: r["composite_score"]
+                for r in rows if r.get("composite_score") is not None}
+    except Exception:
+        return {}
+
+
+def _get_investor_flows() -> dict:
+    """stock_news에서 최근 5일 종목별 외국인/기관 수급 조회 → name → flow_text"""
+    try:
+        cutoff = (datetime.now(KST) - timedelta(days=5)).strftime("%Y-%m-%d")
+        rows = sb_get("stock_news",
+            f"date=gte.{cutoff}&select=stock_name,investor_flow&limit=200")
+        flows = {}
+        for r in rows:
+            name = r.get("stock_name")
+            flow = r.get("investor_flow") or ""
+            if name and flow:
+                flows[name] = flow   # 가장 최근이 앞으로 오므로 첫 값 우선
+        return flows
     except Exception:
         return {}
 
@@ -285,7 +344,8 @@ def _send_email(subject: str, html: str):
 
 # ── 이메일 템플릿 ────────────────────────────────────────────────
 def _email_buy_recommendation(name, code, score, win_rate, avg_return,
-                               max_loss, best, buy_price, history):
+                               max_loss, best, buy_price, history,
+                               composite=None, flow=None):
     profit_min = round(buy_price * TARGET_PCT / 100 / buy_price * INVEST_AMOUNT)
     profit_max = round(INVEST_AMOUNT * STRETCH_PCT / 100)
     target_price = round(buy_price * (1 + TARGET_PCT / 100))
@@ -337,8 +397,20 @@ def _email_buy_recommendation(name, code, score, win_rate, avg_return,
         <td style="padding:12px;border-bottom:1px solid #e2e8f0;color:#dc2626">{round(buy_price * (1 + STOP_LOSS_PCT/100)):,.0f}원</td>
       </tr>
       <tr style="background:#f8fafc">
-        <td style="padding:12px;color:#64748b">역대 최대 손실</td>
-        <td style="padding:12px;color:#dc2626">{max_loss:+.2f}% ({round(max_loss/100*INVEST_AMOUNT):+,}원)</td>
+        <td style="padding:12px;border-bottom:1px solid #e2e8f0;color:#64748b">역대 최대 손실</td>
+        <td style="padding:12px;border-bottom:1px solid #e2e8f0;color:#dc2626">{max_loss:+.2f}% ({round(max_loss/100*INVEST_AMOUNT):+,}원)</td>
+      </tr>
+      <tr>
+        <td style="padding:12px;border-bottom:1px solid #e2e8f0;color:#64748b">AI 복합 신호</td>
+        <td style="padding:12px;border-bottom:1px solid #e2e8f0">
+          {f'<span style="color:{"#16a34a" if (composite or 0) >= 5.5 else ("#f59e0b" if (composite or 0) >= 4 else "#dc2626")};font-weight:bold">{composite:.1f}/10</span>' if composite is not None else '<span style="color:#94a3b8">데이터 없음 (내일부터 반영)</span>'}
+        </td>
+      </tr>
+      <tr style="background:#f8fafc">
+        <td style="padding:12px;color:#64748b">외국인/기관 수급</td>
+        <td style="padding:12px">
+          {f'<span style="color:{"#16a34a" if "순매수" in str(flow) else "#dc2626"}">{flow[:60] if flow else "-"}</span>' if flow else '<span style="color:#94a3b8">-</span>'}
+        </td>
       </tr>
     </table>
 
@@ -493,18 +565,36 @@ def _email_final_result(name, buy_price, sell_price, ret_pct, buy_date, sell_dat
 
 # ── 핵심 로직 ─────────────────────────────────────────────────────
 def _run_analysis() -> list:
-    """모든 후보 종목 분석 → 점수 내림차순 반환"""
+    """모든 후보 종목 분석 → 점수 내림차순 반환 (composite + 외국인 수급 포함)"""
+    composite_scores = _get_composite_scores()   # ticker→score
+    investor_flows   = _get_investor_flows()      # name→flow_text
+
+    has_composite = bool(composite_scores)
+    has_flow      = bool(investor_flows)
+    print(f"  [분석] composite_score {len(composite_scores)}개, 수급 {len(investor_flows)}개 로드")
+
     results = []
     for name, code in CANDIDATES.items():
         ohlcv = fetch_ohlcv(code, 300)
         if not ohlcv:
             continue
-        window = simulate_window(ohlcv)
-        vol    = calc_volatility(ohlcv)
-        score  = calc_score(window, vol)
-        cur    = ohlcv[-1]["close"]
-        results.append({"name": name, "code": code, "score": score,
-                         "window": window, "vol": vol, "cur_price": cur})
+        window    = simulate_window(ohlcv)
+        vol       = calc_volatility(ohlcv)
+        ticker    = _to_ticker(code)
+        composite = composite_scores.get(ticker)
+        flow      = investor_flows.get(name)
+        score     = calc_score(window, vol, composite, flow)
+        cur       = ohlcv[-1]["close"]
+        results.append({
+            "name":      name,
+            "code":      code,
+            "score":     score,
+            "window":    window,
+            "vol":       vol,
+            "cur_price": cur,
+            "composite": composite,
+            "flow":      flow,
+        })
         time.sleep(0.3)
     results.sort(key=lambda x: x["score"], reverse=True)
     return results
@@ -555,13 +645,16 @@ def check_buy_window():
     html = _email_buy_recommendation(
         top["name"], top["code"], top["score"], w["win_rate"],
         w["avg_return"], w["max_loss"], w["best"],
-        buy_price, w["history"]
+        buy_price, w["history"],
+        composite=top.get("composite"),
+        flow=top.get("flow"),
     )
+    target_profit = round(buy_price * TARGET_PCT / 100 / buy_price * INVEST_AMOUNT)
     _send_email(
-        f"[월급투자] {top['name']} 매수 추천 — 목표 +{round(buy_price * TARGET_PCT / 100 / buy_price * INVEST_AMOUNT):,}원",
+        f"[월급투자] {top['name']} 매수 추천 — 목표 +{target_profit:,}원",
         html
     )
-    print(f"  [월급에이전트] 추천: {top['name']} (점수 {top['score']:.0f}, 매수가 {buy_price:,.0f}원)")
+    print(f"  [월급에이전트] 추천: {top['name']} (점수 {top['score']:.0f}, composite {top.get('composite')}, 매수가 {buy_price:,.0f}원)")
 
 
 # ── 일일 추적 ─────────────────────────────────────────────────────
