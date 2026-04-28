@@ -472,6 +472,12 @@ def sb_patch(table, match_params, data):
 
 def fetch_naver_closes(code: str, count: int = 90) -> list:
     """네이버 fchart API로 일별 종가 리스트 반환 (오래된 순)"""
+    closes, _ = fetch_naver_ohlcv(code, count)
+    return closes
+
+
+def fetch_naver_ohlcv(code: str, count: int = 260) -> tuple:
+    """네이버 fchart API로 일별 (종가 리스트, 거래량 리스트) 반환 (오래된 순)"""
     url = (f"https://fchart.stock.naver.com/sise.nhn"
            f"?symbol={code}&timeframe=day&count={count}&requestType=0")
     headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://finance.naver.com"}
@@ -481,18 +487,19 @@ def fetch_naver_closes(code: str, count: int = 90) -> list:
             raw = resp.read().decode("euc-kr", errors="replace")
         # XML: <item data="YYYYMMDD|open|high|low|close|volume"/>
         items = re.findall(r'data="([^"]+)"', raw)
-        closes = []
+        closes, volumes = [], []
         for item in items:
             parts = item.split("|")
             if len(parts) >= 5 and parts[4]:
                 try:
                     closes.append(float(parts[4]))
+                    volumes.append(float(parts[5]) if len(parts) >= 6 and parts[5] else 0.0)
                 except ValueError:
                     pass
-        return closes  # 이미 오래된 순(시간 순)
+        return closes, volumes
     except Exception as e:
         print(f"  네이버 시세 수집 실패({code}): {e}")
-        return []
+        return [], []
 
 
 def _ticker_sym(code: str) -> str:
@@ -622,6 +629,46 @@ def _foreign_flow_score(name: str, news_by_stock: dict) -> float:
     return 0.0
 
 
+_market_filter_cache: dict = {}
+
+
+def _market_filter_score() -> float:
+    """KOSPI MA20 필터: 하락장이면 -1.0 패널티 (파이프라인 내 1회 캐시)"""
+    if "score" in _market_filter_cache:
+        return _market_filter_cache["score"]
+    try:
+        closes, _ = fetch_naver_ohlcv("KOSPI", count=30)
+        if len(closes) < 20:
+            score = 0.0
+        else:
+            ma20 = sum(closes[-20:]) / 20
+            direction = "상승" if closes[-1] >= ma20 else "하락"
+            score = 0.0 if closes[-1] >= ma20 else -1.0
+            print(f"  [시장필터] KOSPI {closes[-1]:,.2f} / MA20 {ma20:,.2f} → {direction}장 ({score:+.1f})")
+    except Exception as e:
+        print(f"  [시장필터] KOSPI 조회 실패: {e}")
+        score = 0.0
+    _market_filter_cache["score"] = score
+    return score
+
+
+def _breakout_score(closes: list) -> float:
+    """52주 신고가 근접 (+0.5): 현재가 > 52주 최고가 × 95%"""
+    if len(closes) < 20:
+        return 0.0
+    lookback = closes[-252:] if len(closes) >= 252 else closes
+    high_52w = max(lookback)
+    return 0.5 if closes[-1] > high_52w * 0.95 else 0.0
+
+
+def _volume_surge_score(volumes: list) -> float:
+    """거래량 폭발 감지 (+0.3): 오늘 거래량 > 20일 평균 × 3"""
+    if len(volumes) < 22:
+        return 0.0
+    avg_vol = sum(volumes[-21:-1]) / 20
+    return 0.3 if avg_vol > 0 and volumes[-1] > avg_vol * 3 else 0.0
+
+
 def _news_score_for(name: str, news_by_stock: dict) -> float:
     """뉴스 점수: sentiment × trading_signal × impact → 합산 (max 2.0)"""
     rows = news_by_stock.get(name, [])
@@ -701,12 +748,14 @@ def _ml_score_from_prob(prob: float) -> float:
 
 
 def _composite_score(tech: float, prob: float, news: float, yt: float,
-                     foreign: float = 0.0) -> float:
-    """종합 신뢰도 점수 (0~10)
-    기술(0~5) + ML(0~2) + 뉴스(-1~2) + 유튜브(-0.5~1) + 외국인수급(-1~1) = 이론상 최대 11
-    외국인이 이 종목을 선별 매수/매도 시 신호 강도 조정
+                     foreign: float = 0.0, market: float = 0.0,
+                     breakout: float = 0.0, vol_surge: float = 0.0) -> float:
+    """종합 신뢰도 점수
+    기술(0~5) + ML(0~2) + 뉴스(-1~2) + 유튜브(-0.5~1) + 외국인(-0.5~0.5)
+    + 시장필터(-1~0) + 52주신고가(0~0.5) + 거래량폭발(0~0.3) = 이론상 최대 11.8
     """
-    return round(tech + _ml_score_from_prob(prob) + news + yt + foreign, 2)
+    return round(tech + _ml_score_from_prob(prob) + news + yt + foreign
+                 + market + breakout + vol_surge, 2)
 
 
 def save_predictions():
@@ -717,11 +766,13 @@ def save_predictions():
     yesterday = (today_kst() - timedelta(days=1)).isoformat()
 
     news_by_stock, yt_rows = _load_recent_signals(days=3)
+    _market_filter_cache.clear()
+    market = _market_filter_score()
 
     for name, code in WATCH_STOCKS.items():
         ticker_sym = _ticker_sym(code)
         try:
-            closes = fetch_naver_closes(code, count=90)
+            closes, volumes = fetch_naver_ohlcv(code, count=260)
             if len(closes) < 21:
                 continue
 
@@ -730,7 +781,9 @@ def save_predictions():
             news = _news_score_for(name, news_by_stock)
             yt = _yt_score_for(name, yt_rows)
             foreign = _foreign_flow_score(name, news_by_stock)
-            composite = _composite_score(tech, prob, news, yt, foreign)
+            breakout = _breakout_score(closes)
+            vol_surge = _volume_surge_score(volumes)
+            composite = _composite_score(tech, prob, news, yt, foreign, market, breakout, vol_surge)
 
             sb_post("prediction_log", {
                 "date": today,
@@ -773,11 +826,12 @@ def save_portfolio_signals():
 
     today = today_kst().isoformat()
     news_by_stock, yt_rows = _load_recent_signals(days=3)
+    market = _market_filter_score()  # 캐시에서 재사용
 
     for name, code in WATCH_STOCKS.items():
         ticker_sym = _ticker_sym(code)
         try:
-            closes = fetch_naver_closes(code, count=90)
+            closes, volumes = fetch_naver_ohlcv(code, count=260)
             if len(closes) < 61:
                 continue
 
@@ -786,7 +840,9 @@ def save_portfolio_signals():
             news = _news_score_for(name, news_by_stock)
             yt = _yt_score_for(name, yt_rows)
             foreign = _foreign_flow_score(name, news_by_stock)
-            composite = _composite_score(tech, prob, news, yt, foreign)
+            breakout = _breakout_score(closes)
+            vol_surge = _volume_surge_score(volumes)
+            composite = _composite_score(tech, prob, news, yt, foreign, market, breakout, vol_surge)
 
             if tech < 4.0 and composite < 5.5:
                 continue
@@ -803,7 +859,7 @@ def save_portfolio_signals():
                 "status": "holding",
                 "updated_at": now_kst().isoformat(),
             }, on_conflict="signal_date,ticker")
-            print(f"  {name} 신호저장 | 복합={composite} (기술={tech}/뉴스={news}/YT={yt}/외국인={foreign}) | 진입가={entry_price:,.0f}")
+            print(f"  {name} 신호저장 | 복합={composite} (기술={tech}/뉴스={news}/YT={yt}/외국인={foreign}/52주={breakout}/거래량={vol_surge}/시장={market}) | 진입가={entry_price:,.0f}")
 
         except Exception as e:
             print(f"  {name} 포트폴리오 신호 실패: {e}")
