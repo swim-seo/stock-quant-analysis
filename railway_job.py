@@ -498,7 +498,7 @@ def _load_recent_signals(days: int = 3):
     try:
         yt_rows = sb_get("youtube_insights",
             f"upload_date=gte.{since}"
-            f"&select=market_sentiment,urgency,key_stocks"
+            f"&select=market_sentiment,urgency,key_stocks,key_stocks_sentiment"
             f"&limit=100")
     except Exception:
         yt_rows = []
@@ -521,13 +521,27 @@ def _news_score_for(name: str, news_by_stock: dict) -> float:
 
 
 def _yt_score_for(name: str, yt_rows: list) -> float:
-    """유튜브 점수: 종목 언급 × sentiment × urgency (max 1.0)"""
+    """유튜브 점수: 종목별 sentiment(key_stocks_sentiment) × urgency (max 1.0)
+    key_stocks_sentiment가 없으면 market_sentiment로 fallback.
+    """
     relevant = [r for r in yt_rows if name in (r.get("key_stocks") or [])]
     if not relevant:
         return 0.0
     total = 0.0
     for r in relevant:
-        s = {"긍정": 0.5, "중립": 0.0, "부정": -0.3}.get(r.get("market_sentiment", "중립"), 0.0)
+        # 종목별 sentiment 우선, 없으면 전체 시장 sentiment로 fallback
+        stock_sentiments = r.get("key_stocks_sentiment")
+        if isinstance(stock_sentiments, str):
+            try:
+                stock_sentiments = json.loads(stock_sentiments)
+            except Exception:
+                stock_sentiments = {}
+        stock_sent = (stock_sentiments or {}).get(name)
+        if stock_sent:
+            s = {"긍정": 0.5, "중립": 0.0, "부정": -0.4}.get(stock_sent, 0.0)
+        else:
+            # fallback: 전체 시장 sentiment (단순 언급은 0점)
+            s = {"긍정": 0.2, "중립": 0.0, "부정": -0.2}.get(r.get("market_sentiment", "중립"), 0.0)
         u = {"오늘": 1.0, "이번주": 0.7, "장기": 0.4}.get(r.get("urgency", "이번주"), 0.5)
         total += s * u
     return max(-0.5, min(1.0, total))

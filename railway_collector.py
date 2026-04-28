@@ -188,12 +188,16 @@ def analyze_with_claude(title: str, transcript: str, channel: str, trading_focus
 2. summary: 영상 핵심 내용 3줄 요약
 3. market_sentiment: 시장 전망 ("긍정"/"중립"/"부정" 중 하나)
 4. key_stocks: 언급된 주요 종목 리스트 (예: ["삼성전자", "SK하이닉스"])
-5. key_sectors: 언급된 주요 섹터/업종 리스트 (예: ["반도체", "바이오"])
-6. investment_signals: 매수/매도/관망 관련 핵심 언급 내용 리스트
-7. risk_factors: 언급된 리스크 요인 리스트
-8. keywords: 핵심 키워드 5개 리스트
-9. trading_type: 투자 성격 ("단타"/"스윙"/"장기" 중 하나)
-10. urgency: 투자 시급성 ("오늘"/"이번주"/"장기" 중 하나)
+5. key_stocks_sentiment: 종목별 평가 딕셔너리. key_stocks에 있는 각 종목에 대해 영상에서 어떻게 평가했는지 판단.
+   형식: {{"종목명": "긍정"|"중립"|"부정"}}
+   예: {{"삼성전자": "긍정", "SK하이닉스": "중립"}}
+   (매수 추천·상승 기대 → "긍정", 단순 언급·중립적 → "중립", 매도·하락 경고 → "부정")
+6. key_sectors: 언급된 주요 섹터/업종 리스트 (예: ["반도체", "바이오"])
+7. investment_signals: 매수/매도/관망 관련 핵심 언급 내용 리스트
+8. risk_factors: 언급된 리스크 요인 리스트
+9. keywords: 핵심 키워드 5개 리스트
+10. trading_type: 투자 성격 ("단타"/"스윙"/"장기" 중 하나)
+11. urgency: 투자 시급성 ("오늘"/"이번주"/"장기" 중 하나)
 
 JSON만 출력하세요."""
 
@@ -232,6 +236,7 @@ def save_to_supabase(video_id: str, title: str, channel: str, playlist: str,
             "keywords": insight.get("keywords", []),
             "investment_signals": json.dumps(insight.get("investment_signals", []), ensure_ascii=False),
             "risk_factors": json.dumps(insight.get("risk_factors", []), ensure_ascii=False),
+            "key_stocks_sentiment": json.dumps(insight.get("key_stocks_sentiment", {}), ensure_ascii=False),
             "trading_type": insight.get("trading_type", "스윙"),
             "urgency": insight.get("urgency", "이번주"),
         }
