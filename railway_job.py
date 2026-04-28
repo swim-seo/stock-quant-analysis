@@ -512,13 +512,13 @@ def _ticker_sym(code: str) -> str:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def _load_recent_signals(days: int = 3):
-    """최근 N일 뉴스+유튜브 시그널 사전 로드 (종목별 캐시)"""
+    """최근 N일 뉴스+유튜브 시그널 + 외국인/기관 수급 사전 로드"""
     since = (today_kst() - timedelta(days=days)).isoformat()
 
     try:
         news_rows = sb_get("stock_news",
             f"collected_at=gte.{since}T00:00:00"
-            f"&select=stock_name,sentiment,trading_signal,news_impact_score"
+            f"&select=stock_name,sentiment,trading_signal,news_impact_score,investor_data"
             f"&order=collected_at.desc&limit=500")
     except Exception:
         news_rows = []
@@ -537,6 +537,38 @@ def _load_recent_signals(days: int = 3):
         yt_rows = []
 
     return news_by_stock, yt_rows
+
+
+def _foreign_flow_score(name: str, news_by_stock: dict) -> float:
+    """외국인 5일 누적 순매수 → 종목별 점수 (-1.0 ~ +1.0)
+    종목 고유 흐름 기준: 시장 전체 방향과 무관하게 이 종목만의 수급 방향으로 판단.
+    foreign_5d > +50억: +1.0  /  > +10억: +0.5
+    foreign_5d < -50억: -1.0  /  < -10억: -0.5
+    그 사이: 0.0
+    """
+    rows = news_by_stock.get(name, [])
+    total_foreign = 0.0
+    count = 0
+    for r in rows:
+        raw = r.get("investor_data")
+        if not raw:
+            continue
+        try:
+            inv = json.loads(raw) if isinstance(raw, str) else raw
+            for d in (inv or [])[:5]:
+                total_foreign += float(d.get("foreign_net", 0) or 0)
+            count += 1
+        except Exception:
+            pass
+    if count == 0:
+        return 0.0
+    # 억원 단위 환산
+    amt = total_foreign / 1_0000_0000
+    if amt >= 50:   return 1.0
+    elif amt >= 10: return 0.5
+    elif amt <= -50: return -1.0
+    elif amt <= -10: return -0.5
+    return 0.0
 
 
 def _news_score_for(name: str, news_by_stock: dict) -> float:
@@ -617,11 +649,13 @@ def _ml_score_from_prob(prob: float) -> float:
     return max(0.0, min(2.0, (prob - 0.45) * 10.0))
 
 
-def _composite_score(tech: float, prob: float, news: float, yt: float) -> float:
+def _composite_score(tech: float, prob: float, news: float, yt: float,
+                     foreign: float = 0.0) -> float:
     """종합 신뢰도 점수 (0~10)
-    기술(0~5) + ML(0~2) + 뉴스(-1~2) + 유튜브(-0.5~1) = 이론상 최대 10
+    기술(0~5) + ML(0~2) + 뉴스(-1~2) + 유튜브(-0.5~1) + 외국인수급(-1~1) = 이론상 최대 11
+    외국인이 이 종목을 선별 매수/매도 시 신호 강도 조정
     """
-    return round(tech + _ml_score_from_prob(prob) + news + yt, 2)
+    return round(tech + _ml_score_from_prob(prob) + news + yt + foreign, 2)
 
 
 def save_predictions():
@@ -644,7 +678,8 @@ def save_predictions():
             tech = _entry_signal_score(closes)
             news = _news_score_for(name, news_by_stock)
             yt = _yt_score_for(name, yt_rows)
-            composite = _composite_score(tech, prob, news, yt)
+            foreign = _foreign_flow_score(name, news_by_stock)
+            composite = _composite_score(tech, prob, news, yt, foreign)
 
             sb_post("prediction_log", {
                 "date": today,
@@ -699,7 +734,8 @@ def save_portfolio_signals():
             tech = _entry_signal_score(closes)
             news = _news_score_for(name, news_by_stock)
             yt = _yt_score_for(name, yt_rows)
-            composite = _composite_score(tech, prob, news, yt)
+            foreign = _foreign_flow_score(name, news_by_stock)
+            composite = _composite_score(tech, prob, news, yt, foreign)
 
             if tech < 4.0 and composite < 5.5:
                 continue
@@ -716,7 +752,7 @@ def save_portfolio_signals():
                 "status": "holding",
                 "updated_at": now_kst().isoformat(),
             }, on_conflict="signal_date,ticker")
-            print(f"  {name} 신호저장 | 복합={composite} (기술={tech}/뉴스={news}/YT={yt}) | 진입가={entry_price:,.0f}")
+            print(f"  {name} 신호저장 | 복합={composite} (기술={tech}/뉴스={news}/YT={yt}/외국인={foreign}) | 진입가={entry_price:,.0f}")
 
         except Exception as e:
             print(f"  {name} 포트폴리오 신호 실패: {e}")
