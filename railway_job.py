@@ -138,6 +138,36 @@ def fetch_naver_news(stock_code, max_pages=2):
     return articles
 
 
+def fetch_earnings_trend(stock_code: str) -> list:
+    """네이버 모바일 API로 분기별 실적 수집 (최근 4분기)
+    Returns: [{"quarter": "2025/4Q", "revenue": 123456, "op_profit": 12345, "net_profit": 9000}, ...]
+    최신 순
+    """
+    url = f"https://m.stock.naver.com/api/stock/{stock_code}/finance/quarter"
+    headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://m.stock.naver.com"}
+    try:
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return []
+
+    results = []
+    # 응답 구조: {"financeInfo": [...]} 또는 직접 리스트
+    rows = data if isinstance(data, list) else data.get("financeInfo", [])
+    for row in rows[:4]:
+        def to_int(v):
+            try: return int(str(v).replace(",", "").replace("-", "0") or 0)
+            except: return 0
+        results.append({
+            "quarter": row.get("stacYm", row.get("stac_yymm", "")),
+            "revenue":    to_int(row.get("thstrm", {}).get("saleAmt",   row.get("saleAmt",   0))),
+            "op_profit":  to_int(row.get("thstrm", {}).get("bsopPrfi",  row.get("bsopPrfi",  0))),
+            "net_profit": to_int(row.get("thstrm", {}).get("nplcInmSumAmt", row.get("nplcInmSumAmt", 0))),
+        })
+    return results
+
+
 def fetch_short_balance(stock_code: str) -> list:
     """네이버 금융 공매도 잔고 데이터 수집 (최근 5거래일)
     Returns: [{"date": "2026.04.28", "balance_ratio": 1.23, "balance_qty": 12345}, ...]
@@ -258,13 +288,14 @@ def analyze_news(stock_name, articles):
 
 
 def collect_news():
-    """전체 관심 종목 뉴스 + 수급 + 공매도 잔고 수집"""
-    print("\n[뉴스/수급/공매도 수집]")
+    """전체 관심 종목 뉴스 + 수급 + 공매도 잔고 + 분기 실적 수집"""
+    print("\n[뉴스/수급/공매도/실적 수집]")
     for name, code in WATCH_STOCKS.items():
         print(f"  {name}...", end=" ")
         articles = fetch_naver_news(code)
         investor = fetch_investor_trading(code)
         short = fetch_short_balance(code)
+        earnings = fetch_earnings_trend(code)
         analysis = analyze_news(name, articles)
 
         sb_post("stock_news", {
@@ -275,10 +306,12 @@ def collect_news():
             "analysis": json.dumps(analysis, ensure_ascii=False),
             "investor_data": json.dumps(investor[:10], ensure_ascii=False),
             "short_data": json.dumps(short[:5], ensure_ascii=False),
+            "earnings_data": json.dumps(earnings[:4], ensure_ascii=False),
             "sentiment": analysis.get("sentiment", "중립"),
         }, on_conflict="stock_code")
-        short_info = f" | 공매도잔고 {short[0]['balance_ratio']:.2f}%" if short else ""
-        print(f"뉴스 {len(articles)}개 | {analysis.get('sentiment', '?')}{short_info}")
+        short_info = f" | 공매도 {short[0]['balance_ratio']:.2f}%" if short else ""
+        earn_info = f" | 영업이익 {earnings[0]['op_profit']:,}" if earnings else ""
+        print(f"뉴스 {len(articles)}개 | {analysis.get('sentiment', '?')}{short_info}{earn_info}")
         time.sleep(1)
 
 
@@ -587,7 +620,7 @@ def _load_recent_signals(days: int = 3):
     try:
         news_rows = sb_get("stock_news",
             f"collected_at=gte.{since}T00:00:00"
-            f"&select=stock_name,sentiment,trading_signal,news_impact_score,investor_data,short_data"
+            f"&select=stock_name,sentiment,trading_signal,news_impact_score,investor_data,short_data,earnings_data"
             f"&order=collected_at.desc&limit=500")
     except Exception:
         news_rows = []
@@ -816,6 +849,55 @@ def _short_balance_score(name: str, news_by_stock: dict) -> float:
     return 0.0
 
 
+def _earnings_score(name: str, news_by_stock: dict) -> float:
+    """분기 실적 추이 점수 (-0.3 ~ +0.3)
+
+    최근 4분기 영업이익 기준:
+      3분기 연속 증가          → +0.3
+      2분기 연속 증가          → +0.2
+      최근 분기만 흑자 전환    → +0.1
+      2분기 연속 감소          → -0.2
+      3분기 연속 감소          → -0.3
+      데이터 부족 / 변동 없음  → 0.0
+    """
+    rows = news_by_stock.get(name, [])
+    earnings = []
+    for r in rows:
+        raw = r.get("earnings_data")
+        if not raw:
+            continue
+        try:
+            parsed = json.loads(raw) if isinstance(raw, str) else raw
+            if parsed:
+                earnings = parsed
+                break
+        except Exception:
+            pass
+
+    profits = [e.get("op_profit", 0) for e in earnings if e.get("op_profit") is not None]
+    if len(profits) < 2:
+        return 0.0
+
+    # profits[0] = 가장 최근 분기
+    def growing(i):  # profits[i] > profits[i+1] (최신 > 이전)
+        return len(profits) > i + 1 and profits[i] > profits[i + 1]
+
+    def declining(i):
+        return len(profits) > i + 1 and profits[i] < profits[i + 1]
+
+    if len(profits) >= 4 and growing(0) and growing(1) and growing(2):
+        return 0.3
+    if len(profits) >= 3 and growing(0) and growing(1):
+        return 0.2
+    if growing(0) and profits[1] <= 0 < profits[0]:
+        return 0.1  # 흑자 전환
+    if len(profits) >= 3 and declining(0) and declining(1) and declining(2):
+        return -0.3
+    if len(profits) >= 3 and declining(0) and declining(1):
+        return -0.2
+    return 0.0
+
+
 def _news_score_for(name: str, news_by_stock: dict) -> float:
     """뉴스 점수: sentiment × trading_signal × impact → 합산 (max 2.0)"""
     rows = news_by_stock.get(name, [])
@@ -897,14 +979,15 @@ def _ml_score_from_prob(prob: float) -> float:
 def _composite_score(tech: float, prob: float, news: float, yt: float,
                      foreign: float = 0.0, market: float = 0.0,
                      breakout: float = 0.0, vol_surge: float = 0.0,
-                     sector: float = 0.0, short: float = 0.0) -> float:
+                     sector: float = 0.0, short: float = 0.0,
+                     earnings: float = 0.0) -> float:
     """종합 신뢰도 점수
     기술(0~5) + ML(0~2) + 뉴스(-1~2) + 유튜브(-0.5~1) + 외국인(-0.5~0.5)
     + 시장필터(-1~0) + 52주신고가(0~0.5) + 거래량폭발(0~0.3) + 섹터모멘텀(-0.3~0.3)
-    + 공매도잔고(-0.2~0.2) = 이론상 최대 12.3
+    + 공매도잔고(-0.2~0.2) + 실적추이(-0.3~0.3) = 이론상 최대 12.6
     """
     return round(tech + _ml_score_from_prob(prob) + news + yt + foreign
-                 + market + breakout + vol_surge + sector + short, 2)
+                 + market + breakout + vol_surge + sector + short + earnings, 2)
 
 
 def save_predictions():
@@ -950,7 +1033,8 @@ def save_predictions():
             vol_surge = _volume_surge_score(volumes)
             sector = _sector_momentum_score(name, sector_momentum)
             short = _short_balance_score(name, news_by_stock)
-            composite = _composite_score(tech, prob, news, yt, foreign, market, breakout, vol_surge, sector, short)
+            earn = _earnings_score(name, news_by_stock)
+            composite = _composite_score(tech, prob, news, yt, foreign, market, breakout, vol_surge, sector, short, earn)
 
             sb_post("prediction_log", {
                 "date": today,
@@ -1026,7 +1110,8 @@ def save_portfolio_signals():
             vol_surge = _volume_surge_score(volumes)
             sector = _sector_momentum_score(name, sector_momentum)
             short = _short_balance_score(name, news_by_stock)
-            composite = _composite_score(tech, prob, news, yt, foreign, market, breakout, vol_surge, sector, short)
+            earn = _earnings_score(name, news_by_stock)
+            composite = _composite_score(tech, prob, news, yt, foreign, market, breakout, vol_surge, sector, short, earn)
 
             if tech < 4.0 and composite < 5.5:
                 continue
@@ -1043,7 +1128,7 @@ def save_portfolio_signals():
                 "status": "holding",
                 "updated_at": now_kst().isoformat(),
             }, on_conflict="signal_date,ticker")
-            print(f"  {name} 신호저장 | 복합={composite} (기술={tech}/섹터={sector}/외국인={foreign}/공매도={short}/52주={breakout}/거래량={vol_surge}/시장={market}) | 진입가={entry_price:,.0f}")
+            print(f"  {name} 신호저장 | 복합={composite} (기술={tech}/섹터={sector}/외국인={foreign}/공매도={short}/실적={earn}/52주={breakout}/거래량={vol_surge}/시장={market}) | 진입가={entry_price:,.0f}")
 
         except Exception as e:
             print(f"  {name} 포트폴리오 신호 실패: {e}")
