@@ -474,12 +474,85 @@ def _ticker_sym(code: str) -> str:
     return f"{code}.KS" if code in kospi_codes else f"{code}.KQ"
 
 
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 복합 예측 점수 (기술 + ML + 뉴스 + 유튜브)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def _load_recent_signals(days: int = 3):
+    """최근 N일 뉴스+유튜브 시그널 사전 로드 (종목별 캐시)"""
+    since = (today_kst() - timedelta(days=days)).isoformat()
+
+    try:
+        news_rows = sb_get("stock_news",
+            f"collected_at=gte.{since}T00:00:00"
+            f"&select=stock_name,sentiment,trading_signal,news_impact_score"
+            f"&order=collected_at.desc&limit=500")
+    except Exception:
+        news_rows = []
+
+    news_by_stock: dict = {}
+    for r in news_rows:
+        n = r.get("stock_name", "")
+        news_by_stock.setdefault(n, []).append(r)
+
+    try:
+        yt_rows = sb_get("youtube_insights",
+            f"upload_date=gte.{since}"
+            f"&select=market_sentiment,urgency,key_stocks"
+            f"&limit=100")
+    except Exception:
+        yt_rows = []
+
+    return news_by_stock, yt_rows
+
+
+def _news_score_for(name: str, news_by_stock: dict) -> float:
+    """뉴스 점수: sentiment × trading_signal × impact → 합산 (max 2.0)"""
+    rows = news_by_stock.get(name, [])
+    if not rows:
+        return 0.0
+    total = 0.0
+    for r in rows:
+        s = {"긍정": 0.5, "중립": 0.0, "부정": -0.5}.get(r.get("sentiment", "중립"), 0.0)
+        t = {"매수": 0.5, "관망": 0.0, "매도": -0.5}.get(r.get("trading_signal", "관망"), 0.0)
+        impact = float(r.get("news_impact_score") or 5.0) / 10.0
+        total += (s + t) * impact
+    return max(-1.0, min(2.0, total))
+
+
+def _yt_score_for(name: str, yt_rows: list) -> float:
+    """유튜브 점수: 종목 언급 × sentiment × urgency (max 1.0)"""
+    relevant = [r for r in yt_rows if name in (r.get("key_stocks") or [])]
+    if not relevant:
+        return 0.0
+    total = 0.0
+    for r in relevant:
+        s = {"긍정": 0.5, "중립": 0.0, "부정": -0.3}.get(r.get("market_sentiment", "중립"), 0.0)
+        u = {"오늘": 1.0, "이번주": 0.7, "장기": 0.4}.get(r.get("urgency", "이번주"), 0.5)
+        total += s * u
+    return max(-0.5, min(1.0, total))
+
+
+def _ml_score_from_prob(prob: float) -> float:
+    """ML 확률 → 0~2 점수 (prob=0.45→0, prob=0.65→2)"""
+    return max(0.0, min(2.0, (prob - 0.45) * 10.0))
+
+
+def _composite_score(tech: float, prob: float, news: float, yt: float) -> float:
+    """종합 신뢰도 점수 (0~10)
+    기술(0~5) + ML(0~2) + 뉴스(-1~2) + 유튜브(-0.5~1) = 이론상 최대 10
+    """
+    return round(tech + _ml_score_from_prob(prob) + news + yt, 2)
+
+
 def save_predictions():
-    """오전 수집 후 오늘 예측 저장 + 어제 결과 업데이트 (네이버 API)"""
+    """오전 수집 후 오늘 예측 저장 + 어제 결과 업데이트 (복합 점수 포함)"""
     print("\n[예측 로그 저장]")
 
     today = today_kst().isoformat()
     yesterday = (today_kst() - timedelta(days=1)).isoformat()
+
+    news_by_stock, yt_rows = _load_recent_signals(days=3)
 
     for name, code in WATCH_STOCKS.items():
         ticker_sym = _ticker_sym(code)
@@ -489,13 +562,21 @@ def save_predictions():
                 continue
 
             prob = _prediction_score(closes)
-            predicted_up = prob >= 0.5
+            tech = _entry_signal_score(closes)
+            news = _news_score_for(name, news_by_stock)
+            yt = _yt_score_for(name, yt_rows)
+            composite = _composite_score(tech, prob, news, yt)
 
             sb_post("prediction_log", {
                 "date": today,
                 "ticker": ticker_sym,
-                "predicted_up": predicted_up,
+                "predicted_up": prob >= 0.5,
                 "probability": round(prob, 4),
+                "tech_score": round(tech, 2),
+                "ml_score": round(_ml_score_from_prob(prob), 2),
+                "news_score": round(news, 2),
+                "yt_score": round(yt, 2),
+                "composite_score": composite,
             }, on_conflict="date,ticker")
 
             # 어제 예측의 actual_up + correct 업데이트
@@ -520,10 +601,13 @@ def save_predictions():
 
 
 def save_portfolio_signals():
-    """오늘 신호 ≥4점 종목을 portfolio_signals에 저장 (진입가 = 당일 종가, 네이버 API)"""
+    """오늘 신호 종목을 portfolio_signals에 저장
+    조건: tech ≥ 4.0 OR composite ≥ 5.5 (AI가 기술 약세를 보완 가능)
+    """
     print("\n[포트폴리오 신호 저장]")
 
     today = today_kst().isoformat()
+    news_by_stock, yt_rows = _load_recent_signals(days=3)
 
     for name, code in WATCH_STOCKS.items():
         ticker_sym = _ticker_sym(code)
@@ -532,8 +616,13 @@ def save_portfolio_signals():
             if len(closes) < 61:
                 continue
 
-            score = _entry_signal_score(closes)
-            if score < 4.0:
+            prob = _prediction_score(closes)
+            tech = _entry_signal_score(closes)
+            news = _news_score_for(name, news_by_stock)
+            yt = _yt_score_for(name, yt_rows)
+            composite = _composite_score(tech, prob, news, yt)
+
+            if tech < 4.0 and composite < 5.5:
                 continue
 
             entry_price = closes[-1]
@@ -544,11 +633,11 @@ def save_portfolio_signals():
                 "entry_price": round(entry_price, 0),
                 "current_price": round(entry_price, 0),
                 "return_pct": 0.0,
-                "signal_score": score,
+                "signal_score": composite,
                 "status": "holding",
                 "updated_at": now_kst().isoformat(),
             }, on_conflict="signal_date,ticker")
-            print(f"  {name} 신호저장 | score={score} | 진입가={entry_price:,.0f}")
+            print(f"  {name} 신호저장 | 복합={composite} (기술={tech}/뉴스={news}/YT={yt}) | 진입가={entry_price:,.0f}")
 
         except Exception as e:
             print(f"  {name} 포트폴리오 신호 실패: {e}")

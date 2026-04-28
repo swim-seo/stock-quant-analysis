@@ -6,7 +6,7 @@ import { STOCKS, StockInfo } from "@/lib/stocks";
 export const dynamic = "force-dynamic";
 
 // ── Constants ────────────────────────────────────────────────
-const DEFAULT_START_DATE = "2025-01-01";
+const DEFAULT_START_DATE = "2026-04-25";
 const START_CAPITAL = 10_000_000;
 const COMMISSION = 0.0015;
 const SLIPPAGE = 0.001;

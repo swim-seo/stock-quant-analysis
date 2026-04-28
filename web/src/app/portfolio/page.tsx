@@ -174,6 +174,7 @@ interface LiveSignal {
   signal_date: string; ticker: string; stock_name: string;
   entry_price: number; current_price: number; return_pct: number;
   signal_score: number; status: string; updated_at: string;
+  tech_score?: number; ml_score?: number; news_score?: number; yt_score?: number;
 }
 interface LiveGroup {
   date: string; rows: LiveSignal[]; avgReturn: number; winners: number; total: number;
@@ -185,8 +186,8 @@ export default function PortfolioPage() {
   const [error, setError] = useState<string | null>(null);
   const [activeStrategy, setActiveStrategy] = useState(0);
   const [tab, setTab] = useState<TabId>("holdings");
-  const [startDate, setStartDate] = useState("2025-01-01");
-  const [inputDate, setInputDate] = useState("2025-01-01");
+  const [startDate, setStartDate] = useState("2026-04-25");
+  const [inputDate, setInputDate] = useState("2026-04-25");
   const [mainTab, setMainTab] = useState<"backtest" | "live">("live");
   const [liveGroups, setLiveGroups] = useState<LiveGroup[]>([]);
   const [liveLoading, setLiveLoading] = useState(true);
@@ -338,8 +339,33 @@ export default function PortfolioPage() {
                             {r.return_pct > 0 ? "+" : ""}{r.return_pct}%
                           </span>
                         </div>
-                        <div style={{ marginTop: 6, fontSize: 10, color: "var(--text-3)", textAlign: "center" }}>
-                          신호점수 {r.signal_score}
+                        {/* 복합 점수 breakdown */}
+                        <div style={{ marginTop: 8, display: "flex", gap: 3, fontSize: 9, color: "var(--text-3)" }}>
+                          {r.tech_score != null && (
+                            <span style={{ flex: 1, textAlign: "center", padding: "2px 0", borderRadius: 4, background: "#f5f5f5" }}>
+                              기술 {r.tech_score}
+                            </span>
+                          )}
+                          {r.ml_score != null && (
+                            <span style={{ flex: 1, textAlign: "center", padding: "2px 0", borderRadius: 4, background: "#f0f4ff" }}>
+                              ML {r.ml_score}
+                            </span>
+                          )}
+                          {r.news_score != null && (
+                            <span style={{ flex: 1, textAlign: "center", padding: "2px 0", borderRadius: 4,
+                              background: (r.news_score ?? 0) >= 0 ? "#f0fff8" : "#fff0f1",
+                              color: (r.news_score ?? 0) >= 0 ? "#00b493" : "#f04452" }}>
+                              뉴스 {(r.news_score ?? 0) >= 0 ? "+" : ""}{r.news_score}
+                            </span>
+                          )}
+                          {r.yt_score != null && (
+                            <span style={{ flex: 1, textAlign: "center", padding: "2px 0", borderRadius: 4, background: "#fff8f0" }}>
+                              YT {r.yt_score}
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ marginTop: 4, fontSize: 10, color: "var(--text-3)", textAlign: "center" }}>
+                          종합 {r.signal_score}/10
                         </div>
                       </a>
                     );
