@@ -13,6 +13,7 @@ RUN pip install --no-cache-dir -r requirements-railway.txt && yt-dlp -U
 
 COPY railway_collector.py .
 COPY railway_job.py .
+COPY theme_scanner.py .
 
 # 인자로 morning/afternoon/all 전달
 CMD ["python", "railway_job.py"]
