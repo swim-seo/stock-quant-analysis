@@ -247,7 +247,7 @@ def generate_briefing():
 
     # 데이터 수집
     youtube = sb_get("youtube_insights",
-                     "select=title,channel,summary,market_sentiment,key_stocks,key_sectors,trading_type,urgency"
+                     "select=title,channel,summary,market_sentiment,market_narrative,key_stocks,key_stocks_analysis,key_events,key_sectors,trading_type,urgency"
                      "&order=processed_at.desc&limit=20")
     news = sb_get("stock_news",
                   "select=stock_name,stock_code,analysis,articles,investor_data,sentiment"
@@ -268,11 +268,41 @@ def generate_briefing():
     except:
         market = {}
 
-    # Claude 브리핑
-    yt_text = "\n".join([
-        f"- [{i.get('market_sentiment','중립')}] {i.get('title','')} ({i.get('channel','')}) → {', '.join(i.get('key_stocks',[])[:3])}"
-        for i in youtube[:15]
-    ]) or "없음"
+    # Claude 브리핑 — YouTube 데이터 (market_narrative + 종목별 signal + key_events 포함)
+    yt_lines = []
+    all_key_events = []
+    for i in youtube[:15]:
+        # 종목별 signal 파싱
+        analysis_raw = i.get("key_stocks_analysis")
+        stock_signals = {}
+        if analysis_raw:
+            try:
+                for entry in (json.loads(analysis_raw) if isinstance(analysis_raw, str) else analysis_raw or []):
+                    stock_signals[entry["name"]] = entry.get("signal", "관망")
+            except Exception:
+                pass
+        signal_str = " / ".join(f"{n}:{s}" for n, s in list(stock_signals.items())[:4]) if stock_signals else ", ".join(i.get("key_stocks", [])[:3])
+
+        # key_events 수집
+        ev_raw = i.get("key_events")
+        if ev_raw:
+            try:
+                evs = json.loads(ev_raw) if isinstance(ev_raw, str) else ev_raw
+                all_key_events.extend(evs or [])
+            except Exception:
+                pass
+
+        narrative = i.get("market_narrative") or i.get("summary", "")
+        line = (f"- [{i.get('market_sentiment','중립')}][{i.get('urgency','이번주')}] "
+                f"{i.get('title','')} ({i.get('channel','')})\n"
+                f"  흐름: {narrative[:120]}\n"
+                f"  종목신호: {signal_str}")
+        yt_lines.append(line)
+    yt_text = "\n".join(yt_lines) or "없음"
+
+    # 중복 제거한 key_events
+    unique_events = list(dict.fromkeys(all_key_events))[:8]
+    events_text = ", ".join(unique_events) if unique_events else "없음"
 
     # 종목별 뉴스 상세 (기사 제목 + 분석 포함)
     news_lines = []
@@ -300,7 +330,10 @@ def generate_briefing():
 === 시장 지수 ===
 {market_text}
 
-=== 유튜브 전문가 의견 ===
+=== 이번주 주목 이벤트/일정 ===
+{events_text}
+
+=== 유튜브 전문가 의견 (흐름 + 종목별 매수/관망/매도 신호 포함) ===
 {yt_text}
 
 === 종목별 뉴스 + 수급 분석 ===
@@ -498,7 +531,7 @@ def _load_recent_signals(days: int = 3):
     try:
         yt_rows = sb_get("youtube_insights",
             f"upload_date=gte.{since}"
-            f"&select=market_sentiment,urgency,key_stocks,key_stocks_sentiment"
+            f"&select=market_sentiment,urgency,key_stocks,key_stocks_sentiment,key_stocks_analysis,key_events,market_narrative"
             f"&limit=100")
     except Exception:
         yt_rows = []
@@ -521,29 +554,61 @@ def _news_score_for(name: str, news_by_stock: dict) -> float:
 
 
 def _yt_score_for(name: str, yt_rows: list) -> float:
-    """유튜브 점수: 종목별 sentiment(key_stocks_sentiment) × urgency (max 1.0)
-    key_stocks_sentiment가 없으면 market_sentiment로 fallback.
+    """유튜브 점수 (max 1.0):
+    우선순위: key_stocks_analysis.signal > key_stocks_sentiment > market_sentiment(fallback)
+
+    signal 기반 (가장 정확):
+      매수=0.7, 관망=0.0, 매도=-0.5  × urgency
+
+    sentiment 기반 (signal 없을 때):
+      긍정=0.4, 중립=0.0, 부정=-0.4  × urgency
+
+    fallback (key_stocks_analysis/sentiment 둘 다 없을 때):
+      market_sentiment 긍정=0.15, 중립=0.0, 부정=-0.15
     """
     relevant = [r for r in yt_rows if name in (r.get("key_stocks") or [])]
     if not relevant:
         return 0.0
+
     total = 0.0
     for r in relevant:
-        # 종목별 sentiment 우선, 없으면 전체 시장 sentiment로 fallback
-        stock_sentiments = r.get("key_stocks_sentiment")
-        if isinstance(stock_sentiments, str):
-            try:
-                stock_sentiments = json.loads(stock_sentiments)
-            except Exception:
-                stock_sentiments = {}
-        stock_sent = (stock_sentiments or {}).get(name)
-        if stock_sent:
-            s = {"긍정": 0.5, "중립": 0.0, "부정": -0.4}.get(stock_sent, 0.0)
-        else:
-            # fallback: 전체 시장 sentiment (단순 언급은 0점)
-            s = {"긍정": 0.2, "중립": 0.0, "부정": -0.2}.get(r.get("market_sentiment", "중립"), 0.0)
         u = {"오늘": 1.0, "이번주": 0.7, "장기": 0.4}.get(r.get("urgency", "이번주"), 0.5)
+
+        # 1순위: key_stocks_analysis의 signal 값
+        analysis_raw = r.get("key_stocks_analysis")
+        stock_signal = None
+        if analysis_raw:
+            try:
+                analysis_list = json.loads(analysis_raw) if isinstance(analysis_raw, str) else analysis_raw
+                for entry in (analysis_list or []):
+                    if entry.get("name") == name:
+                        stock_signal = entry.get("signal")
+                        break
+            except Exception:
+                pass
+
+        if stock_signal:
+            s = {"매수": 0.7, "관망": 0.0, "매도": -0.5}.get(stock_signal, 0.0)
+            total += s * u
+            continue
+
+        # 2순위: key_stocks_sentiment
+        sentiments_raw = r.get("key_stocks_sentiment")
+        if isinstance(sentiments_raw, str):
+            try:
+                sentiments_raw = json.loads(sentiments_raw)
+            except Exception:
+                sentiments_raw = {}
+        stock_sent = (sentiments_raw or {}).get(name)
+        if stock_sent:
+            s = {"긍정": 0.4, "중립": 0.0, "부정": -0.4}.get(stock_sent, 0.0)
+            total += s * u
+            continue
+
+        # 3순위 fallback: 영상 전체 market_sentiment (가중치 낮음)
+        s = {"긍정": 0.15, "중립": 0.0, "부정": -0.15}.get(r.get("market_sentiment", "중립"), 0.0)
         total += s * u
+
     return max(-0.5, min(1.0, total))
 
 
