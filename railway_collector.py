@@ -185,25 +185,48 @@ def analyze_with_claude(title: str, transcript: str, channel: str, trading_focus
 다음 항목을 JSON 형식으로 추출해주세요:
 
 1. title_ko: 영상 제목을 한국어로 번역 (이미 한국어면 그대로, 영어면 자연스러운 한국어로 번역)
-2. summary: 영상 핵심 내용 3줄 요약
+
+2. market_narrative: 영상에서 말하는 현재 시장 흐름을 2~3문장으로 서술.
+   단순 요약이 아니라 "왜 지금 이런 흐름인지" 인과관계 중심으로 작성.
+   예: "미국 ISM 제조업 지수 예상 상회로 달러 강세 전환, 외국인이 반도체·자동차 중심으로 순매수 복귀. 단 FOMC 이전까지는 관망 심리가 우세할 것으로 전망."
+
 3. market_sentiment: 시장 전망 ("긍정"/"중립"/"부정" 중 하나)
-4. key_stocks: 언급된 주요 종목 리스트 (예: ["삼성전자", "SK하이닉스"])
-5. key_stocks_sentiment: 종목별 평가 딕셔너리. key_stocks에 있는 각 종목에 대해 영상에서 어떻게 평가했는지 판단.
-   형식: {{"종목명": "긍정"|"중립"|"부정"}}
-   예: {{"삼성전자": "긍정", "SK하이닉스": "중립"}}
-   (매수 추천·상승 기대 → "긍정", 단순 언급·중립적 → "중립", 매도·하락 경고 → "부정")
-6. key_sectors: 언급된 주요 섹터/업종 리스트 (예: ["반도체", "바이오"])
-7. investment_signals: 매수/매도/관망 관련 핵심 언급 내용 리스트
-8. risk_factors: 언급된 리스크 요인 리스트
-9. keywords: 핵심 키워드 5개 리스트
-10. trading_type: 투자 성격 ("단타"/"스윙"/"장기" 중 하나)
-11. urgency: 투자 시급성 ("오늘"/"이번주"/"장기" 중 하나)
+
+4. key_stocks_analysis: 언급된 주요 종목별 세부 분석 리스트.
+   각 종목마다 아래 필드 포함:
+   - name: 종목명
+   - signal: "매수"/"관망"/"매도" 중 하나
+   - sentiment: "긍정"/"중립"/"부정" 중 하나
+   - reason: 왜 그런 판단인지 핵심 이유 한 줄 (예: "HBM 수주 확대로 4분기 실적 개선 기대")
+   - price_target: 언급된 목표가 (없으면 null)
+   - support: 언급된 지지선 (없으면 null)
+   - resistance: 언급된 저항선 (없으면 null)
+   - risk: 해당 종목의 리스크 한 줄 (없으면 null)
+
+5. key_stocks: key_stocks_analysis의 name 필드만 뽑은 리스트 (예: ["삼성전자", "SK하이닉스"])
+
+6. key_stocks_sentiment: 종목별 sentiment 딕셔너리 (예: {{"삼성전자": "긍정", "SK하이닉스": "중립"}})
+
+7. key_events: 이번 주 또는 근시일 내 주목할 이벤트/일정 리스트
+   (예: ["FOMC 의사록 발표", "삼성전자 잠정실적", "미국 CPI 발표"])
+
+8. key_sectors: 언급된 주요 섹터/업종 리스트
+
+9. investment_signals: 매수/매도/관망 관련 핵심 언급 내용 리스트
+
+10. risk_factors: 시장 전체 리스크 요인 리스트
+
+11. keywords: 핵심 키워드 5개 리스트
+
+12. trading_type: 투자 성격 ("단타"/"스윙"/"장기" 중 하나)
+
+13. urgency: 투자 시급성 ("오늘"/"이번주"/"장기" 중 하나)
 
 JSON만 출력하세요."""
 
     message = claude.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=1024,
+        max_tokens=2048,
         messages=[{"role": "user", "content": prompt}],
     )
 
@@ -237,6 +260,9 @@ def save_to_supabase(video_id: str, title: str, channel: str, playlist: str,
             "investment_signals": json.dumps(insight.get("investment_signals", []), ensure_ascii=False),
             "risk_factors": json.dumps(insight.get("risk_factors", []), ensure_ascii=False),
             "key_stocks_sentiment": json.dumps(insight.get("key_stocks_sentiment", {}), ensure_ascii=False),
+            "key_stocks_analysis": json.dumps(insight.get("key_stocks_analysis", []), ensure_ascii=False),
+            "key_events": json.dumps(insight.get("key_events", []), ensure_ascii=False),
+            "market_narrative": insight.get("market_narrative", ""),
             "trading_type": insight.get("trading_type", "스윙"),
             "urgency": insight.get("urgency", "이번주"),
         }

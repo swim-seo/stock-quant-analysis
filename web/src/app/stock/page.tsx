@@ -1023,29 +1023,95 @@ function StockContent() {
                               </div>
                             </button>
 
-                            {/* 펼침 영역 - 요약 + 링크 */}
-                            {isOpen && (
-                              <div
-                                className="px-3 pb-3 pt-2 border-t"
-                                style={{ borderColor: "var(--border)" }}
-                              >
-                                <p
-                                  className="text-sm leading-relaxed mb-2"
-                                  style={{ color: "var(--text-2)" }}
-                                >
-                                  {item.summary}
-                                </p>
-                                <a
-                                  href={item.url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-sm font-semibold hover:underline"
-                                  style={{ color: "var(--blue)" }}
-                                >
-                                  YouTube에서 보기 →
-                                </a>
-                              </div>
-                            )}
+                            {/* 펼침 영역 */}
+                            {isOpen && (() => {
+                              let stockAnalysis: import("@/lib/types").StockAnalysis[] = [];
+                              let keyEvents: string[] = [];
+                              try { stockAnalysis = JSON.parse(item.key_stocks_analysis || "[]"); } catch {}
+                              try { keyEvents = JSON.parse(item.key_events || "[]"); } catch {}
+                              const thisStock = stockAnalysis.find(s => s.name === name);
+
+                              return (
+                                <div className="px-3 pb-3 pt-2 border-t" style={{ borderColor: "var(--border)" }}>
+
+                                  {/* 시장 흐름 narrative */}
+                                  {item.market_narrative && (
+                                    <div className="mb-3 p-2.5 rounded-lg" style={{ background: "#f0f4ff" }}>
+                                      <p className="text-xs font-bold mb-1" style={{ color: "var(--blue)" }}>📊 시장 흐름</p>
+                                      <p className="text-xs leading-relaxed" style={{ color: "var(--text-2)" }}>
+                                        {item.market_narrative}
+                                      </p>
+                                    </div>
+                                  )}
+
+                                  {/* 이 종목에 대한 세부 분석 */}
+                                  {thisStock && (
+                                    <div className="mb-3 p-2.5 rounded-lg" style={{
+                                      background: thisStock.signal === "매수" ? "#f0fff8" : thisStock.signal === "매도" ? "#fff0f1" : "#f9f9f9",
+                                      border: `1px solid ${thisStock.signal === "매수" ? "#00b49330" : thisStock.signal === "매도" ? "#f0445230" : "#e0e0e0"}`
+                                    }}>
+                                      <div className="flex items-center gap-2 mb-1.5">
+                                        <span className="text-xs font-bold px-2 py-0.5 rounded" style={{
+                                          background: thisStock.signal === "매수" ? "#00b493" : thisStock.signal === "매도" ? "#f04452" : "#8b95a1",
+                                          color: "#fff"
+                                        }}>{thisStock.signal}</span>
+                                        <span className="text-xs font-semibold" style={{ color: "var(--text-1)" }}>{thisStock.name}</span>
+                                      </div>
+                                      {thisStock.reason && (
+                                        <p className="text-xs mb-1.5" style={{ color: "var(--text-2)" }}>💡 {thisStock.reason}</p>
+                                      )}
+                                      <div className="flex gap-3 flex-wrap">
+                                        {thisStock.price_target && <span className="text-xs" style={{ color: "var(--text-3)" }}>🎯 목표가 {thisStock.price_target}</span>}
+                                        {thisStock.support && <span className="text-xs" style={{ color: "var(--text-3)" }}>🛡 지지 {thisStock.support}</span>}
+                                        {thisStock.resistance && <span className="text-xs" style={{ color: "var(--text-3)" }}>🚧 저항 {thisStock.resistance}</span>}
+                                      </div>
+                                      {thisStock.risk && (
+                                        <p className="text-xs mt-1.5" style={{ color: "#f04452" }}>⚠️ {thisStock.risk}</p>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {/* 다른 언급 종목들 */}
+                                  {stockAnalysis.filter(s => s.name !== name).length > 0 && (
+                                    <div className="mb-3">
+                                      <p className="text-xs font-bold mb-1.5" style={{ color: "var(--text-3)" }}>함께 언급된 종목</p>
+                                      <div className="flex flex-wrap gap-1.5">
+                                        {stockAnalysis.filter(s => s.name !== name).map(s => (
+                                          <span key={s.name} className="text-xs px-2 py-0.5 rounded-full" style={{
+                                            background: s.signal === "매수" ? "#00b49318" : s.signal === "매도" ? "#f0445218" : "#f0f0f0",
+                                            color: s.signal === "매수" ? "#00b493" : s.signal === "매도" ? "#f04452" : "var(--text-3)"
+                                          }}>
+                                            {s.name} {s.signal === "매수" ? "▲" : s.signal === "매도" ? "▼" : "–"}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* 이번주 주목 이벤트 */}
+                                  {keyEvents.length > 0 && (
+                                    <div className="mb-3">
+                                      <p className="text-xs font-bold mb-1" style={{ color: "var(--text-3)" }}>📅 주목 이벤트</p>
+                                      <div className="flex flex-wrap gap-1">
+                                        {keyEvents.map((ev, i) => (
+                                          <span key={i} className="text-xs px-2 py-0.5 rounded-full" style={{ background: "#fff3e0", color: "#f97316" }}>{ev}</span>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* 요약 (market_narrative 없는 구버전 데이터 fallback) */}
+                                  {!item.market_narrative && item.summary && (
+                                    <p className="text-xs leading-relaxed mb-2" style={{ color: "var(--text-2)" }}>{item.summary}</p>
+                                  )}
+
+                                  <a href={item.url} target="_blank" rel="noopener noreferrer"
+                                    className="text-xs font-semibold hover:underline" style={{ color: "var(--blue)" }}>
+                                    YouTube에서 보기 →
+                                  </a>
+                                </div>
+                              );
+                            })()}
                           </div>
                         );
                       })}

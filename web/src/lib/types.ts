@@ -1,3 +1,14 @@
+export interface StockAnalysis {
+  name: string;
+  signal: "매수" | "관망" | "매도";
+  sentiment: "긍정" | "중립" | "부정";
+  reason: string;
+  price_target: string | null;
+  support: string | null;
+  resistance: string | null;
+  risk: string | null;
+}
+
 export interface YoutubeInsight {
   video_id: string;
   title: string;
@@ -7,7 +18,10 @@ export interface YoutubeInsight {
   processed_at: string;
   summary: string;
   market_sentiment: "긍정" | "중립" | "부정";
+  market_narrative?: string;
   key_stocks: string[];
+  key_stocks_analysis?: string;
+  key_events?: string;
   key_sectors: string[];
   keywords: string[];
   investment_signals: string;
