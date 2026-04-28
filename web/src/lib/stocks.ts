@@ -225,9 +225,7 @@ export const STOCKS: StockInfo[] = [
   // ETF/테마 (AI·로봇·헬스케어 등)
   { ticker: "364980.KS", name: "TIGER Fn반도체TOP10", sector: "ETF/테마" },
   { ticker: "472160.KS", name: "TIGER AI반도체핵심소재", sector: "ETF/테마" },
-  { ticker: "411040.KS", name: "ACE 로보틱스&AI", sector: "ETF/테마" },
   { ticker: "459580.KS", name: "KODEX 미국AI전력인프라", sector: "ETF/테마" },
-  { ticker: "302640.KS", name: "TIGER 차세대전기차&배터리", sector: "ETF/테마" },
   { ticker: "334700.KS", name: "KODEX 바이오", sector: "ETF/테마" },
   { ticker: "441800.KS", name: "TIGER 방산", sector: "ETF/테마" },
   { ticker: "433500.KS", name: "ACE 원자력TOP10", sector: "ETF/테마" },
