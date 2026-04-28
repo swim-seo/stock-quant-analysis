@@ -1,7 +1,7 @@
 """
 월급투자 픽 분석기
   - 매월 25일 매수 → 다음달 11일 매도 전략
-  - 과거 12개월 시뮬레이션 + 요일 패턴 + 애널리스트 목표가
+  - 과거 12개월 시뮬레이션 + 애널리스트 목표가
 
 실행: python monthly_pick.py
 """
@@ -40,8 +40,6 @@ CANDIDATES = {
     "두산에너빌리티": "034020",
     "인텔리안테크":  "189300",
 }
-
-DOW_KR = {0: "월", 1: "화", 2: "수", 3: "목", 4: "금"}
 
 
 # ── 네이버 OHLCV (날짜 포함) ──────────────────────────────────────
@@ -159,48 +157,6 @@ def simulate_window(ohlcv: list) -> dict:
     }
 
 
-# ── 요일 패턴 분석 ──────────────────────────────────────────────────
-def analyze_dow(ohlcv: list) -> dict:
-    """요일별 평균 수익률 + 패턴 일관성 점수"""
-    if len(ohlcv) < 60:
-        return {}
-
-    dow_rets = {0: [], 1: [], 2: [], 3: [], 4: []}
-    recent = ohlcv[-120:]  # 최근 6개월
-
-    for i in range(1, len(recent)):
-        try:
-            dt  = datetime.strptime(recent[i]["date"], "%Y%m%d")
-            dow = dt.weekday()
-            ret = (recent[i]["close"] - recent[i-1]["close"]) / recent[i-1]["close"] * 100
-            dow_rets[dow].append(ret)
-        except Exception:
-            pass
-
-    avg_by_dow = {}
-    for d, rets in dow_rets.items():
-        avg_by_dow[d] = round(sum(rets) / len(rets), 3) if rets else 0
-
-    # 패턴 일관성: 전반(월화수)이 후반(목금)보다 높은지
-    early_avg = (avg_by_dow.get(0, 0) + avg_by_dow.get(1, 0) + avg_by_dow.get(2, 0)) / 3
-    late_avg  = (avg_by_dow.get(3, 0) + avg_by_dow.get(4, 0)) / 2
-    pattern_type = "전반↑후반↓" if early_avg > late_avg + 0.05 else (
-                   "전반↓후반↑" if late_avg > early_avg + 0.05 else "불규칙")
-
-    # 가장 좋은 매수 요일
-    best_dow  = max(avg_by_dow, key=avg_by_dow.get)
-    worst_dow = min(avg_by_dow, key=avg_by_dow.get)
-
-    return {
-        "avg_by_dow":   avg_by_dow,
-        "pattern_type": pattern_type,
-        "best_buy_day": DOW_KR[best_dow],
-        "best_sell_day": DOW_KR[worst_dow],
-        "early_avg":    round(early_avg, 3),
-        "late_avg":     round(late_avg, 3),
-    }
-
-
 # ── 변동성 (ATR 기반) ─────────────────────────────────────────────
 def calc_volatility(ohlcv: list) -> float:
     """일간 변동폭 / 가격 (낮을수록 안전)"""
@@ -243,7 +199,7 @@ def fetch_analyst_targets() -> dict:
 
 
 # ── 종합 점수 계산 ─────────────────────────────────────────────────
-def calc_pick_score(window: dict, vol: float, dow: dict) -> float:
+def calc_pick_score(window: dict, vol: float) -> float:
     """월급투자 적합도 점수 (0~100)"""
     if not window:
         return 0.0
@@ -296,9 +252,8 @@ def main():
             continue
 
         window   = simulate_window(ohlcv)
-        dow      = analyze_dow(ohlcv)
         vol      = calc_volatility(ohlcv)
-        score    = calc_pick_score(window, vol, dow)
+        score    = calc_pick_score(window, vol)
         cur_price = ohlcv[-1]["close"]
         target    = analyst_targets.get(name)
 
@@ -307,7 +262,6 @@ def main():
             "code":    code,
             "score":   score,
             "window":  window,
-            "dow":     dow,
             "vol":     vol,
             "cur_price": cur_price,
             "target":  target,
@@ -325,14 +279,13 @@ def main():
 
     for i, r in enumerate(results[:5], 1):
         w = r["window"]
-        d = r["dow"]
         if not w:
             continue
 
         # 등급
-        grade = "[강력추천] 강력추천" if r["score"] >= 65 else \
-                "[추천] 추천" if r["score"] >= 50 else \
-                "[보통] 보통" if r["score"] >= 35 else "[비추천] 비추천"
+        grade = "[강력추천]" if r["score"] >= 65 else \
+                "[추천]" if r["score"] >= 50 else \
+                "[보통]" if r["score"] >= 35 else "[비추천]"
 
         print(f"\n{'─'*55}")
         print(f"  #{i}  {r['name']}  |  점수 {r['score']:.0f}/100  |  {grade}")
@@ -344,18 +297,6 @@ def main():
         print(f"     평균 수익: {w['avg_return']:>+6.2f}%  →  약 {w['avg_profit']:>+,}원 (150만원 기준)")
         print(f"     최고:      {w['best']:>+6.2f}%  |  최대손실: {w['max_loss']:>+6.2f}%")
         print(f"     변동성:    {r['vol']:.2f}% (일간 평균 변동폭 / 현재가)")
-
-        # 요일 패턴
-        if d:
-            print(f"\n  [패턴] 요일 패턴:  {d['pattern_type']}")
-            dow_line = "  "
-            for day in range(5):
-                avg = d["avg_by_dow"].get(day, 0)
-                bar = "▲" if avg > 0.05 else "▼" if avg < -0.05 else "─"
-                dow_line += f"  {DOW_KR[day]} {bar}{avg:+.2f}%"
-            print(dow_line)
-            print(f"     → 매수 타이밍: {d['best_buy_day']}요일 (평균 가장 낮음)")
-            print(f"     → 매도 타이밍: {d['best_sell_day']}요일 (평균 가장 높음)")
 
         # 현재가 + 목표가
         print(f"\n  [가격] 현재가:  {r['cur_price']:>10,.0f}원")
@@ -383,12 +324,8 @@ def main():
     if results:
         top = results[0]
         w   = top["window"]
-        d   = top.get("dow", {})
         print(f"\n  1순위 추천: {top['name']}")
-        if d.get("best_buy_day"):
-            print(f"  → 이번달 25일 전후 {d['best_buy_day']}요일에 매수")
-        else:
-            print(f"  → 이번달 25일에 매수")
+        print(f"  → 이번달 25일에 매수")
         print(f"  → 다음달 11일에 매도")
         if w:
             print(f"  → 과거 기준 예상 수익: 평균 {w['avg_profit']:+,}원 / 승률 {w['win_rate']:.0f}%")
