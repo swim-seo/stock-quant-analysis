@@ -831,6 +831,275 @@ def update_portfolio_returns():
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 일일 리포트 이메일 발송
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def send_daily_report():
+    """매일 아침 분석 리포트를 이메일로 발송 (Gmail SMTP)"""
+    import smtplib
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+
+    gmail_user = os.environ.get("GMAIL_SENDER", "")
+    gmail_pw   = os.environ.get("GMAIL_APP_PASSWORD", "")
+    to_email   = os.environ.get("REPORT_EMAIL", gmail_user)
+
+    if not gmail_user or not gmail_pw:
+        print("  [리포트] GMAIL_SENDER / GMAIL_APP_PASSWORD 미설정 → 스킵")
+        return
+
+    print("\n[일일 리포트 발송]")
+    today = today_kst().isoformat()
+    yesterday = (today_kst() - timedelta(days=1)).isoformat()
+
+    # ── 오늘 매수 신호 종목 ──
+    try:
+        signals = sb_get("portfolio_signals",
+            f"signal_date=eq.{today}"
+            f"&select=stock_name,signal_score,entry_price,tech_score,ml_score,news_score,yt_score"
+            f"&order=signal_score.desc")
+    except Exception:
+        signals = []
+
+    # ── 어제 신호 수익률 ──
+    try:
+        yesterday_signals = sb_get("portfolio_signals",
+            f"signal_date=eq.{yesterday}"
+            f"&select=stock_name,signal_score,entry_price,current_price,return_pct"
+            f"&order=return_pct.desc")
+    except Exception:
+        yesterday_signals = []
+
+    # ── 누적 성과 (최근 30일) ──
+    since_30 = (today_kst() - timedelta(days=30)).isoformat()
+    try:
+        all_signals = sb_get("portfolio_signals",
+            f"signal_date=gte.{since_30}"
+            f"&return_pct=not.is.null"
+            f"&select=signal_score,return_pct")
+    except Exception:
+        all_signals = []
+
+    # ── 예측 적중률 (최근 14일) ──
+    since_14 = (today_kst() - timedelta(days=14)).isoformat()
+    try:
+        pred_rows = sb_get("prediction_log",
+            f"date=gte.{since_14}&correct=not.is.null"
+            f"&select=correct,composite_score")
+    except Exception:
+        pred_rows = []
+
+    # ── HTML 생성 ──
+    def score_bar(score, max_score=10):
+        filled = round((score or 0) / max_score * 10)
+        return "█" * filled + "░" * (10 - filled)
+
+    def ret_color(v):
+        if v is None: return "#888"
+        return "#e03030" if v > 0 else "#3060e0" if v < 0 else "#888"
+
+    def ret_str(v):
+        if v is None: return "-"
+        return f"{v:+.2f}%"
+
+    # 신호 섹션
+    if signals:
+        signal_rows = ""
+        for s in signals:
+            sc = s.get("signal_score") or 0
+            bar = score_bar(sc)
+            tech = s.get("tech_score") or 0
+            ml   = s.get("ml_score") or 0
+            news = s.get("news_score") or 0
+            yt   = s.get("yt_score") or 0
+            signal_rows += f"""
+            <tr>
+              <td style="padding:10px 8px;font-weight:700;font-size:15px">{s['stock_name']}</td>
+              <td style="padding:10px 8px;text-align:center">
+                <span style="font-size:18px;font-weight:800;color:#e03030">{sc:.1f}</span>
+                <div style="font-family:monospace;font-size:11px;color:#aaa;letter-spacing:-1px">{bar}</div>
+              </td>
+              <td style="padding:10px 8px;font-size:13px;color:#555">
+                기술 <b>{tech:.1f}</b> &nbsp;|&nbsp; ML <b>{ml:.2f}</b> &nbsp;|&nbsp; 뉴스 <b>{news:+.2f}</b> &nbsp;|&nbsp; 유튜브 <b>{yt:+.2f}</b>
+              </td>
+              <td style="padding:10px 8px;font-size:14px;font-weight:600;font-family:monospace">
+                {int(s['entry_price']):,}원
+              </td>
+            </tr>"""
+        signal_section = f"""
+        <h2 style="font-size:16px;font-weight:700;color:#191919;margin:24px 0 12px">
+          📡 오늘 매수 신호 종목 <span style="font-size:13px;color:#888;font-weight:400">({today})</span>
+        </h2>
+        <table width="100%" cellspacing="0" style="border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08)">
+          <thead>
+            <tr style="background:#f7f8fa">
+              <th style="padding:8px;text-align:left;font-size:12px;color:#888;font-weight:600">종목</th>
+              <th style="padding:8px;text-align:center;font-size:12px;color:#888;font-weight:600">복합점수</th>
+              <th style="padding:8px;text-align:left;font-size:12px;color:#888;font-weight:600">점수 구성</th>
+              <th style="padding:8px;text-align:left;font-size:12px;color:#888;font-weight:600">진입가</th>
+            </tr>
+          </thead>
+          <tbody>{signal_rows}</tbody>
+        </table>"""
+    else:
+        signal_section = f"""
+        <h2 style="font-size:16px;font-weight:700;color:#191919;margin:24px 0 12px">📡 오늘 매수 신호 종목</h2>
+        <p style="color:#888;font-size:14px">오늘은 조건을 충족하는 종목이 없습니다.</p>"""
+
+    # 어제 수익률 섹션
+    if yesterday_signals:
+        yst_rows = ""
+        winners = [s for s in yesterday_signals if (s.get("return_pct") or 0) > 0]
+        for s in yesterday_signals:
+            ret = s.get("return_pct")
+            color = ret_color(ret)
+            emoji = "✅" if (ret or 0) > 0 else "❌" if (ret or 0) < 0 else "➖"
+            yst_rows += f"""
+            <tr style="border-bottom:1px solid #f0f0f0">
+              <td style="padding:8px">{emoji} <b>{s['stock_name']}</b></td>
+              <td style="padding:8px;font-family:monospace">{int(s.get('entry_price') or 0):,}원</td>
+              <td style="padding:8px;font-family:monospace">{int(s.get('current_price') or 0):,}원</td>
+              <td style="padding:8px;font-weight:800;font-size:16px;color:{color}">{ret_str(ret)}</td>
+              <td style="padding:8px;font-size:12px;color:#aaa">복합 {s.get('signal_score') or '-'}</td>
+            </tr>"""
+        avg_ret = sum(s.get("return_pct") or 0 for s in yesterday_signals) / len(yesterday_signals)
+        win_rate = len(winners) / len(yesterday_signals) * 100
+        yst_section = f"""
+        <h2 style="font-size:16px;font-weight:700;color:#191919;margin:24px 0 12px">
+          📊 어제 신호 결과 <span style="font-size:13px;color:#888;font-weight:400">({yesterday})</span>
+        </h2>
+        <div style="background:#f7f8fa;border-radius:10px;padding:12px 16px;margin-bottom:12px;display:flex;gap:24px">
+          <div><span style="font-size:12px;color:#888">평균 수익률</span><br>
+            <span style="font-size:22px;font-weight:800;color:{ret_color(avg_ret)}">{avg_ret:+.2f}%</span></div>
+          <div><span style="font-size:12px;color:#888">승률</span><br>
+            <span style="font-size:22px;font-weight:800;color:#191919">{win_rate:.0f}%</span></div>
+          <div><span style="font-size:12px;color:#888">종목 수</span><br>
+            <span style="font-size:22px;font-weight:800;color:#191919">{len(yesterday_signals)}개</span></div>
+        </div>
+        <table width="100%" cellspacing="0" style="border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08)">
+          <tbody>{yst_rows}</tbody>
+        </table>"""
+    else:
+        yst_section = ""
+
+    # 누적 성과 섹션
+    if all_signals:
+        def band_stats(rows, lo, hi):
+            sub = [r["return_pct"] for r in rows
+                   if lo <= (r.get("signal_score") or 0) < hi
+                   and r.get("return_pct") is not None]
+            if not sub: return "-", "-", 0
+            avg = sum(sub) / len(sub)
+            wr  = sum(1 for r in sub if r > 0) / len(sub) * 100
+            return f"{avg:+.2f}%", f"{wr:.0f}%", len(sub)
+
+        a_avg, a_wr, a_n = band_stats(all_signals, 7.0, 99)
+        b_avg, b_wr, b_n = band_stats(all_signals, 5.5, 7.0)
+        c_avg, c_wr, c_n = band_stats(all_signals, 4.0, 5.5)
+        total_rets = [r["return_pct"] for r in all_signals if r.get("return_pct") is not None]
+        overall_avg = f"{sum(total_rets)/len(total_rets):+.2f}%" if total_rets else "-"
+        overall_wr  = f"{sum(1 for r in total_rets if r > 0)/len(total_rets)*100:.0f}%" if total_rets else "-"
+
+        # 예측 적중률
+        if pred_rows:
+            correct_n = sum(1 for r in pred_rows if r.get("correct"))
+            acc_str = f"{correct_n/len(pred_rows)*100:.1f}% ({correct_n}/{len(pred_rows)})"
+        else:
+            acc_str = "데이터 부족"
+
+        perf_section = f"""
+        <h2 style="font-size:16px;font-weight:700;color:#191919;margin:24px 0 12px">
+          📈 누적 성과 <span style="font-size:13px;color:#888;font-weight:400">(최근 30일)</span>
+        </h2>
+        <table width="100%" cellspacing="0" style="border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08)">
+          <thead>
+            <tr style="background:#f7f8fa">
+              <th style="padding:10px 12px;text-align:left;font-size:12px;color:#888">등급</th>
+              <th style="padding:10px 12px;text-align:center;font-size:12px;color:#888">평균 수익률</th>
+              <th style="padding:10px 12px;text-align:center;font-size:12px;color:#888">승률</th>
+              <th style="padding:10px 12px;text-align:center;font-size:12px;color:#888">신호 수</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="border-bottom:1px solid #f0f0f0">
+              <td style="padding:10px 12px"><b style="color:#e03030">A등급</b> <span style="font-size:12px;color:#aaa">7점+</span></td>
+              <td style="padding:10px 12px;text-align:center;font-weight:700">{a_avg}</td>
+              <td style="padding:10px 12px;text-align:center">{a_wr}</td>
+              <td style="padding:10px 12px;text-align:center;color:#888">{a_n}개</td>
+            </tr>
+            <tr style="border-bottom:1px solid #f0f0f0">
+              <td style="padding:10px 12px"><b style="color:#f97316">B등급</b> <span style="font-size:12px;color:#aaa">5.5~7점</span></td>
+              <td style="padding:10px 12px;text-align:center;font-weight:700">{b_avg}</td>
+              <td style="padding:10px 12px;text-align:center">{b_wr}</td>
+              <td style="padding:10px 12px;text-align:center;color:#888">{b_n}개</td>
+            </tr>
+            <tr>
+              <td style="padding:10px 12px"><b style="color:#888">C등급</b> <span style="font-size:12px;color:#aaa">4~5.5점</span></td>
+              <td style="padding:10px 12px;text-align:center;font-weight:700">{c_avg}</td>
+              <td style="padding:10px 12px;text-align:center">{c_wr}</td>
+              <td style="padding:10px 12px;text-align:center;color:#888">{c_n}개</td>
+            </tr>
+          </tbody>
+        </table>
+        <p style="font-size:13px;color:#555;margin-top:10px">
+          전체 평균: <b>{overall_avg}</b> &nbsp;·&nbsp; 전체 승률: <b>{overall_wr}</b>
+          &nbsp;·&nbsp; 예측 적중률(14일): <b>{acc_str}</b>
+        </p>"""
+    else:
+        perf_section = ""
+
+    html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"></head>
+<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f2f4f6;margin:0;padding:20px">
+  <div style="max-width:620px;margin:0 auto">
+
+    <!-- 헤더 -->
+    <div style="background:#191919;border-radius:14px;padding:20px 24px;margin-bottom:16px">
+      <div style="font-size:12px;color:#888;margin-bottom:4px">{today} · KST 07:00</div>
+      <div style="font-size:22px;font-weight:800;color:#fff">📊 주식 AI 일일 리포트</div>
+      <div style="font-size:13px;color:#aaa;margin-top:4px">기술분석 + ML + 뉴스 + 유튜브 복합 신호</div>
+    </div>
+
+    <!-- 콘텐츠 -->
+    <div style="background:#fff;border-radius:14px;padding:20px 24px;box-shadow:0 1px 4px rgba(0,0,0,.06)">
+      {signal_section}
+      {yst_section}
+      {perf_section}
+
+      <!-- 해석 가이드 -->
+      <div style="margin-top:24px;padding:14px 16px;background:#f7f8fa;border-radius:10px;font-size:12px;color:#888;line-height:1.8">
+        <b style="color:#555">📌 점수 해석</b><br>
+        복합점수 = 기술(0~5) + ML확률(0~2) + 뉴스(0~2) + 유튜브(0~1)<br>
+        A등급(7+) 🟢 적극 관심 &nbsp;·&nbsp; B등급(5.5~7) 🟡 관심 &nbsp;·&nbsp; C등급(4~5.5) ⚪ 대기<br>
+        A등급 수익 > B > C 패턴이 유지되면 신호 시스템이 유효한 것입니다.
+      </div>
+    </div>
+
+    <p style="text-align:center;font-size:11px;color:#bbb;margin-top:12px">
+      자동 발송 · Railway 크론 · 수신 거부: REPORT_EMAIL 환경변수 제거
+    </p>
+  </div>
+</body></html>"""
+
+    # 발송
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = f"📊 주식 AI 리포트 {today} — 신호 {len(signals)}종목"
+        msg["From"]    = gmail_user
+        msg["To"]      = to_email
+        msg.attach(MIMEText(html, "html", "utf-8"))
+
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.starttls()
+            server.login(gmail_user, gmail_pw)
+            server.sendmail(gmail_user, to_email, msg.as_string())
+
+        print(f"  리포트 발송 완료 → {to_email}")
+    except Exception as e:
+        print(f"  리포트 발송 실패: {e}")
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 메인
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -867,6 +1136,7 @@ def main():
         save_predictions()
         save_portfolio_signals()
         _run_theme_scanner()
+        send_daily_report()
 
     elif mode == "afternoon":
         collect_news()
