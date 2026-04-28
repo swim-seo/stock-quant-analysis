@@ -540,34 +540,85 @@ def _load_recent_signals(days: int = 3):
 
 
 def _foreign_flow_score(name: str, news_by_stock: dict) -> float:
-    """외국인 5일 누적 순매수 → 종목별 점수 (-1.0 ~ +1.0)
-    종목 고유 흐름 기준: 시장 전체 방향과 무관하게 이 종목만의 수급 방향으로 판단.
-    foreign_5d > +50억: +1.0  /  > +10억: +0.5
-    foreign_5d < -50억: -1.0  /  < -10억: -0.5
-    그 사이: 0.0
+    """외국인+기관 수급 패턴 점수 (-0.5 ~ +0.5)
+
+    [패턴 우선순위]
+    1. 기관 선매수 + 외국인 후행 시작 (최강): +0.5
+       - 3~5일 전 기관 순매수 → 최근 1~2일 외국인 전환
+    2. 외국인+기관 동반 순매수: +0.4
+    3. 외국인만 강하게 순매수 (5일 100억+): +0.3
+    4. 외국인만 소폭 순매수 (5일 30억+): +0.2
+    5. 외국인+기관 동반 순매도: -0.4
+    6. 외국인 강한 순매도 (5일 -100억 이하): -0.3
+    7. 소폭 변동: 0.0
+
+    단위: 주 × 종가 → 억원으로 환산
     """
     rows = news_by_stock.get(name, [])
-    total_foreign = 0.0
-    count = 0
+    inv_data = []
     for r in rows:
         raw = r.get("investor_data")
         if not raw:
             continue
         try:
-            inv = json.loads(raw) if isinstance(raw, str) else raw
-            for d in (inv or [])[:5]:
-                total_foreign += float(d.get("foreign_net", 0) or 0)
-            count += 1
+            parsed = json.loads(raw) if isinstance(raw, str) else raw
+            if parsed:
+                inv_data = parsed[:5]  # 최근 5거래일
+                break
         except Exception:
             pass
-    if count == 0:
+
+    if not inv_data:
         return 0.0
-    # 억원 단위 환산
-    amt = total_foreign / 1_0000_0000
-    if amt >= 50:   return 1.0
-    elif amt >= 10: return 0.5
-    elif amt <= -50: return -1.0
-    elif amt <= -10: return -0.5
+
+    # 억원 환산 (주 × 종가 / 1억)
+    def to_ukr(shares, close):
+        try:
+            return float(shares or 0) * float(close or 0) / 1_0000_0000
+        except Exception:
+            return 0.0
+
+    days = []
+    for d in inv_data:
+        close = d.get("close", 0)
+        days.append({
+            "foreign":     to_ukr(d.get("foreign_net", 0), close),
+            "institution": to_ukr(d.get("institution_net", 0), close),
+        })
+
+    if not days:
+        return 0.0
+
+    # 전체 5일 합계
+    foreign_5d     = sum(d["foreign"] for d in days)
+    institution_5d = sum(d["institution"] for d in days)
+
+    # 패턴: 기관 선매수(3~5일 전) + 외국인 최근 전환
+    # days[0]이 가장 최근, days[-1]이 가장 오래된
+    recent_foreign  = sum(d["foreign"] for d in days[:2])      # 최근 2일
+    early_instit    = sum(d["institution"] for d in days[2:])  # 3~5일 전 기관
+
+    institution_led = early_instit > 30 and recent_foreign > 10
+
+    if institution_led:
+        return 0.5   # 기관 선매수 + 외국인 후행 = 최강 패턴
+
+    if foreign_5d > 50 and institution_5d > 30:
+        return 0.4   # 외국인 + 기관 동반 매수
+
+    if foreign_5d >= 100:
+        return 0.3
+    elif foreign_5d >= 30:
+        return 0.2
+
+    if foreign_5d < -50 and institution_5d < -30:
+        return -0.4  # 외국인 + 기관 동반 매도
+
+    if foreign_5d <= -100:
+        return -0.3
+    elif foreign_5d <= -30:
+        return -0.2
+
     return 0.0
 
 
