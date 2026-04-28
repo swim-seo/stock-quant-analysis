@@ -1029,7 +1029,7 @@ function StockContent() {
                               let keyEvents: string[] = [];
                               try { stockAnalysis = JSON.parse(item.key_stocks_analysis || "[]"); } catch {}
                               try { keyEvents = JSON.parse(item.key_events || "[]"); } catch {}
-                              const thisStock = stockAnalysis.find(s => s.name === name);
+                              const thisStock = stockAnalysis.find(s => s.name === displayName);
 
                               return (
                                 <div className="px-3 pb-3 pt-2 border-t" style={{ borderColor: "var(--border)" }}>
@@ -1072,11 +1072,11 @@ function StockContent() {
                                   )}
 
                                   {/* 다른 언급 종목들 */}
-                                  {stockAnalysis.filter(s => s.name !== name).length > 0 && (
+                                  {stockAnalysis.filter(s => s.name !== displayName).length > 0 && (
                                     <div className="mb-3">
                                       <p className="text-xs font-bold mb-1.5" style={{ color: "var(--text-3)" }}>함께 언급된 종목</p>
                                       <div className="flex flex-wrap gap-1.5">
-                                        {stockAnalysis.filter(s => s.name !== name).map(s => (
+                                        {stockAnalysis.filter(s => s.name !== displayName).map(s => (
                                           <span key={s.name} className="text-xs px-2 py-0.5 rounded-full" style={{
                                             background: s.signal === "매수" ? "#00b49318" : s.signal === "매도" ? "#f0445218" : "#f0f0f0",
                                             color: s.signal === "매수" ? "#00b493" : s.signal === "매도" ? "#f04452" : "var(--text-3)"
