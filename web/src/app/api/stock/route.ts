@@ -32,21 +32,28 @@ export async function GET(request: NextRequest) {
       interval: "1d",
     });
 
-    const quotes = result.quotes.map((q: any) => ({
-      date: q.date.toISOString().split("T")[0],
-      open: q.open,
-      high: q.high,
-      low: q.low,
-      close: q.close,
-      volume: q.volume,
-    }));
+    const quotes = result.quotes
+      .filter((q: any) => q.close != null && q.close > 0)
+      .map((q: any) => ({
+        date: q.date.toISOString().split("T")[0],
+        open: q.open ?? q.close,
+        high: q.high ?? q.close,
+        low: q.low ?? q.close,
+        close: q.close,
+        volume: q.volume ?? 0,
+      }));
 
     const meta = result.meta;
+    const currentPrice =
+      meta.regularMarketPrice ??
+      meta.postMarketPrice ??
+      (quotes.length > 0 ? quotes[quotes.length - 1].close : 0);
 
     return NextResponse.json({
       ticker,
       name: meta.shortName || meta.longName || ticker,
       currency: meta.currency,
+      currentPrice,
       quotes,
     });
   } catch (e) {

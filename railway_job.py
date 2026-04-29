@@ -990,7 +990,25 @@ def _composite_score(tech: float, prob: float, news: float, yt: float,
                  + market + breakout + vol_surge + sector + short + earnings, 2)
 
 
-def save_predictions():
+def _collect_stock_data() -> dict:
+    """전 종목 OHLCV 수집 (파이프라인 내 한 번만 호출)
+    Returns: {종목명: (closes, volumes)}
+    """
+    print("  [OHLCV 수집] 전 종목...")
+    stock_data: dict = {}
+    for name, code in WATCH_STOCKS.items():
+        try:
+            closes, volumes = fetch_naver_ohlcv(code, count=260)
+            if closes:
+                stock_data[name] = (closes, volumes)
+        except Exception:
+            pass
+        time.sleep(0.3)
+    print(f"  [OHLCV 수집] {len(stock_data)}/{len(WATCH_STOCKS)}종목 완료")
+    return stock_data
+
+
+def save_predictions(stock_data: dict | None = None):
     """오전 수집 후 오늘 예측 저장 + 어제 결과 업데이트 (복합 점수 포함)"""
     print("\n[예측 로그 저장]")
 
@@ -1001,20 +1019,11 @@ def save_predictions():
     _market_filter_cache.clear()
     market = _market_filter_score()
 
-    # 1차: 전 종목 OHLCV 수집 (섹터 모멘텀 계산용)
-    stock_data: dict = {}
-    for name, code in WATCH_STOCKS.items():
-        try:
-            closes, volumes = fetch_naver_ohlcv(code, count=260)
-            if closes:
-                stock_data[name] = (closes, volumes)
-        except Exception:
-            pass
-        time.sleep(0.3)
+    if stock_data is None:
+        stock_data = _collect_stock_data()
 
     sector_momentum = _compute_sector_momentum(stock_data)
 
-    # 2차: 점수 계산 + 저장
     for name, code in WATCH_STOCKS.items():
         ticker_sym = _ticker_sym(code)
         if name not in stock_data:
@@ -1068,7 +1077,7 @@ def save_predictions():
     print("  예측 로그 저장 완료")
 
 
-def save_portfolio_signals():
+def save_portfolio_signals(stock_data: dict | None = None):
     """오늘 신호 종목을 portfolio_signals에 저장
     조건: tech ≥ 4.0 OR composite ≥ 5.5 (AI가 기술 약세를 보완 가능)
     """
@@ -1078,26 +1087,17 @@ def save_portfolio_signals():
     news_by_stock, yt_rows = _load_recent_signals(days=3)
     market = _market_filter_score()  # 캐시에서 재사용
 
-    # 섹터 모멘텀은 save_predictions에서 이미 계산됨 — stock_data 재활용 불가하므로 재수집
-    # (두 함수는 독립 실행 가능해야 하므로 별도 수집)
-    stock_data_p: dict = {}
-    for name, code in WATCH_STOCKS.items():
-        try:
-            closes, volumes = fetch_naver_ohlcv(code, count=260)
-            if closes:
-                stock_data_p[name] = (closes, volumes)
-        except Exception:
-            pass
-        time.sleep(0.3)
+    if stock_data is None:
+        stock_data = _collect_stock_data()
 
-    sector_momentum = _compute_sector_momentum(stock_data_p)
+    sector_momentum = _compute_sector_momentum(stock_data)
 
     for name, code in WATCH_STOCKS.items():
         ticker_sym = _ticker_sym(code)
-        if name not in stock_data_p:
+        if name not in stock_data:
             continue
         try:
-            closes, volumes = stock_data_p[name]
+            closes, volumes = stock_data[name]
             if len(closes) < 61:
                 continue
 
@@ -1544,8 +1544,9 @@ def main():
         collect_news()
         collect_youtube(collect_time="morning")
         generate_briefing()
-        save_predictions()
-        save_portfolio_signals()
+        stock_data = _collect_stock_data()
+        save_predictions(stock_data)
+        save_portfolio_signals(stock_data)
         _run_theme_scanner()
         send_daily_report()
         try:
@@ -1564,8 +1565,9 @@ def main():
         collect_news()
         collect_youtube()
         generate_briefing()
-        save_predictions()
-        save_portfolio_signals()
+        stock_data = _collect_stock_data()
+        save_predictions(stock_data)
+        save_portfolio_signals(stock_data)
         update_portfolio_returns()
         _run_theme_scanner()
 
