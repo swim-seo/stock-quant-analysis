@@ -14,6 +14,7 @@ RUN pip install --no-cache-dir -r requirements-railway.txt && yt-dlp -U
 COPY railway_collector.py .
 COPY railway_job.py .
 COPY theme_scanner.py .
+COPY agent_supervisor.py .
 
-# 인자로 morning/afternoon/all 전달
-CMD ["python", "railway_job.py"]
+# Level 2 AI Supervisor — 실패 감지 + Claude 진단 + 알림
+CMD ["python", "agent_supervisor.py"]

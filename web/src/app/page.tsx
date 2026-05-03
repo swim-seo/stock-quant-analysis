@@ -4,6 +4,7 @@ import { TopStocks } from "@/components/TopStocks";
 import { ThemeScanner } from "@/components/ThemeScanner";
 import { MainTabs } from "@/components/MainTabs";
 import { SearchBar } from "@/components/SearchBar";
+import { PipelineAlerts } from "@/components/PipelineAlerts";
 
 export const revalidate = 300;
 
@@ -28,6 +29,8 @@ export default function Home() {
           </div>
         </div>
       </header>
+
+      <PipelineAlerts />
 
       {/* Dashboard Grid */}
       <div style={{ maxWidth: 1200, margin: "0 auto", padding: "24px 24px", display: "grid", gridTemplateColumns: "1fr 2fr", gap: 20 }}>
