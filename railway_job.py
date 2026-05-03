@@ -1578,6 +1578,7 @@ def main():
         stock_data = _collect_stock_data()
         save_predictions(stock_data)
         save_portfolio_signals(stock_data)
+        update_portfolio_returns()
         _run_theme_scanner()
         send_daily_report()
         try:
