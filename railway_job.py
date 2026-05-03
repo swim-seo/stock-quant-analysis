@@ -317,6 +317,8 @@ def collect_news():
                 "short_data": json.dumps(short[:5], ensure_ascii=False),
                 "earnings_data": json.dumps(earnings[:4], ensure_ascii=False),
                 "sentiment": analysis.get("sentiment", "중립"),
+                "trading_signal": analysis.get("trading_signal", "관망"),
+                "news_impact_score": analysis.get("news_impact_score", 5),
             }, on_conflict="stock_code")
             short_info = f" | 공매도 {short[0]['balance_ratio']:.2f}%" if short else ""
             earn_info = f" | 영업이익 {earnings[0]['op_profit']:,}" if earnings else ""
@@ -916,8 +918,8 @@ def _news_score_for(name: str, news_by_stock: dict) -> float:
         return 0.0
     total = 0.0
     for r in rows:
-        s = {"긍정": 0.5, "중립": 0.0, "부정": -0.5}.get(r.get("sentiment", "중립"), 0.0)
-        t = {"매수": 0.5, "관망": 0.0, "매도": -0.5}.get(r.get("trading_signal", "관망"), 0.0)
+        s = {"긍정": 0.5, "호재": 0.5, "중립": 0.0, "부정": -0.5, "악재": -0.5}.get(r.get("sentiment", "중립"), 0.0)
+        t = {"매수": 0.5, "매수시작": 0.5, "관망": 0.0, "매도": -0.5}.get(r.get("trading_signal", "관망"), 0.0)
         impact = float(r.get("news_impact_score") or 5.0) / 10.0
         total += (s + t) * impact
     return max(-1.0, min(2.0, total))
