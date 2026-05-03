@@ -22,8 +22,10 @@ load_dotenv(Path(__file__).parent / ".env")
 
 KST = timezone(timedelta(hours=9))
 
+_DATE_OVERRIDE: "date | None" = None  # --date 인자로 설정
+
 def today_kst() -> date:
-    return datetime.now(KST).date()
+    return _DATE_OVERRIDE if _DATE_OVERRIDE else datetime.now(KST).date()
 
 def now_kst() -> datetime:
     return datetime.now(KST)
@@ -54,7 +56,11 @@ def sb_post(table, data, on_conflict=None):
     headers = {**SB_HEADERS, "Prefer": "resolution=merge-duplicates,return=minimal"}
     body = json.dumps(data).encode("utf-8")
     req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-    urllib.request.urlopen(req)
+    try:
+        urllib.request.urlopen(req)
+    except urllib.error.HTTPError as e:
+        print(f"  [sb_post ERROR] {table} {e.code}: {e.read().decode('utf-8')}")
+        raise
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -155,6 +161,8 @@ def fetch_earnings_trend(stock_code: str) -> list:
     results = []
     # 응답 구조: {"financeInfo": [...]} 또는 직접 리스트
     rows = data if isinstance(data, list) else data.get("financeInfo", [])
+    if not isinstance(rows, list):
+        return []
     for row in rows[:4]:
         def to_int(v):
             try: return int(str(v).replace(",", "").replace("-", "0") or 0)
@@ -292,26 +300,29 @@ def collect_news():
     print("\n[뉴스/수급/공매도/실적 수집]")
     for name, code in WATCH_STOCKS.items():
         print(f"  {name}...", end=" ")
-        articles = fetch_naver_news(code)
-        investor = fetch_investor_trading(code)
-        short = fetch_short_balance(code)
-        earnings = fetch_earnings_trend(code)
-        analysis = analyze_news(name, articles)
+        try:
+            articles = fetch_naver_news(code)
+            investor = fetch_investor_trading(code)
+            short = fetch_short_balance(code)
+            earnings = fetch_earnings_trend(code)
+            analysis = analyze_news(name, articles)
 
-        sb_post("stock_news", {
-            "stock_code": code,
-            "stock_name": name,
-            "collected_at": now_kst().isoformat(),
-            "articles": json.dumps(articles[:10], ensure_ascii=False),
-            "analysis": json.dumps(analysis, ensure_ascii=False),
-            "investor_data": json.dumps(investor[:10], ensure_ascii=False),
-            "short_data": json.dumps(short[:5], ensure_ascii=False),
-            "earnings_data": json.dumps(earnings[:4], ensure_ascii=False),
-            "sentiment": analysis.get("sentiment", "중립"),
-        }, on_conflict="stock_code")
-        short_info = f" | 공매도 {short[0]['balance_ratio']:.2f}%" if short else ""
-        earn_info = f" | 영업이익 {earnings[0]['op_profit']:,}" if earnings else ""
-        print(f"뉴스 {len(articles)}개 | {analysis.get('sentiment', '?')}{short_info}{earn_info}")
+            sb_post("stock_news", {
+                "stock_code": code,
+                "stock_name": name,
+                "collected_at": now_kst().isoformat(),
+                "articles": json.dumps(articles[:10], ensure_ascii=False),
+                "analysis": json.dumps(analysis, ensure_ascii=False),
+                "investor_data": json.dumps(investor[:10], ensure_ascii=False),
+                "short_data": json.dumps(short[:5], ensure_ascii=False),
+                "earnings_data": json.dumps(earnings[:4], ensure_ascii=False),
+                "sentiment": analysis.get("sentiment", "중립"),
+            }, on_conflict="stock_code")
+            short_info = f" | 공매도 {short[0]['balance_ratio']:.2f}%" if short else ""
+            earn_info = f" | 영업이익 {earnings[0]['op_profit']:,}" if earnings else ""
+            print(f"뉴스 {len(articles)}개 | {analysis.get('sentiment', '?')}{short_info}{earn_info}")
+        except Exception as e:
+            print(f"실패: {e}")
         time.sleep(1)
 
 
@@ -1534,13 +1545,33 @@ def _run_theme_scanner():
 
 
 def main():
-    mode = sys.argv[1] if len(sys.argv) > 1 else auto_detect_mode()
+    global _DATE_OVERRIDE
+    args = sys.argv[1:]
+
+    # --date YYYY-MM-DD 파싱
+    if "--date" in args:
+        idx = args.index("--date")
+        _DATE_OVERRIDE = date.fromisoformat(args[idx + 1])
+        args = [a for i, a in enumerate(args) if i not in (idx, idx + 1)]
+
+    mode = args[0] if args else auto_detect_mode()
+    date_label = f" [{_DATE_OVERRIDE}]" if _DATE_OVERRIDE else ""
     print(f"{'='*50}")
-    print(f"  Railway 통합 수집기 [{mode}]")
+    print(f"  Railway 통합 수집기 [{mode}]{date_label}")
     print(f"  {now_kst().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"{'='*50}")
 
-    if mode == "morning":
+    if mode == "backfill":
+        # 뉴스/유튜브 수집 없이 prediction + portfolio만 저장 (날짜 백필용)
+        if not _DATE_OVERRIDE:
+            print("  backfill 모드는 --date YYYY-MM-DD 필요")
+            sys.exit(1)
+        print(f"  백필 대상 날짜: {_DATE_OVERRIDE}")
+        stock_data = _collect_stock_data()
+        save_predictions(stock_data)
+        save_portfolio_signals(stock_data)
+
+    elif mode == "morning":
         collect_news()
         collect_youtube(collect_time="morning")
         generate_briefing()
