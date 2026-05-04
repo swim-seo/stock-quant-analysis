@@ -1,0 +1,11 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "dockerfilePath": "Dockerfile"
+  },
+  "deploy": {
+    "cronSchedule": "0 7 * * 1-5",
+    "startCommand": "python agent_supervisor.py afternoon",
+    "restartPolicyType": "NEVER"
+  }
+}
