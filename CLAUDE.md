@@ -90,5 +90,9 @@ Each condition scores ✅ 1 / ⚠️ 0.5 / ❌ 0; final ≥4 → 🟢 enter, 2.5
 ## Deployment
 
 - **Web** → Vercel (`web/` root directory, `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY`)
-- **Collectors** → Railway Docker (`railway.json`, `Dockerfile`, cron: `0 22,7 * * 1-5` UTC = Mon–Fri 07:00/16:00 KST)
+  - GitHub main 브랜치 push 시 자동 배포. **모든 변경 후 반드시 git push까지 완료할 것.**
+  - 배포 URL: `https://web-beryl-eight-90.vercel.app`
+- **Collectors** → Railway Docker (`railway.json`, `Dockerfile`, `agent_supervisor.py`)
+  - cron: `0 22,7 * * *` (매일 실행, KST 주말이면 코드에서 즉시 종료) = 실질적으로 Mon–Fri 07:00/16:00 KST
+  - GitHub push 시 Railway도 자동 재배포됨
 - **Legacy Streamlit** → moved to `_legacy/` (no longer active)
