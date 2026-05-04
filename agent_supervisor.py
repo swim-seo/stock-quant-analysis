@@ -155,6 +155,16 @@ if __name__ == "__main__":
 
     # --date YYYY-MM-DD 파싱
     if "--date" in args:
+        pass  # 아래에서 처리
+
+    # 주말 체크 (KST 기준) — cron이 매일 돌지만 주말엔 즉시 종료
+    if "--force" not in args:
+        now_kst = datetime.now(KST)
+        if now_kst.weekday() >= 5:  # 5=토, 6=일
+            print(f"주말({now_kst.strftime('%A %Y-%m-%d')}) — 실행 건너뜀")
+            sys.exit(0)
+
+    if "--date" in args:
         idx = args.index("--date")
         rj._DATE_OVERRIDE = date.fromisoformat(args[idx + 1])
         args = [a for i, a in enumerate(args) if i not in (idx, idx + 1)]
