@@ -92,15 +92,17 @@ const PHASE_ORDER: RotationPhase[] = ["진입기", "상승기", "과열", "하�
 export function SectorSignals() {
   const [sectors, setSectors] = useState<SectorFearGreed[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshKey, setRefreshKey] = useState(0);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [view, setView] = useState<"rotation" | "score">("rotation");
 
   useEffect(() => {
+    setLoading(true);
     fetch("/api/sector-signals")
       .then(r => r.json())
       .then(d => setSectors(Array.isArray(d) ? d : []))
       .finally(() => setLoading(false));
-  }, []);
+  }, [refreshKey]);
 
   if (loading) {
     return (
@@ -116,14 +118,24 @@ export function SectorSignals() {
 
   return (
     <div>
-      {/* View toggle */}
-      <div style={{ display: "flex", gap: 4, marginBottom: 14, background: "#fff", padding: 4, borderRadius: 14, boxShadow: "var(--shadow)" }}>
-        {(["rotation", "score"] as const).map(v => (
-          <button key={v} onClick={() => setView(v)}
-            style={{ flex: 1, padding: "9px 0", borderRadius: 10, border: "none", fontSize: 14, fontWeight: 700, cursor: "pointer", background: view === v ? "var(--blue)" : "transparent", color: view === v ? "#fff" : "var(--text-3)" }}>
-            {v === "rotation" ? "🔄 로테이션 단계" : "📊 점수순"}
-          </button>
-        ))}
+      {/* View toggle + 새로고침 */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 14, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 4, flex: 1, background: "#fff", padding: 4, borderRadius: 14, boxShadow: "var(--shadow)" }}>
+          {(["rotation", "score"] as const).map(v => (
+            <button key={v} onClick={() => setView(v)}
+              style={{ flex: 1, padding: "9px 0", borderRadius: 10, border: "none", fontSize: 14, fontWeight: 700, cursor: "pointer", background: view === v ? "var(--blue)" : "transparent", color: view === v ? "#fff" : "var(--text-3)" }}>
+              {v === "rotation" ? "🔄 로테이션 단계" : "📊 점수순"}
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={() => setRefreshKey(k => k + 1)}
+          disabled={loading}
+          style={{ padding: "9px 14px", borderRadius: 12, border: "1px solid var(--border)", background: "#fff", fontSize: 18, cursor: loading ? "wait" : "pointer", opacity: loading ? 0.5 : 1, boxShadow: "var(--shadow)" }}
+          title="새로고침"
+        >
+          {loading ? "⏳" : "🔃"}
+        </button>
       </div>
 
       {/* Phase legend */}
