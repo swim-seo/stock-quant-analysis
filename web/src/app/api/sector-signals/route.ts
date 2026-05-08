@@ -200,7 +200,74 @@ async function getYtBySector() {
   return map;
 }
 
-// ── Supabase: investor flow ────────────────────────────────────────────────────
+// ── Naver mobile API helpers ──────────────────────────────────────────────────
+
+const NAVER_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+  "Referer": "https://m.stock.naver.com",
+};
+
+async function fetchNaverFlow(code: string, days = 5): Promise<{ foreign5d: number; institution5d: number }> {
+  try {
+    const resp = await fetch(
+      `https://m.stock.naver.com/api/stock/${code}/investorTradingTrends?timeframe=days&count=${days}`,
+      { headers: NAVER_HEADERS, next: { revalidate: 600 } }
+    );
+    if (!resp.ok) return { foreign5d: 0, institution5d: 0 };
+    const data = await resp.json();
+    const list: Array<{ foreignNetBuySellVolume?: number; organNetBuySellVolume?: number }> =
+      Array.isArray(data) ? data : (data.tradingTrendList ?? []);
+    const slice = list.slice(0, days);
+    return {
+      foreign5d: slice.reduce((s, d) => s + (d.foreignNetBuySellVolume ?? 0), 0),
+      institution5d: slice.reduce((s, d) => s + (d.organNetBuySellVolume ?? 0), 0),
+    };
+  } catch {
+    return { foreign5d: 0, institution5d: 0 };
+  }
+}
+
+async function fetchNaverAnalyst(code: string): Promise<Pick<SectorFundamental, "avgAnalystRating" | "analystLabel">> {
+  try {
+    const resp = await fetch(
+      `https://m.stock.naver.com/api/stock/${code}/investmentOpinion?count=10`,
+      { headers: NAVER_HEADERS, next: { revalidate: 3600 } }
+    );
+    if (!resp.ok) return { avgAnalystRating: null, analystLabel: "정보없음" };
+    const data = await resp.json();
+    const items: Array<{ opinion?: string }> = Array.isArray(data)
+      ? data
+      : (data.opinionList ?? data.list ?? []);
+    if (!items.length) return { avgAnalystRating: null, analystLabel: "정보없음" };
+
+    let buy = 0, neutral = 0, sell = 0;
+    for (const item of items) {
+      const op = item.opinion ?? "";
+      if (/매수|BUY|비중확대|강력매수/i.test(op)) buy++;
+      else if (/매도|SELL|비중축소|강력매도/i.test(op)) sell++;
+      else neutral++;
+    }
+    const total = buy + neutral + sell;
+    if (total === 0) return { avgAnalystRating: null, analystLabel: "정보없음" };
+
+    const buyPct = buy / total;
+    const sellPct = sell / total;
+    // Map to 1–5 scale: 1=강력매수, 5=강력매도
+    const rating = Math.round((1 + (1 - buyPct + sellPct) * 2) * 10) / 10;
+    const analystLabel =
+      buyPct >= 0.7 ? "강력매수"
+      : buyPct >= 0.5 ? "매수"
+      : sellPct >= 0.5 ? "매도"
+      : sellPct >= 0.3 ? "매도우세"
+      : "중립";
+
+    return { avgAnalystRating: rating, analystLabel };
+  } catch {
+    return { avgAnalystRating: null, analystLabel: "정보없음" };
+  }
+}
+
+// ── Supabase: investor flow (Naver fallback for zero-data sectors) ─────────────
 
 async function getInvestorFlowBySector() {
   const { data } = await supabase
@@ -221,6 +288,7 @@ async function getInvestorFlowBySector() {
     });
   }
 
+  // Build sector map from Supabase data
   const sectorMap = new Map<string, { foreign5d: number; institution5d: number }>();
   for (const s of STOCKS) {
     const code = s.ticker.replace(/\.(KS|KQ)$/, "");
@@ -232,41 +300,67 @@ async function getInvestorFlowBySector() {
       institution5d: prev.institution5d + flow.institution5d,
     });
   }
+
+  // Fallback: sectors with no real data → call Naver directly for representative stock
+  const allSectors = [...new Set(STOCKS.filter(s => s.sector !== "지수").map(s => s.sector))];
+  const emptySectors = allSectors.filter(sec => {
+    const f = sectorMap.get(sec);
+    return !f || (f.foreign5d === 0 && f.institution5d === 0);
+  });
+
+  if (emptySectors.length > 0) {
+    const repMap = new Map<string, string>(); // sector → 6-digit code
+    for (const s of STOCKS.filter(s => s.sector !== "지수")) {
+      if (emptySectors.includes(s.sector) && !repMap.has(s.sector))
+        repMap.set(s.sector, s.ticker.replace(/\.(KS|KQ)$/, ""));
+    }
+    await Promise.all(
+      Array.from(repMap.entries()).map(async ([sector, code]) => {
+        const flow = await fetchNaverFlow(code);
+        sectorMap.set(sector, flow); // use even if zero; at least it's real
+      })
+    );
+  }
+
   return sectorMap;
 }
 
 // ── Fundamental data ──────────────────────────────────────────────────────────
 
 async function fetchFundamental(ticker: string): Promise<SectorFundamental> {
-  try {
-    const yf = new YahooFinance();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result: any = await yf.quoteSummary(ticker, {
-      modules: ["defaultKeyStatistics", "financialData"],
-    });
-    const per: number | null = result?.defaultKeyStatistics?.trailingPE ?? null;
-    const pbr: number | null = result?.defaultKeyStatistics?.priceToBook ?? null;
-    const recMean: number | null = result?.financialData?.recommendationMean ?? null;
+  const code = ticker.replace(/\.(KS|KQ)$/, "");
 
-    const analystLabel =
-      recMean == null ? "정보없음"
-      : recMean <= 1.5 ? "강력매수"
-      : recMean <= 2.5 ? "매수"
-      : recMean <= 3.5 ? "중립"
-      : recMean <= 4.5 ? "매도"
-      : "강력매도";
+  // Yahoo for PER/PBR, Naver for analyst opinion (more reliable for KR stocks)
+  const [yResult, analystResult] = await Promise.allSettled([
+    (async () => {
+      const yf = new YahooFinance();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return await yf.quoteSummary(ticker, { modules: ["defaultKeyStatistics"] }) as any;
+    })(),
+    fetchNaverAnalyst(code),
+  ]);
 
-    const valuationLabel =
-      per == null ? "정보없음"
-      : per < 10 ? "저평가"
-      : per < 20 ? "적정"
-      : per < 30 ? "다소고평가"
-      : "고평가";
-
-    return { avgPER: per ? Math.round(per * 10) / 10 : null, avgPBR: pbr ? Math.round(pbr * 10) / 10 : null, avgAnalystRating: recMean ? Math.round(recMean * 10) / 10 : null, analystLabel, valuationLabel };
-  } catch {
-    return { avgPER: null, avgPBR: null, avgAnalystRating: null, analystLabel: "정보없음", valuationLabel: "정보없음" };
+  let avgPER: number | null = null;
+  let avgPBR: number | null = null;
+  if (yResult.status === "fulfilled" && yResult.value) {
+    const ks = yResult.value.defaultKeyStatistics;
+    avgPER = ks?.trailingPE != null ? Math.round(ks.trailingPE * 10) / 10 : null;
+    avgPBR = ks?.priceToBook != null ? Math.round(ks.priceToBook * 10) / 10 : null;
   }
+
+  const { avgAnalystRating, analystLabel } =
+    analystResult.status === "fulfilled"
+      ? analystResult.value
+      : { avgAnalystRating: null, analystLabel: "정보없음" };
+
+  const valuationLabel =
+    avgPER == null ? "정보없음"
+    : avgPER < 10 ? "저평가"
+    : avgPER < 20 ? "적정"
+    : avgPER < 30 ? "다소고평가"
+    : "고평가";
+
+  return { avgPER, avgPBR, avgAnalystRating, analystLabel, valuationLabel };
 }
 
 // ── Entry grade ───────────────────────────────────────────────────────────────

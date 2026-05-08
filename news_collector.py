@@ -88,62 +88,34 @@ def fetch_naver_news(stock_code: str, max_pages: int = 2) -> list:
 
 def fetch_investor_trading(stock_code: str, days: int = 10) -> list:
     """
-    네이버 금융에서 외국인/기관 매매 동향 수집
+    네이버 모바일 API로 외국인/기관 매매 동향 수집
+    (기존 frgn.naver HTML 스크래핑은 해외 IP에서 차단됨)
     """
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-    }
-    url = (
-        f"https://finance.naver.com/item/frgn.naver"
-        f"?code={stock_code}&page=1"
-    )
+    headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://m.stock.naver.com"}
+    url = f"https://m.stock.naver.com/api/stock/{stock_code}/investorTradingTrends?timeframe=days&count={days}"
     try:
         req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req, timeout=10) as resp:
-            html = resp.read().decode("euc-kr", errors="replace")
+            data = json.loads(resp.read().decode("utf-8"))
     except Exception as e:
         print(f"  수급 데이터 수집 실패: {e}")
         return []
 
-    # 테이블에서 날짜, 외국인 순매수, 기관 순매수 추출
-    # 네이버 금융 외국인 탭 HTML 파싱
     results = []
-    rows = re.findall(r'<tr[^>]*>(.*?)</tr>', html, re.DOTALL)
-
-    for row in rows:
-        cells = re.findall(r'<td[^>]*>(.*?)</td>', row, re.DOTALL)
-        if len(cells) < 9:
-            continue
-
-        date_match = re.search(r'(\d{4}\.\d{2}\.\d{2})', cells[0])
-        if not date_match:
-            continue
-
-        date = date_match.group(1)
-
-        # 숫자 추출 헬퍼
-        def parse_num(text):
-            text = re.sub(r'<[^>]+>', '', text).strip()
-            text = text.replace(",", "").replace("+", "")
-            try:
-                return int(text)
-            except ValueError:
-                return 0
-
-        close = parse_num(cells[1])
-        foreign_net = parse_num(cells[5])  # 외국인 순매수
-        institution_net = parse_num(cells[6])  # 기관 순매수
-
+    # 응답 구조: {"tradingTrendList": [{"localDate": "20260509", "closePrice": ..., "foreignNetBuySellVolume": ..., "organNetBuySellVolume": ...}]}
+    trend_list = data if isinstance(data, list) else data.get("tradingTrendList", [])
+    for item in trend_list[:days]:
+        raw_date = str(item.get("localDate", ""))
+        if len(raw_date) == 8:
+            date = f"{raw_date[:4]}.{raw_date[4:6]}.{raw_date[6:]}"
+        else:
+            date = raw_date
         results.append({
             "date": date,
-            "close": close,
-            "foreign_net": foreign_net,
-            "institution_net": institution_net,
+            "close": item.get("closePrice", 0),
+            "foreign_net": item.get("foreignNetBuySellVolume", 0),
+            "institution_net": item.get("organNetBuySellVolume", 0),
         })
-
-        if len(results) >= days:
-            break
-
     return results
 
 
@@ -171,14 +143,14 @@ def analyze_news_with_claude(stock_name: str, articles: list) -> dict:
 
 {news_text}
 
-다음을 JSON으로 작성해주세요:
+다음을 JSON으로 작성해주세요 (마크다운 없이 순수 JSON만 출력):
 1. summary: 전체 뉴스 흐름 3줄 요약
 2. sentiment: 종합 판단 ("호재"/"중립"/"악재" 중 하나)
 3. key_points: 핵심 포인트 3~5개 리스트 (각 1줄)
 4. risk_factors: 리스크 요인 1~3개 리스트
 5. catalysts: 주가 상승 촉매 1~3개 리스트
-
-JSON만 출력하세요."""
+6. trading_signal: 매매 신호 ("매수관심"/"관망"/"주의" 중 하나)
+7. news_impact_score: 주가 영향도 점수 0~100 숫자 (100이 가장 강한 영향)"""
 
     try:
         message = client.messages.create(
@@ -187,13 +159,16 @@ JSON만 출력하세요."""
             messages=[{"role": "user", "content": prompt}],
         )
         content = message.content[0].text
+        # 마크다운 코드블록 제거
+        content = re.sub(r'```(?:json)?\s*', '', content).strip()
         json_match = re.search(r'\{.*\}', content, re.DOTALL)
         if json_match:
             return json.loads(json_match.group())
     except Exception as e:
         print(f"  Claude 분석 실패: {e}")
 
-    return {"summary": "분석 실패", "sentiment": "중립", "key_points": []}
+    return {"summary": "분석 실패", "sentiment": "중립", "key_points": [],
+            "risk_factors": [], "catalysts": [], "trading_signal": "관망", "news_impact_score": 0}
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

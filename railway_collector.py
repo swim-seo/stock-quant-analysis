@@ -60,7 +60,7 @@ MAX_VIDEOS_PER_PLAYLIST = 3
 
 
 # ── 영상 목록 가져오기 ────────────────────────────────────────────
-def get_playlist_videos(playlist_url: str, max_days: int = 2, max_videos: int = MAX_VIDEOS_PER_PLAYLIST) -> list:
+def get_playlist_videos(playlist_url: str, max_days: int = 3, max_videos: int = MAX_VIDEOS_PER_PLAYLIST) -> list:
     """재생목록에서 최근 N일 이내 영상만 가져오기"""
     ydl_opts = {
         "quiet": True,

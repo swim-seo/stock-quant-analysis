@@ -112,7 +112,7 @@ function calcEntrySignals(quotes: Quote[]): {
   const condMA: SignalStatus = maFullAlign ? "pass" : maPartial ? "warn" : "fail";
 
   let gcDay: number | null = null;
-  for (let i = n; i >= Math.max(n - 20, 1); i--) {
+  for (let i = n; i >= Math.max(n - 10, 1); i--) {
     const prev5 = ma5[i - 1];
     const prev20 = ma20[i - 1];
     const cur5 = ma5[i];
@@ -124,10 +124,8 @@ function calcEntrySignals(quotes: Quote[]): {
       }
     }
   }
-  const condGC: SignalStatus =
-    gcDay !== null && gcDay <= 10 ? "pass" : gcDay !== null ? "warn" : "fail";
-  const gcDetail =
-    gcDay !== null ? `${gcDay}일 전 발생` : "미발생";
+  const condGC: SignalStatus = gcDay !== null ? "pass" : "fail";
+  const gcDetail = gcDay !== null ? `${gcDay}일 전 발생` : "미발생(10일이내)";
 
   const condRSI: SignalStatus =
     rsi >= 40 && rsi <= 60 ? "pass" : rsi >= 30 && rsi <= 70 ? "warn" : "fail";
@@ -178,7 +176,7 @@ function calcEntrySignals(quotes: Quote[]): {
       status: condMA,
     },
     {
-      label: "골든크로스",
+      label: "골든크로스(10일이내)",
       detail: gcDetail,
       status: condGC,
     },
@@ -293,6 +291,7 @@ function StockContent() {
   const ticker = resolveTickerInput(rawTicker);
 
   const [data, setData] = useState<StockData | null>(null);
+  const [signalData, setSignalData] = useState<StockData | null>(null);
   const [period, setPeriod] = useState("1y");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -318,6 +317,19 @@ function StockContent() {
         setError("데이터를 가져올 수 없습니다.");
         setLoading(false);
       });
+  }, [ticker, period]);
+
+  // 진입신호 전용: 항상 1년치 고정 fetch (차트 기간과 무관하게 일관된 신호 계산)
+  useEffect(() => {
+    if (!ticker) return;
+    if (period === "1y") {
+      setSignalData(null);
+      return;
+    }
+    fetch(`/api/stock?ticker=${encodeURIComponent(ticker)}&period=1y`)
+      .then((r) => r.json())
+      .then((d) => { if (!d.error) setSignalData(d); })
+      .catch(() => {});
   }, [ticker, period]);
 
   useEffect(() => {
@@ -346,9 +358,11 @@ function StockContent() {
   const change = latest ? latest.close - (prev?.close ?? latest.close) : 0;
   const changePct = prev?.close ? (change / prev.close) * 100 : 0;
 
-  const entry = useMemo(() => calcEntrySignals(quotes), [quotes]);
-  const prediction = useMemo(() => calcPrediction(quotes), [quotes]);
-  const accuracy = useMemo(() => calcBacktestAccuracy(quotes, 60), [quotes]);
+  // 진입신호·백테스트는 항상 1년치 기준 (signalData 우선, 없으면 차트 데이터 fallback)
+  const signalQuotes = (signalData?.quotes?.length ?? 0) > 0 ? signalData!.quotes : quotes;
+  const entry = useMemo(() => calcEntrySignals(signalQuotes), [signalQuotes]);
+  const prediction = useMemo(() => calcPrediction(signalQuotes), [signalQuotes]);
+  const accuracy = useMemo(() => calcBacktestAccuracy(signalQuotes, 60), [signalQuotes]);
 
   const totalScore = entry.satisfied + entry.warnCount * 0.5;
   const maxScore = entry.total || 7;
@@ -582,9 +596,9 @@ function StockContent() {
                       뉴스
                     </span>
                     {(() => {
-                      const analysis = typeof newsData.analysis === "string"
-                        ? JSON.parse(newsData.analysis) : newsData.analysis || {};
-                      const sent = analysis.sentiment || "중립";
+                      let analysis: Record<string, unknown> = {};
+                      try { analysis = typeof newsData.analysis === "string" ? JSON.parse(newsData.analysis) : newsData.analysis || {}; } catch { /**/ }
+                      const sent = analysis.sentiment as string || "중립";
                       const sentColor = sent === "호재" ? "#00b493" : sent === "악재" ? "#f04452" : "#f5a623";
                       return (
                         <span
@@ -599,8 +613,12 @@ function StockContent() {
 
                   {/* Claude 분석 요약 + 심화 */}
                   {(() => {
-                    const analysis = typeof newsData.analysis === "string"
-                      ? JSON.parse(newsData.analysis) : newsData.analysis || {};
+                    let analysis: Record<string, unknown> = {};
+                    try { analysis = typeof newsData.analysis === "string" ? JSON.parse(newsData.analysis) : newsData.analysis || {}; } catch { /**/ }
+                    const isFailed = !analysis.summary || (analysis.summary as string).includes("실패") || (analysis.summary as string).includes("불가");
+                    if (isFailed) return (
+                      <p className="text-sm py-2" style={{ color: "var(--text-3)" }}>뉴스 분석을 가져올 수 없습니다.</p>
+                    );
                     const signal = analysis.trading_signal;
                     const signalColor = signal === "매수관심" ? "#00b493" : signal === "주의" ? "#f04452" : "#f5a623";
                     const score = analysis.news_impact_score;

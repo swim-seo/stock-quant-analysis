@@ -185,6 +185,36 @@ def save_themes_to_supabase(themes: list[dict], scanned_at: str) -> bool:
         return False
 
 
+def fetch_headlines_from_supabase() -> list[str]:
+    """RSS 실패 시 Supabase stock_news 뉴스 제목으로 fallback"""
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return []
+    try:
+        headers = {
+            "apikey": SUPABASE_KEY,
+            "Authorization": f"Bearer {SUPABASE_KEY}",
+        }
+        url = f"{SUPABASE_URL}/rest/v1/stock_news?select=articles,stock_name&order=collected_at.desc&limit=20"
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            rows = json.loads(resp.read().decode("utf-8"))
+        headlines = []
+        for row in rows:
+            arts = row.get("articles", [])
+            if isinstance(arts, str):
+                try: arts = json.loads(arts)
+                except: arts = []
+            for a in arts[:3]:
+                t = a.get("title", "").strip()
+                if t:
+                    headlines.append(t)
+        print(f"  [Supabase fallback] {len(headlines)}개 헤드라인")
+        return headlines
+    except Exception as e:
+        print(f"  [Supabase fallback 실패] {e}", file=sys.stderr)
+        return []
+
+
 def run():
     print("\n=== 테마 스캐너 시작 ===")
     scanned_at = datetime.now().isoformat()
@@ -192,6 +222,10 @@ def run():
     print("헤드라인 수집 중...")
     headlines = collect_all_headlines()
     print(f"총 {len(headlines)}개 헤드라인 수집")
+
+    if not headlines:
+        print("RSS 수집 실패 — Supabase 뉴스 기반 fallback 시도...")
+        headlines = fetch_headlines_from_supabase()
 
     if not headlines:
         print("헤드라인 없음, 종료")
