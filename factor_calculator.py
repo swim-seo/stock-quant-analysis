@@ -12,7 +12,6 @@ import os
 import sys
 import json
 import time
-import urllib.request
 import numpy as np
 import pandas as pd
 import yfinance as yf
@@ -31,7 +30,6 @@ SUPABASE_KEY = os.environ["SUPABASE_KEY"]
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 KOSPI_TICKER = "^KS11"
-NAVER_HEADERS = {"User-Agent": "Mozilla/5.0", "Referer": "https://m.stock.naver.com"}
 
 # ETF/지수 제외한 전 종목 (stocks.ts 동기화)
 STOCKS: list[tuple[str, str, str]] = [
@@ -136,23 +134,36 @@ def fetch_prices(ticker: str) -> pd.Series:
         return pd.Series(dtype=float)
 
 
-def fetch_naver_flow(code: str, days: int = 20) -> dict:
-    url = (f"https://m.stock.naver.com/api/stock/{code}/"
-           f"investorTradingTrends?timeframe=days&count={days}")
+def load_investor_flow_from_supabase() -> dict[str, dict]:
+    """Supabase stock_news 테이블에서 수급 데이터 로드 (news_collector.py가 수집)"""
     try:
-        req = urllib.request.Request(url, headers=NAVER_HEADERS)
-        with urllib.request.urlopen(req, timeout=8) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        lst = data if isinstance(data, list) else data.get("tradingTrendList", [])
-        return {
-            "foreign_5d":  sum(d.get("foreignNetBuySellVolume", 0) for d in lst[:5]),
-            "foreign_20d": sum(d.get("foreignNetBuySellVolume", 0) for d in lst[:20]),
-            "inst_5d":     sum(d.get("organNetBuySellVolume", 0) for d in lst[:5]),
-            "inst_20d":    sum(d.get("organNetBuySellVolume", 0) for d in lst[:20]),
-        }
+        resp = (supabase.table("stock_news")
+                .select("stock_code,investor_data")
+                .order("collected_at", desc=True)
+                .limit(300)
+                .execute())
+        flow_map: dict[str, dict] = {}
+        for row in resp.data or []:
+            code = row.get("stock_code", "")
+            if code in flow_map:
+                continue
+            inv = row.get("investor_data", [])
+            if isinstance(inv, str):
+                try: inv = json.loads(inv)
+                except: inv = []
+            if not inv:
+                continue
+            flow_map[code] = {
+                "foreign_5d":  sum(d.get("foreign_net", 0) for d in inv[:5]),
+                "foreign_20d": sum(d.get("foreign_net", 0) for d in inv[:20]),
+                "inst_5d":     sum(d.get("institution_net", 0) for d in inv[:5]),
+                "inst_20d":    sum(d.get("institution_net", 0) for d in inv[:20]),
+            }
+        print(f"  수급 데이터 로드: {len(flow_map)}개 종목 (Supabase stock_news)")
+        return flow_map
     except Exception as e:
-        print(f"  [수급실패] {code}: {e}")
-        return {"foreign_5d": 0, "foreign_20d": 0, "inst_5d": 0, "inst_20d": 0}
+        print(f"  [수급 로드 실패] {e}")
+        return {}
 
 
 def mom(prices: pd.Series, days: int) -> float | None:
@@ -181,6 +192,9 @@ def run():
     kospi_prices = fetch_prices(KOSPI_TICKER)
     kospi_3m = mom(kospi_prices, 65) or 0.0
 
+    # 수급 데이터: Supabase stock_news에서 일괄 로드 (Naver API IP 제한 우회)
+    flow_map = load_investor_flow_from_supabase()
+
     raw_rows = []
     for i, (ticker, name, sector) in enumerate(STOCKS):
         code = ticker.split(".")[0]
@@ -191,8 +205,8 @@ def run():
             print(f"데이터 부족 ({len(prices)}일), 스킵")
             continue
 
-        flow = fetch_naver_flow(code)
-        time.sleep(0.25)
+        flow = flow_map.get(code, {"foreign_5d": 0, "foreign_20d": 0, "inst_5d": 0, "inst_20d": 0})
+        time.sleep(0.15)
 
         m3  = mom(prices, 65)
         m6  = mom(prices, 130)

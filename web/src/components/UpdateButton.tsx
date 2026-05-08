@@ -9,7 +9,7 @@ type Status = {
   result: string | null;
 };
 
-export function UpdateButton() {
+export function UpdateButton({ compact = false }: { compact?: boolean }) {
   const [status, setStatus] = useState<Status>({ running: false, last_run: null, last_mode: null, result: null });
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
@@ -56,6 +56,27 @@ export function UpdateButton() {
   };
 
   const isRunning = status.running || loading;
+
+  if (compact) {
+    return (
+      <button
+        onClick={handleTrigger}
+        disabled={isRunning}
+        title={isRunning ? "수집 중..." : "지금 업데이트"}
+        style={{
+          width: 20, height: 20, padding: 0,
+          fontSize: 13, border: "none", background: "none",
+          cursor: isRunning ? "not-allowed" : "pointer",
+          color: isRunning ? "#94a3b8" : "#aaa",
+          display: "inline-flex", alignItems: "center", justifyContent: "center",
+          lineHeight: 1,
+        }}
+      >
+        <span style={isRunning ? { animation: "spin 1s linear infinite", display: "inline-block" } : {}}>⟳</span>
+        <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+      </button>
+    );
+  }
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>

@@ -37,30 +37,34 @@ export default async function Home() {
   return (
     <main className="min-h-screen" style={{ background: "var(--bg)" }}>
       {/* Header */}
-      <header style={{ background: "#ffffff", borderBottom: "1px solid var(--border)", padding: "16px 24px" }}>
+      <header style={{ background: "#ffffff", borderBottom: "1px solid var(--border)", padding: "12px 24px" }}>
         <div style={{ maxWidth: 1200, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <Link href="/" style={{ textDecoration: "none" }}>
-            <p style={{ fontSize: 11, letterSpacing: 3, color: "var(--blue)", fontWeight: 700, marginBottom: 2 }}>KOREA STOCK AI</p>
-            <h1 style={{ fontSize: 22, fontWeight: 800, color: "var(--text-1)", letterSpacing: -0.5 }}>주식 AI 대시보드</h1>
-          </Link>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {/* 좌: 로고 + 업데이트 정보 */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            <Link href="/" style={{ textDecoration: "none" }}>
+              <p style={{ fontSize: 10, letterSpacing: 3, color: "var(--blue)", fontWeight: 700, margin: 0 }}>KOREA STOCK AI</p>
+              <h1 style={{ fontSize: 20, fontWeight: 800, color: "var(--text-1)", letterSpacing: -0.5, margin: 0 }}>주식 AI 대시보드</h1>
+            </Link>
             {lastUpdated && (
-              <span style={{ fontSize: 12, color: "#888", marginRight: 4 }}>
-                최근 업데이트 {lastUpdated}
-              </span>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 11, color: "#aaa" }}>업데이트 {lastUpdated}</span>
+                <UpdateButton compact />
+              </div>
             )}
-            <UpdateButton />
-            <Link href="/screener" style={{ padding: "9px 18px", borderRadius: 10, background: "#e8f3ff", color: "var(--blue)", fontSize: 14, fontWeight: 700, textDecoration: "none" }}>
+          </div>
+          {/* 우: 네비게이션 */}
+          <nav style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <Link href="/screener" style={{ padding: "7px 14px", borderRadius: 8, background: "#e8f3ff", color: "var(--blue)", fontSize: 13, fontWeight: 700, textDecoration: "none", whiteSpace: "nowrap" }}>
               퀀트 스크리너
             </Link>
-            <Link href="/portfolio" style={{ padding: "9px 18px", borderRadius: 10, background: "#e8f3ff", color: "var(--blue)", fontSize: 14, fontWeight: 700, textDecoration: "none" }}>
+            <Link href="/portfolio" style={{ padding: "7px 14px", borderRadius: 8, background: "#f5f5f5", color: "var(--text-2)", fontSize: 13, fontWeight: 600, textDecoration: "none", whiteSpace: "nowrap" }}>
               가상투자
             </Link>
-            <Link href="/briefing" style={{ padding: "9px 18px", borderRadius: 10, background: "var(--blue)", color: "#fff", fontSize: 14, fontWeight: 700, textDecoration: "none" }}>
+            <Link href="/briefing" style={{ padding: "7px 14px", borderRadius: 8, background: "var(--blue)", color: "#fff", fontSize: 13, fontWeight: 700, textDecoration: "none", whiteSpace: "nowrap" }}>
               오늘의 브리핑
             </Link>
             <SearchBar />
-          </div>
+          </nav>
         </div>
       </header>
 
