@@ -1651,6 +1651,14 @@ def _run_theme_scanner():
         print(f"  [테마 스캐너 오류] {e}", file=sys.stderr)
 
 
+def _run_factor_calculator():
+    try:
+        from factor_calculator import run as factor_run
+        factor_run()
+    except Exception as e:
+        print(f"  [팩터 계산 오류] {e}", file=sys.stderr)
+
+
 def main():
     global _DATE_OVERRIDE
     args = sys.argv[1:]
@@ -1687,6 +1695,7 @@ def main():
         save_portfolio_signals(stock_data)
         update_portfolio_returns()
         _run_theme_scanner()
+        _run_factor_calculator()
         send_daily_report()
         try:
             from monthly_agent import run_monthly_agent
@@ -1709,6 +1718,7 @@ def main():
         save_portfolio_signals(stock_data)
         update_portfolio_returns()
         _run_theme_scanner()
+        _run_factor_calculator()
 
     print(f"\n{'='*50}")
     print(f"  완료! {now_kst().strftime('%H:%M:%S')}")

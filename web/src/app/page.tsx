@@ -50,6 +50,9 @@ export default async function Home() {
               </span>
             )}
             <UpdateButton />
+            <Link href="/screener" style={{ padding: "9px 18px", borderRadius: 10, background: "#e8f3ff", color: "var(--blue)", fontSize: 14, fontWeight: 700, textDecoration: "none" }}>
+              퀀트 스크리너
+            </Link>
             <Link href="/portfolio" style={{ padding: "9px 18px", borderRadius: 10, background: "#e8f3ff", color: "var(--blue)", fontSize: 14, fontWeight: 700, textDecoration: "none" }}>
               가상투자
             </Link>
