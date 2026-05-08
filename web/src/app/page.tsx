@@ -6,6 +6,7 @@ import { ThemeScanner } from "@/components/ThemeScanner";
 import { MainTabs } from "@/components/MainTabs";
 import { SearchBar } from "@/components/SearchBar";
 import { PipelineAlerts } from "@/components/PipelineAlerts";
+import { UpdateButton } from "@/components/UpdateButton";
 
 export const revalidate = 300;
 
@@ -48,6 +49,7 @@ export default async function Home() {
                 최근 업데이트 {lastUpdated}
               </span>
             )}
+            <UpdateButton />
             <Link href="/portfolio" style={{ padding: "9px 18px", borderRadius: 10, background: "#e8f3ff", color: "var(--blue)", fontSize: 14, fontWeight: 700, textDecoration: "none" }}>
               가상투자
             </Link>
