@@ -553,22 +553,54 @@ def _calc_rsi(closes, period=14):
     return 100 - 100 / (1 + avg_gain / avg_loss)
 
 
-def _prediction_score(closes):
-    """같은 로직을 Python으로 (TypeScript predictionScore 미러)"""
+def _prediction_score(closes, volumes=None):
+    """기술 지표 기반 상승 확률 추정 (0.15 ~ 0.85)"""
     n = len(closes) - 1
     if n < 20:
         return 0.5
     rsi = _calc_rsi(closes)
-    m5 = sum(closes[max(n - 4, 0):n + 1]) / min(5, n + 1)
+    m5  = sum(closes[max(n - 4, 0):n + 1]) / min(5, n + 1)
     m20 = sum(closes[max(n - 19, 0):n + 1]) / min(20, n + 1)
+    m60 = sum(closes[max(n - 59, 0):n + 1]) / min(60, n + 1) if n >= 59 else m20
+
     score = 0.5
-    if rsi < 30:   score += 0.12
-    elif rsi < 40: score += 0.06
-    elif rsi > 70: score -= 0.12
-    elif rsi > 60: score -= 0.04
-    score += 0.06 if m5 > m20 else -0.06
-    ret5 = (closes[n] - closes[max(n - 5, 0)]) / closes[max(n - 5, 0)]
-    score += ret5 * 0.5
+
+    # RSI
+    if rsi < 30:    score += 0.12
+    elif rsi < 40:  score += 0.06
+    elif rsi > 70:  score -= 0.12
+    elif rsi > 60:  score -= 0.04
+
+    # MA 정배열
+    if m5 > m20 > m60:
+        score += 0.08
+    elif m5 > m20:
+        score += 0.04
+    else:
+        score -= 0.04
+
+    # 단기/중기 수익률
+    ret5  = (closes[n] - closes[max(n - 5,  0)]) / closes[max(n - 5,  0)]
+    ret20 = (closes[n] - closes[max(n - 20, 0)]) / closes[max(n - 20, 0)]
+    score += ret5 * 0.4
+    score += ret20 * 0.15
+
+    # 변동성 (최근 10일 일간 수익률 표준편차) — 고변동성이면 불확실성 ↑
+    if n >= 11:
+        daily_rets = [(closes[i] - closes[i - 1]) / closes[i - 1] for i in range(n - 9, n + 1)]
+        avg_r = sum(daily_rets) / len(daily_rets)
+        vol10 = (sum((r - avg_r) ** 2 for r in daily_rets) / len(daily_rets)) ** 0.5
+        if vol10 > 0.03:
+            score -= 0.05  # 고변동성 패널티
+
+    # 거래량 모멘텀
+    if volumes and len(volumes) >= 21:
+        avg_vol = sum(volumes[-21:-1]) / 20
+        if avg_vol > 0:
+            vr = volumes[-1] / avg_vol
+            if vr >= 2.0:   score += 0.05
+            elif vr <= 0.5: score -= 0.03
+
     return max(0.15, min(0.85, score))
 
 
@@ -653,7 +685,7 @@ def _load_recent_signals(days: int = 3):
     try:
         yt_rows = sb_get("youtube_insights",
             f"upload_date=gte.{since}"
-            f"&select=market_sentiment,urgency,key_stocks,key_stocks_sentiment,key_stocks_analysis,key_events,market_narrative"
+            f"&select=market_sentiment,urgency,key_stocks,key_stocks_sentiment,key_stocks_analysis,key_events,market_narrative,trading_type,risk_factors,key_sectors"
             f"&limit=100")
     except Exception:
         yt_rows = []
@@ -784,9 +816,9 @@ def _volume_surge_score(volumes: list) -> float:
     return 0.3 if avg_vol > 0 and volumes[-1] > avg_vol * 3 else 0.0
 
 
-def _compute_sector_momentum(stock_data: dict) -> dict:
-    """종목별 종가 데이터로 섹터별 5일 수익률 평균 계산
-    Returns: {섹터명: avg_5d_return_pct}
+def _compute_sector_momentum(stock_data: dict, yt_rows: list = None) -> dict:
+    """섹터별 5일 수익률 평균 + 유튜브 섹터 언급 보너스
+    Returns: {섹터명: avg_5d_return_pct (YT 보너스 포함)}
     """
     sector_returns: dict = {}
     for name, (closes, _) in stock_data.items():
@@ -801,6 +833,30 @@ def _compute_sector_momentum(stock_data: dict) -> dict:
         avg = sum(rets) / len(rets)
         result[sector] = round(avg, 2)
         print(f"  [섹터모멘텀] {sector}: {avg:+.2f}% ({len(rets)}종목)")
+
+    # 유튜브 섹터 언급 보너스 (많이 언급된 섹터에 최대 +0.5% 추가)
+    if yt_rows:
+        sector_mentions: dict = {}
+        for r in yt_rows:
+            sectors_raw = r.get("key_sectors") or []
+            if isinstance(sectors_raw, str):
+                try:
+                    sectors_raw = json.loads(sectors_raw)
+                except Exception:
+                    sectors_raw = []
+            for s in (sectors_raw if isinstance(sectors_raw, list) else []):
+                sector_mentions[s] = sector_mentions.get(s, 0) + 1
+
+        if sector_mentions:
+            max_cnt = max(sector_mentions.values())
+            for sector, cnt in sector_mentions.items():
+                boost = round(cnt / max_cnt * 0.5, 2)
+                if sector in result:
+                    result[sector] = round(result[sector] + boost, 2)
+                else:
+                    result[sector] = boost
+            print(f"  [섹터모멘텀] YT 언급 보너스 적용: {dict(list(sector_mentions.items())[:5])}")
+
     return result
 
 
@@ -937,13 +993,16 @@ def _yt_score_for(name: str, yt_rows: list) -> float:
     우선순위: key_stocks_analysis.signal > key_stocks_sentiment > market_sentiment(fallback)
 
     signal 기반 (가장 정확):
-      매수=0.7, 관망=0.0, 매도=-0.5  × urgency
+      매수=0.7, 관망=0.0, 매도=-0.5  × urgency × trading_type_weight
 
     sentiment 기반 (signal 없을 때):
-      긍정=0.4, 중립=0.0, 부정=-0.4  × urgency
+      긍정=0.4, 중립=0.0, 부정=-0.4  × urgency × trading_type_weight
 
     fallback (key_stocks_analysis/sentiment 둘 다 없을 때):
       market_sentiment 긍정=0.15, 중립=0.0, 부정=-0.15
+
+    패널티:
+      risk_factors ≥ 3개 → -0.3, ≥ 2개 → -0.15 (영상별 적용)
     """
     relevant = [r for r in yt_rows if name in (r.get("key_stocks") or [])]
     if not relevant:
@@ -952,6 +1011,10 @@ def _yt_score_for(name: str, yt_rows: list) -> float:
     total = 0.0
     for r in relevant:
         u = {"오늘": 1.0, "이번주": 0.7, "장기": 0.4}.get(r.get("urgency", "이번주"), 0.5)
+
+        # trading_type 가중치: 단타 영상은 단기 신호에 더 적합
+        type_w = {"단타": 1.2, "스윙": 1.0, "장기": 0.7}.get(r.get("trading_type", "스윙"), 1.0)
+        u = u * type_w
 
         # 1순위: key_stocks_analysis의 signal 값
         analysis_raw = r.get("key_stocks_analysis")
@@ -969,24 +1032,34 @@ def _yt_score_for(name: str, yt_rows: list) -> float:
         if stock_signal:
             s = {"매수": 0.7, "관망": 0.0, "매도": -0.5}.get(stock_signal, 0.0)
             total += s * u
-            continue
+        else:
+            # 2순위: key_stocks_sentiment
+            sentiments_raw = r.get("key_stocks_sentiment")
+            if isinstance(sentiments_raw, str):
+                try:
+                    sentiments_raw = json.loads(sentiments_raw)
+                except Exception:
+                    sentiments_raw = {}
+            stock_sent = (sentiments_raw or {}).get(name)
+            if stock_sent:
+                s = {"긍정": 0.4, "중립": 0.0, "부정": -0.4}.get(stock_sent, 0.0)
+                total += s * u
+            else:
+                # 3순위 fallback: 영상 전체 market_sentiment (가중치 낮음)
+                s = {"긍정": 0.15, "중립": 0.0, "부정": -0.15}.get(r.get("market_sentiment", "중립"), 0.0)
+                total += s * u
 
-        # 2순위: key_stocks_sentiment
-        sentiments_raw = r.get("key_stocks_sentiment")
-        if isinstance(sentiments_raw, str):
-            try:
-                sentiments_raw = json.loads(sentiments_raw)
-            except Exception:
-                sentiments_raw = {}
-        stock_sent = (sentiments_raw or {}).get(name)
-        if stock_sent:
-            s = {"긍정": 0.4, "중립": 0.0, "부정": -0.4}.get(stock_sent, 0.0)
-            total += s * u
-            continue
-
-        # 3순위 fallback: 영상 전체 market_sentiment (가중치 낮음)
-        s = {"긍정": 0.15, "중립": 0.0, "부정": -0.15}.get(r.get("market_sentiment", "중립"), 0.0)
-        total += s * u
+        # risk_factors 패널티 (영상별 적용)
+        try:
+            risks_raw = r.get("risk_factors") or "[]"
+            risks = json.loads(risks_raw) if isinstance(risks_raw, str) else risks_raw
+            n_risks = len(risks) if isinstance(risks, list) else 0
+            if n_risks >= 3:
+                total -= 0.3
+            elif n_risks >= 2:
+                total -= 0.15
+        except Exception:
+            pass
 
     return max(-0.5, min(1.0, total))
 
@@ -1042,7 +1115,7 @@ def save_predictions(stock_data: dict | None = None):
     if stock_data is None:
         stock_data = _collect_stock_data()
 
-    sector_momentum = _compute_sector_momentum(stock_data)
+    sector_momentum = _compute_sector_momentum(stock_data, yt_rows)
 
     for name, code in WATCH_STOCKS.items():
         ticker_sym = _ticker_sym(code)
@@ -1053,8 +1126,8 @@ def save_predictions(stock_data: dict | None = None):
             if len(closes) < 21:
                 continue
 
-            prob = _prediction_score(closes)
-            tech = _entry_signal_score(closes)
+            prob = _prediction_score(closes, volumes)
+            tech = _entry_signal_score(closes, volumes)
             news = _news_score_for(name, news_by_stock)
             yt = _yt_score_for(name, yt_rows)
             foreign = _foreign_flow_score(name, news_by_stock)
@@ -1110,7 +1183,7 @@ def save_portfolio_signals(stock_data: dict | None = None):
     if stock_data is None:
         stock_data = _collect_stock_data()
 
-    sector_momentum = _compute_sector_momentum(stock_data)
+    sector_momentum = _compute_sector_momentum(stock_data, yt_rows)
 
     for name, code in WATCH_STOCKS.items():
         ticker_sym = _ticker_sym(code)
@@ -1121,8 +1194,8 @@ def save_portfolio_signals(stock_data: dict | None = None):
             if len(closes) < 61:
                 continue
 
-            prob = _prediction_score(closes)
-            tech = _entry_signal_score(closes)
+            prob = _prediction_score(closes, volumes)
+            tech = _entry_signal_score(closes, volumes)
             news = _news_score_for(name, news_by_stock)
             yt = _yt_score_for(name, yt_rows)
             foreign = _foreign_flow_score(name, news_by_stock)
@@ -1156,7 +1229,7 @@ def save_portfolio_signals(stock_data: dict | None = None):
     print("  포트폴리오 신호 저장 완료")
 
 
-def _entry_signal_score(closes):
+def _entry_signal_score(closes, volumes=None):
     """5조건 진입 신호 점수 (≥4 = 매수관심)"""
     n = len(closes) - 1
     if n < 60:
@@ -1198,8 +1271,21 @@ def _entry_signal_score(closes):
     elif weekly_ret > -0.02:
         score += 0.5
 
-    # 5. 거래량 (단순 근사: 최근 거래량 대비 — yfinance 종가만 있으면 스킵)
-    score += 1.0  # 기본 1점 부여 (거래량 데이터 없는 경우)
+    # 5. 거래량 (실제 데이터 사용, 없으면 0.5 중립)
+    if volumes and len(volumes) >= 21:
+        avg_vol = sum(volumes[-21:-1]) / 20
+        if avg_vol > 0:
+            vr = volumes[-1] / avg_vol
+            if vr >= 1.5:
+                score += 1.0   # 거래량 1.5배 이상 → 강한 신호
+            elif vr >= 1.0:
+                score += 0.5   # 평균 이상
+            else:
+                score += 0.0   # 거래량 감소 → 점수 없음
+        else:
+            score += 0.5
+    else:
+        score += 0.5  # 거래량 데이터 없을 때 중립
 
     return score
 
@@ -1248,12 +1334,24 @@ def update_portfolio_returns():
         cur = prices[ticker]
         entry = h["entry_price"]
         ret_pct = round((cur - entry) / entry * 100, 2) if entry else 0.0
+
+        # 손절(-7%) / 익절(+20%) 자동 청산
+        if ret_pct <= -7.0:
+            new_status = "sold_stoploss"
+        elif ret_pct >= 20.0:
+            new_status = "sold_takeprofit"
+        else:
+            new_status = "holding"
+
         try:
             sb_patch("portfolio_signals",
                      {"signal_date": h["signal_date"], "ticker": ticker},
                      {"current_price": round(cur, 0),
                       "return_pct": ret_pct,
+                      "status": new_status,
                       "updated_at": now_kst().isoformat()})
+            if new_status != "holding":
+                print(f"  {h['stock_name']} → {new_status} ({ret_pct:+.2f}%)")
             updated += 1
         except Exception as e:
             print(f"  {h['stock_name']} 업데이트 실패: {e}")
