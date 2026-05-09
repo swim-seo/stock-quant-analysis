@@ -12,7 +12,6 @@ interface UndervaluedStock {
   pbr: number | null;
   per: number | null;
   roe: number | null;
-  dividendYield: number | null;
   debtRatio: number | null;
   score: number;
   reasons: string[];
@@ -31,7 +30,6 @@ async function fetchNaverData(code: string): Promise<{
   pbr: number | null;
   roe: number | null;
   debtRatio: number | null;
-  dividendYield: number | null;
 } | null> {
   try {
     const headers = { "User-Agent": "Mozilla/5.0" };
@@ -72,15 +70,8 @@ async function fetchNaverData(code: string): Promise<{
     const pbr = getLatestValue("PBR");
     const roe = getLatestValue("ROE");
     const debtRatio = getLatestValue("부채비율");
-    const dividendPerShare = getLatestValue("주당배당금");
 
-    // 배당수익률 = 주당배당금 / 현재가 × 100
-    const dividendYield =
-      dividendPerShare != null && price && price > 0
-        ? Math.round((dividendPerShare / price) * 10000) / 100
-        : null;
-
-    return { price, changePct, per, pbr, roe, debtRatio, dividendYield };
+    return { price, changePct, per, pbr, roe, debtRatio };
   } catch {
     return null;
   }
@@ -95,7 +86,7 @@ async function fetchFundamentals(
   const data = await fetchNaverData(code);
   if (!data?.price) return null;
 
-  const { price, changePct, per, pbr, roe, debtRatio, dividendYield } = data;
+  const { price, changePct, per, pbr, roe, debtRatio } = data;
 
   // 핵심 지표 전부 없으면 스킵
   if (per === null && pbr === null && roe === null) return null;
@@ -103,14 +94,20 @@ async function fetchFundamentals(
   let score = 0;
   const reasons: string[] = [];
 
-  // PBR — 네이버 직접 제공이므로 DuPont 근사 불필요
+  // PBR + ROE 연동 (Codex Fix1: PBR 단독 저평가 = 가치함정 방지)
   if (pbr !== null && pbr > 0) {
-    if (pbr < 0.5) { score += 30; reasons.push(`PBR ${pbr.toFixed(2)} (매우 저평가)`); }
-    else if (pbr < 1.0) { score += 20; reasons.push(`PBR ${pbr.toFixed(2)} (저평가)`); }
-    else if (pbr < 1.5) { score += 10; }
+    if (pbr < 0.5 && roe !== null && roe > 10) {
+      score += 30;
+      reasons.push(`PBR ${pbr.toFixed(2)} + ROE ${roe.toFixed(1)}% (우량 저평가)`);
+    } else if (pbr < 1.0) {
+      score += 20;
+      reasons.push(`PBR ${pbr.toFixed(2)} (저평가)`);
+    } else if (pbr < 1.5) {
+      score += 10;
+    }
   }
 
-  // ROE — 네이버 직접 제공
+  // ROE
   if (roe !== null) {
     if (roe > 20) { score += 25; reasons.push(`ROE ${roe.toFixed(1)}% (우수)`); }
     else if (roe > 15) { score += 18; reasons.push(`ROE ${roe.toFixed(1)}%`); }
@@ -124,26 +121,21 @@ async function fetchFundamentals(
     else if (per < 15) { score += 6; }
   }
 
-  // 배당수익률
-  if (dividendYield !== null && dividendYield > 0) {
-    if (dividendYield >= 4) { score += 15; reasons.push(`배당 ${dividendYield.toFixed(1)}%`); }
-    else if (dividendYield >= 2.5) { score += 8; reasons.push(`배당 ${dividendYield.toFixed(1)}%`); }
-  }
-
-  // 부채비율 — 네이버 직접 제공
+  // 부채비율
   if (debtRatio !== null) {
     if (debtRatio < 30) { score += 10; }
     else if (debtRatio < 80) { score += 5; }
     else if (debtRatio > 300) score -= 10;
   }
 
-  if (score < 15) return null;
+  // 기준점 25점 (Codex: 배당 제거 후 관대한 15점 상향)
+  if (score < 25) return null;
 
   return {
     ticker, name, sector,
     price: Math.round(price),
     changePct: changePct ?? 0,
-    pbr, per, roe, dividendYield, debtRatio,
+    pbr, per, roe, debtRatio,
     score,
     reasons,
   };

@@ -12,7 +12,6 @@ interface UndervaluedStock {
   pbr: number | null;
   per: number | null;
   roe: number | null;
-  dividendYield: number | null;
   score: number;
   reasons: string[];
 }
@@ -44,7 +43,7 @@ export function TopStocks() {
         <span style={{ fontSize: 11, color: "var(--text-3)" }}>PBR·ROE·PER 기준</span>
       </div>
       <p style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 16 }}>
-        PBR 낮고 ROE·배당 높은 종목
+        PBR·ROE 연동 + PER·부채비율 종합 평가
       </p>
 
       {stocks.length === 0 ? (
@@ -92,11 +91,6 @@ export function TopStocks() {
                   {stock.roe !== null && (
                     <span style={{ fontSize: 11, color: stock.roe > 10 ? "#00b493" : "var(--text-3)" }}>
                       ROE {stock.roe.toFixed(1)}%
-                    </span>
-                  )}
-                  {stock.dividendYield !== null && stock.dividendYield > 0 && (
-                    <span style={{ fontSize: 11, color: "#f5a623" }}>
-                      배당 {stock.dividendYield.toFixed(1)}%
                     </span>
                   )}
                 </div>
