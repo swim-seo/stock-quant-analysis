@@ -71,6 +71,34 @@ PLAYLISTS = {
         "trading_focus": "both",
         "collect_time": "morning",
     },
+    "삼프로TV": {
+        "channel": "삼프로TV",
+        "playlist_url": "https://www.youtube.com/@3protv/videos",
+        "priority": 2,
+        "trading_focus": "both",
+        "collect_time": "morning",
+    },
+    "슈카월드": {
+        "channel": "슈카월드",
+        "playlist_url": "https://www.youtube.com/@syukaworld/videos",
+        "priority": 2,
+        "trading_focus": "both",
+        "collect_time": "morning",
+    },
+    "소수몽키": {
+        "channel": "소수몽키",
+        "playlist_url": "https://www.youtube.com/@sosumonkey/videos",
+        "priority": 2,
+        "trading_focus": "both",
+        "collect_time": "morning",
+    },
+    "머니투데이": {
+        "channel": "머니투데이",
+        "playlist_url": "https://www.youtube.com/@moneytoday/videos",
+        "priority": 2,
+        "trading_focus": "both",
+        "collect_time": "morning",
+    },
 }
 
 # 채널 전체 영상 기반 수집 설정 (과거 데이터 수집용)

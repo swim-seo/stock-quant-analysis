@@ -53,17 +53,70 @@ PLAYLISTS = {
         "trading_focus": "both",
         "collect_time": "morning",
     },
+    "삼프로TV": {
+        "channel": "삼프로TV",
+        "playlist_url": "https://www.youtube.com/@3protv/videos",
+        "trading_focus": "both",
+        "collect_time": "morning",
+    },
+    "슈카월드": {
+        "channel": "슈카월드",
+        "playlist_url": "https://www.youtube.com/@syukaworld/videos",
+        "trading_focus": "both",
+        "collect_time": "morning",
+    },
+    "소수몽키": {
+        "channel": "소수몽키",
+        "playlist_url": "https://www.youtube.com/@sosumonkey/videos",
+        "trading_focus": "both",
+        "collect_time": "morning",
+    },
+    "머니투데이": {
+        "channel": "머니투데이",
+        "playlist_url": "https://www.youtube.com/@moneytoday/videos",
+        "trading_focus": "both",
+        "collect_time": "morning",
+    },
 }
 
 REQUEST_DELAY = 10  # 영상 간 딜레이 (초)
 MAX_VIDEOS_PER_PLAYLIST = 3
+
+# ── YouTube 쿠키 설정 (봇 감지 우회) ─────────────────────────────
+# Railway 환경변수 YT_COOKIES_B64 에 쿠키 파일(Netscape 형식)을 base64 인코딩해서 넣으면 자동 적용
+_COOKIE_FILE: str | None = None
+
+def _setup_cookies() -> str | None:
+    """YT_COOKIES_B64 환경변수가 있으면 임시 쿠키 파일 생성 후 경로 반환"""
+    global _COOKIE_FILE
+    if _COOKIE_FILE:
+        return _COOKIE_FILE
+    b64 = os.environ.get("YT_COOKIES_B64", "")
+    if not b64:
+        return None
+    import base64, tempfile
+    data = base64.b64decode(b64.encode())
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".txt", mode="wb")
+    tmp.write(data)
+    tmp.close()
+    _COOKIE_FILE = tmp.name
+    print(f"  [쿠키] YouTube 쿠키 파일 로드됨: {_COOKIE_FILE}")
+    return _COOKIE_FILE
+
+def _ydl_base_opts() -> dict:
+    """공통 yt-dlp 옵션 (쿠키 포함)"""
+    opts = {"quiet": True}
+    cookie_file = _setup_cookies()
+    if cookie_file:
+        opts["cookiefile"] = cookie_file
+    return opts
 
 
 # ── 영상 목록 가져오기 ────────────────────────────────────────────
 def get_playlist_videos(playlist_url: str, max_days: int = 3, max_videos: int = MAX_VIDEOS_PER_PLAYLIST) -> list:
     """재생목록에서 최근 N일 이내 영상만 가져오기"""
     ydl_opts = {
-        "quiet": True,
+        **_ydl_base_opts(),
         "extract_flat": "in_playlist",
         "playlist_items": "1:30",
     }
@@ -101,7 +154,7 @@ def get_transcript(video_id: str) -> tuple:
     url = f"https://www.youtube.com/watch?v={video_id}"
     with tempfile.TemporaryDirectory() as tmpdir:
         ydl_opts = {
-            "quiet": True,
+            **_ydl_base_opts(),
             "skip_download": True,
             "writeautomaticsub": True,
             "writesubtitles": True,
