@@ -5,10 +5,9 @@ import { useRouter } from "next/navigation";
 import { InsightsFeed } from "./InsightsFeed";
 import { HotSectors } from "./HotSectors";
 import { SectorSignals } from "./SectorSignals";
+import { BuySignals } from "./BuySignals";
 import { searchByStock } from "@/lib/api";
 import type { YoutubeInsight } from "@/lib/types";
-
-const POPULAR_STOCKS = ["삼성전자", "SK하이닉스", "현대차", "카카오", "NAVER", "LG에너지솔루션", "셀트리온", "기아", "삼성SDI", "한미반도체"];
 
 function StockSearchPanel() {
   const router = useRouter();
@@ -34,14 +33,6 @@ function StockSearchPanel() {
         </div>
       </form>
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
-        {POPULAR_STOCKS.map(name => (
-          <button key={name} onClick={() => handleSearch(name)}
-            style={{ padding: "6px 14px", fontSize: 13, borderRadius: 20, border: "1px solid var(--border)", background: "#fff", color: "var(--text-2)", cursor: "pointer", fontWeight: 500 }}>
-            {name}
-          </button>
-        ))}
-      </div>
 
       {query.trim() && (
         <button onClick={() => router.push(`/stock?ticker=${encodeURIComponent(query.trim())}`)}
@@ -97,8 +88,9 @@ function StockSearchPanel() {
 }
 
 const TABS = [
+  { id: "timing", label: "📈 매수타이밍" },
   { id: "hot", label: "🔥 거래량" },
-  { id: "signals", label: "⚡ 타이밍" },
+  { id: "signals", label: "⚡ 섹터" },
   { id: "search", label: "종목 검색" },
   { id: "insights", label: "인사이트" },
 ] as const;
@@ -106,19 +98,20 @@ const TABS = [
 type TabId = typeof TABS[number]["id"];
 
 export function MainTabs() {
-  const [tab, setTab] = useState<TabId>("hot");
+  const [tab, setTab] = useState<TabId>("timing");
 
   return (
     <div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 4, marginBottom: 20, background: "#fff", padding: 4, borderRadius: 16, boxShadow: "var(--shadow)" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 4, marginBottom: 20, background: "#fff", padding: 4, borderRadius: 16, boxShadow: "var(--shadow)" }}>
         {TABS.map(t => (
           <button key={t.id} onClick={() => setTab(t.id)}
-            style={{ padding: "10px 0", borderRadius: 12, border: "none", fontSize: 14, fontWeight: 700, cursor: "pointer", background: tab === t.id ? "var(--blue)" : "transparent", color: tab === t.id ? "#fff" : "var(--text-3)" }}>
+            style={{ padding: "10px 0", borderRadius: 12, border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer", background: tab === t.id ? "var(--blue)" : "transparent", color: tab === t.id ? "#fff" : "var(--text-3)" }}>
             {t.label}
           </button>
         ))}
       </div>
 
+      {tab === "timing" && <BuySignals />}
       {tab === "hot" && <HotSectors />}
       {tab === "signals" && <SectorSignals />}
       {tab === "insights" && <InsightsFeed />}
