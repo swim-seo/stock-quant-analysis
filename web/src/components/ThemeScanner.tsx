@@ -68,16 +68,16 @@ export function ThemeScanner() {
     <div style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "var(--shadow)" }}>
       {/* 헤더 */}
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 14 }}>
-        <p style={{ fontSize: 11, letterSpacing: 2, color: "var(--blue)", fontWeight: 700 }}>TODAY&apos;S THEMES</p>
+        <p style={{ fontSize: 13, letterSpacing: 2, color: "var(--blue)", fontWeight: 700 }}>TODAY&apos;S THEMES</p>
         {scannedAt && (
-          <span style={{ fontSize: 11, color: "var(--text-3)" }}>
+          <span style={{ fontSize: 12, color: "var(--text-3)" }}>
             {new Date(scannedAt).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} 스캔
           </span>
         )}
       </div>
 
       {/* 테마 목록 */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {themes.map((theme) => {
           const ug = URGENCY_STYLE[theme.urgency] ?? URGENCY_STYLE["이번주"];
           const isOpen = expanded === theme.id;
@@ -89,24 +89,24 @@ export function ThemeScanner() {
               onClick={() => setExpanded(isOpen ? null : theme.id)}
             >
               {/* 요약 행 */}
-              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px" }}>
-                <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 6, color: ug.color, background: ug.bg, flexShrink: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px" }}>
+                <span style={{ fontSize: 13, fontWeight: 700, padding: "3px 10px", borderRadius: 6, color: ug.color, background: ug.bg, flexShrink: 0 }}>
                   {ug.label}
                 </span>
-                <span style={{ fontSize: 14, fontWeight: 700, color: "var(--text-1)", flex: 1, minWidth: 0, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
+                <span style={{ fontSize: 15, fontWeight: 700, color: "var(--text-1)", flex: 1, minWidth: 0, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
                   {theme.theme_name}
                 </span>
-                <span style={{ fontSize: 12, color: "var(--text-3)", flexShrink: 0 }}>{isOpen ? "▲" : "▼"}</span>
+                <span style={{ fontSize: 13, color: "var(--text-3)", flexShrink: 0 }}>{isOpen ? "▲" : "▼"}</span>
               </div>
 
               {/* 관련 종목 (항상 표시) */}
               {theme.related_stocks.length > 0 && (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 5, padding: "0 14px 10px" }}>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, padding: "0 14px 12px" }}>
                   {theme.related_stocks.slice(0, 6).map((stock) => (
                     <button
                       key={stock}
                       onClick={(e) => { e.stopPropagation(); handleStockClick(stock); }}
-                      style={{ fontSize: 12, padding: "3px 10px", borderRadius: 20, border: "1px solid var(--border)", background: NAME_TO_TICKER[stock] ? "#e8f3ff" : "#f5f5f5", color: NAME_TO_TICKER[stock] ? "var(--blue)" : "var(--text-2)", fontWeight: 600, cursor: "pointer" }}
+                      style={{ fontSize: 13, padding: "4px 12px", borderRadius: 20, border: "1px solid var(--border)", background: NAME_TO_TICKER[stock] ? "#e8f3ff" : "#f5f5f5", color: NAME_TO_TICKER[stock] ? "var(--blue)" : "var(--text-2)", fontWeight: 600, cursor: "pointer" }}
                     >
                       {stock}
                     </button>
@@ -116,22 +116,22 @@ export function ThemeScanner() {
 
               {/* 펼쳐지는 상세 */}
               {isOpen && (
-                <div style={{ borderTop: "1px solid var(--border)", padding: "12px 14px", background: "#fafafa" }}>
-                  <p style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.6, marginBottom: 10 }}>{theme.reason}</p>
+                <div style={{ borderTop: "1px solid var(--border)", padding: "14px 16px", background: "#fafafa" }}>
+                  <p style={{ fontSize: 14, color: "#222", lineHeight: 1.7, marginBottom: 12 }}>{theme.reason}</p>
 
                   {theme.keywords.length > 0 && (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 10 }}>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
                       {theme.keywords.map((kw) => (
-                        <span key={kw} style={{ fontSize: 11, padding: "2px 8px", borderRadius: 6, background: "#f0f0f8", color: "var(--text-3)" }}>#{kw}</span>
+                        <span key={kw} style={{ fontSize: 13, padding: "3px 10px", borderRadius: 6, background: "#f0f0f8", color: "var(--text-3)" }}>#{kw}</span>
                       ))}
                     </div>
                   )}
 
                   {theme.source_headlines.length > 0 && (
                     <div>
-                      <p style={{ fontSize: 11, color: "var(--text-3)", fontWeight: 600, marginBottom: 5 }}>관련 헤드라인</p>
+                      <p style={{ fontSize: 12, color: "var(--text-3)", fontWeight: 600, marginBottom: 6 }}>관련 헤드라인</p>
                       {theme.source_headlines.map((h, i) => (
-                        <p key={i} style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.5, paddingLeft: 8, borderLeft: "2px solid var(--border)", marginBottom: 4 }}>{h}</p>
+                        <p key={i} style={{ fontSize: 13, color: "#333", lineHeight: 1.6, paddingLeft: 10, borderLeft: "2px solid var(--border)", marginBottom: 6 }}>{h}</p>
                       ))}
                     </div>
                   )}

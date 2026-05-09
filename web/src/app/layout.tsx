@@ -30,10 +30,14 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         {children}
-        <footer style={{ borderTop: "1px solid var(--border)", background: "#fafafa", padding: "14px 24px", marginTop: "auto" }}>
-          <div style={{ maxWidth: 1200, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <span style={{ fontSize: 11, color: "#bbb" }}>KOREA STOCK AI — 본 서비스는 투자 참고용이며 투자 결정의 책임은 본인에게 있습니다</span>
-            <Link href="/guide" style={{ fontSize: 11, color: "#94a3b8", textDecoration: "none", fontWeight: 500 }}>
+        <footer style={{ borderTop: "1px solid var(--border)", background: "#fafafa", padding: "16px 24px", marginTop: "auto" }}>
+          <div style={{ maxWidth: 1200, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
+            <span style={{ fontSize: 12, color: "#999" }}>KOREA STOCK AI — 본 서비스는 투자 참고용이며 투자 결정의 책임은 본인에게 있습니다</span>
+            <Link href="/guide" style={{
+              fontSize: 14, color: "#fff", textDecoration: "none", fontWeight: 700,
+              background: "var(--blue)", padding: "8px 16px", borderRadius: 10,
+              whiteSpace: "nowrap", flexShrink: 0,
+            }}>
               📖 용어 & 방법론 가이드
             </Link>
           </div>

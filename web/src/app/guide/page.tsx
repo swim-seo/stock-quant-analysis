@@ -1,268 +1,381 @@
-"use client";
-
-import { useState } from "react";
+import type { Metadata } from "next";
+import type { ReactNode } from "react";
 import Link from "next/link";
 
-type Tab = "finance" | "technical" | "methodology";
-
-const sections = {
-  finance: [
-    {
-      term: "PER (주가수익비율)",
-      abbr: "Price-to-Earnings Ratio",
-      formula: "주가 ÷ 주당순이익(EPS)",
-      desc: "주가가 순이익의 몇 배인지 보여줍니다. PER 10 = 순이익 10년치가 현재 주가와 같다는 의미. 낮을수록 저평가 가능성이 높지만, 업종별로 기준이 다릅니다.",
-      example: "삼성전자 PER 15 → 시장이 순이익의 15배 가치를 인정",
-      signal: "📉 낮은 PER: 저평가 후보 / 📈 높은 PER: 성장 기대 반영",
-    },
-    {
-      term: "PBR (주가순자산비율)",
-      abbr: "Price-to-Book Ratio",
-      formula: "주가 ÷ 주당순자산(BPS)",
-      desc: "회사를 지금 당장 청산했을 때의 자산 대비 주가를 나타냅니다. PBR 1 미만이면 장부가보다 싸게 거래 중. 금융·제조업에 특히 유용합니다.",
-      example: "PBR 0.8 → 청산가치보다 20% 싼 가격에 거래 중",
-      signal: "📉 PBR < 1: 자산 대비 저평가 구간",
-    },
-    {
-      term: "ROE (자기자본이익률)",
-      abbr: "Return on Equity",
-      formula: "순이익 ÷ 자기자본 × 100",
-      desc: "주주 자금으로 얼마나 효율적으로 이익을 내는지 측정합니다. ROE 15% 이상이면 우량 기업 기준으로 봅니다. PBR과 함께 보면 더 정확합니다.",
-      example: "ROE 20% → 자기자본 100원으로 20원 순이익 창출",
-      signal: "✅ ROE 높고 PBR 낮으면 → 우량 저평가 조합",
-    },
-    {
-      term: "EPS (주당순이익)",
-      abbr: "Earnings Per Share",
-      formula: "당기순이익 ÷ 발행주식수",
-      desc: "주식 1주당 벌어들인 순이익. PER 계산의 기초이며 실적 성장을 직접 반영합니다. 분기별 EPS 성장률이 중요합니다.",
-      example: "EPS 3,000원 → 주식 1주로 3,000원 이익 귀속",
-      signal: "📈 EPS 지속 성장 = 실적 기반 상승 가능성",
-    },
-    {
-      term: "시가총액",
-      abbr: "Market Capitalization",
-      formula: "현재 주가 × 총 발행주식수",
-      desc: "시장이 평가하는 회사의 전체 가치. 대형주(10조↑), 중형주(1~10조), 소형주(1조↓)로 구분합니다. 소형주는 변동성이 크지만 성장 잠재력도 높습니다.",
-      example: "삼성전자 약 400조원 = KOSPI 시총의 약 20%",
-      signal: "🏢 대형주: 안정성 / 🌱 소형주: 성장성",
-    },
-    {
-      term: "배당수익률",
-      abbr: "Dividend Yield",
-      formula: "연간 배당금 ÷ 주가 × 100",
-      desc: "주가 대비 배당금 비율. 배당주 투자의 핵심 지표. 단, 주가 하락으로 수익률이 높아지는 경우는 '위험 신호'일 수 있습니다.",
-      example: "배당수익률 4% → 주가 10만원에 4,000원 배당",
-      signal: "💰 3~5%: 안정 배당 / 6%↑: 주가 하락 여부 확인 필요",
-    },
-  ],
-  technical: [
-    {
-      term: "이동평균선 (MA)",
-      abbr: "Moving Average",
-      formula: "MA5 = 최근 5일 종가 평균",
-      desc: "일정 기간 주가의 평균을 연결한 선. 단기(MA5·MA20)와 장기(MA60·MA120)를 비교해 추세를 파악합니다. 이 시스템은 MA5 > MA20 > MA60 정배열을 핵심 조건으로 사용합니다.",
-      example: "MA5 > MA20 > MA60 → 단기·중기·장기 모두 상승 추세",
-      signal: "✅ 정배열(단>중>장): 상승 추세 확인",
-    },
-    {
-      term: "골든크로스 / 데드크로스",
-      abbr: "Golden Cross / Dead Cross",
-      formula: "단기 MA가 장기 MA를 상향/하향 돌파",
-      desc: "골든크로스: MA5가 MA20을 아래에서 위로 돌파 → 매수 신호. 데드크로스: 반대로 하향 돌파 → 매도 신호. 이 시스템은 최근 10일 이내 골든크로스를 진입 조건으로 사용합니다.",
-      example: "10일 이내 MA5가 MA20 상향 돌파 → 진입 조건 충족",
-      signal: "✅ 최근 10일 이내 골든크로스 발생",
-    },
-    {
-      term: "RSI (상대강도지수)",
-      abbr: "Relative Strength Index",
-      formula: "100 - 100/(1 + 평균상승/평균하락)",
-      desc: "14일간 주가의 상승·하락 강도를 0~100으로 표시. 70 이상은 과매수(조정 위험), 30 이하는 과매도(반등 기대). 이 시스템은 RSI 40~60 구간을 '건강한 상승 초기' 조건으로 씁니다.",
-      example: "RSI 50 → 과매수도 과매도도 아닌 중립 구간",
-      signal: "✅ RSI 40~60: 건강한 매수 구간 / ⚠️ 70↑: 과열 주의",
-    },
-    {
-      term: "볼린저 밴드",
-      abbr: "Bollinger Bands",
-      formula: "중심선(MA20) ± 2×표준편차",
-      desc: "주가의 변동 범위를 3개 선(상단·중심·하단)으로 표시. 상단 돌파는 과매수, 하단 이탈은 과매도 신호. 밴드 폭이 좁아지면 곧 큰 움직임이 올 수 있습니다.",
-      example: "주가가 하단밴드 터치 후 반등 → 매수 기회",
-      signal: "📊 밴드 수축 후 확장 → 방향성 돌파 임박",
-    },
-    {
-      term: "MACD",
-      abbr: "Moving Average Convergence Divergence",
-      formula: "EMA12 - EMA26 / 시그널선 = MACD 9일 EMA",
-      desc: "두 이동평균 간의 차이로 추세 전환을 포착합니다. MACD선이 시그널선을 위로 돌파하면 매수, 아래로 돌파하면 매도 신호.",
-      example: "MACD > 시그널선 + 히스토그램 증가 → 상승 모멘텀 강화",
-      signal: "✅ MACD 골든크로스 + 히스토그램 양전환",
-    },
-    {
-      term: "거래량",
-      abbr: "Volume",
-      formula: "당일 거래량 ÷ 20일 평균 거래량",
-      desc: "가격 움직임의 신뢰도를 확인합니다. 상승 시 거래량 증가 = 신뢰할 수 있는 상승. 이 시스템은 거래량 > 20일 평균의 1.2배를 진입 조건으로 사용합니다.",
-      example: "주가 3% 상승 + 거래량 평균의 2배 → 강한 매수세 확인",
-      signal: "✅ 거래량 > 20일 평균×1.2: 진입 조건 충족",
-    },
-    {
-      term: "모멘텀",
-      abbr: "Price Momentum",
-      formula: "현재가 ÷ N일 전 가격 - 1",
-      desc: "일정 기간 주가 상승률. 퀀트 스크리너에서는 3개월(M3), 6개월(M6), 12개월(M12) 모멘텀을 계산하고, M3에 가장 높은 가중치(40%)를 줍니다.",
-      example: "3개월 모멘텀 +30% → 최근 3달간 30% 상승",
-      signal: "📈 3M 모멘텀 상위 종목 = 단기 추세 주도주",
-    },
-  ],
-  methodology: [
-    {
-      term: "진입 신호 5조건 (3단계 평가)",
-      abbr: "Entry Signal",
-      formula: "각 조건: ✅ 1점 / ⚠️ 0.5점 / ❌ 0점",
-      desc: `개별 주식 페이지에서 매수 타이밍을 평가하는 5가지 조건:\n\n① 이동평균 정배열: MA5 > MA20 > MA60 동시 충족\n② 골든크로스: 최근 10일 이내 MA5가 MA20 상향 돌파\n③ RSI: 40~60 구간 (매수 초기 건강한 구간)\n④ 주간 추세: 주봉 MA5 > MA20 (상위 타임프레임 확인)\n⑤ 거래량: 당일 거래량 > 20일 평균의 1.2배`,
-      example: "총점 4~5점: 🟢 진입 / 2.5~3.5점: 🟡 대기 / 2.5점 미만: 🔴 위험",
-      signal: "",
-    },
-    {
-      term: "퀀트 팩터 랭킹 공식",
-      abbr: "Composite Factor Score",
-      formula: "종합점수 = 모멘텀(40%) + 상대강도(25%) + 저변동성(15%) + 수급(20%)",
-      desc: `퀀트 스크리너에서 131개 종목을 랭킹하는 복합 팩터:\n\n• 모멘텀 (40%): 3M·6M·12M 수익률의 가중 평균 — 최근 추세가 지속되는 경향\n• 상대강도 (25%): KOSPI 대비 초과수익률 — 시장보다 강한 종목 선별\n• 저변동성 (15%): 낮은 변동성일수록 높은 점수 — 리스크 조정 수익률 개선\n• 수급 (20%): 외국인·기관 5일/20일 순매수 — 스마트머니 추적`,
-      example: "각 팩터를 Z-점수로 정규화 후 가중합산 → 0~100점 변환",
-      signal: "",
-    },
-    {
-      term: "섹터 로테이션 단계",
-      abbr: "Sector Rotation Stage",
-      formula: "뉴스 감성 점수 + 수급 점수 → 0~100 종합",
-      desc: `경기 사이클에 따라 강세 섹터가 순환합니다. 이 시스템은 각 섹터별로:\n\n① 뉴스 수집: 최근 7일 주요 뉴스 수집 (news_collector.py)\n② 감성 분석: Claude AI가 각 뉴스를 긍정/중립/부정으로 분류\n③ 수급 집계: 해당 섹터 종목들의 외국인·기관 매매 합산\n④ 종합 점수: 감성(60%) + 수급(40%) → 100점 환산\n⑤ 단계 판정: 70↑=선도/50~70=추격/30~50=주의/30↓=회피`,
-      example: "반도체 섹터 점수 82 → '선도' 단계, 집중 매수 관심",
-      signal: "",
-    },
-    {
-      term: "공포·탐욕 지수",
-      abbr: "Fear & Greed Index (Korea)",
-      formula: "5개 컴포넌트 가중 평균 → 0~100",
-      desc: `한국 시장에 맞게 커스터마이즈된 5가지 지표:\n\n① KOSPI 변동성 (20%): VIX 개념, 변동성 낮을수록 탐욕\n② KOSPI 모멘텀 (25%): 125일 이동평균 대비 현재가\n③ 거래량 모멘텀 (20%): 최근 거래량 vs 과거 평균\n④ 미국 CNN F&G (20%): 글로벌 투자 심리 반영\n⑤ 유튜브 감성 (15%): 투자 유튜버 영상 Claude AI 분석`,
-      example: "지수 25 = 극도 공포 (역발상 매수 기회) / 75 = 탐욕 (조정 주의)",
-      signal: "",
-    },
-    {
-      term: "상대강도 (RS)",
-      abbr: "Relative Strength vs KOSPI",
-      formula: "RS = 종목 3개월 수익률 - KOSPI 3개월 수익률",
-      desc: "개별 종목이 시장(KOSPI) 대비 얼마나 강하게 움직이는지 측정합니다. RS +20%이면 시장보다 20%포인트 더 상승. 시장이 하락할 때도 RS가 높은 종목은 상대적 강자입니다.",
-      example: "KOSPI +5%, 종목 +30% → RS = +25%",
-      signal: "✅ RS 양수이고 커질수록 → 주도주 후보",
-    },
-  ],
+export const metadata: Metadata = {
+  title: "용어 & 방법론 가이드 | Stock AI Dashboard",
+  description: "한국 주식 AI 대시보드의 재무지표, 기술지표, 분석 방법론 설명",
 };
 
-export default function GuidePage() {
-  const [tab, setTab] = useState<Tab>("finance");
+const financialTerms = [
+  {
+    term: "PER (주가수익비율)",
+    formula: "주가 ÷ 주당순이익(EPS)",
+    desc: "현재 주가가 회사의 이익 대비 몇 배에 거래되는지 보여줍니다. 낮은 PER은 저평가 가능성을 뜻할 수 있지만, 성장성이 낮거나 업황이 나빠서 낮을 수도 있어 업종 평균과 함께 봐야 합니다.",
+  },
+  {
+    term: "PBR (주가순자산비율)",
+    formula: "주가 ÷ 주당순자산(BPS)",
+    desc: "회사의 장부상 순자산 대비 주가 수준을 나타냅니다. PBR 1배 미만은 장부가보다 낮게 거래된다는 뜻이지만, 자산의 질과 ROE가 낮으면 단순 저평가로 보기 어렵습니다.",
+  },
+  {
+    term: "ROE (자기자본이익률)",
+    formula: "순이익 ÷ 자기자본 × 100",
+    desc: "주주 자본으로 얼마나 효율적으로 이익을 만드는지 측정합니다. ROE가 높고 꾸준하면 같은 PBR이라도 더 높은 평가를 받을 수 있습니다.",
+  },
+  {
+    term: "EPS (주당순이익)",
+    formula: "당기순이익 ÷ 발행주식수",
+    desc: "주식 1주에 귀속되는 순이익입니다. PER 계산의 기초이며, EPS가 꾸준히 증가하면 실적 기반의 주가 상승 근거가 강해집니다.",
+  },
+  {
+    term: "시가총액",
+    formula: "현재 주가 × 총 발행주식수",
+    desc: "시장이 평가하는 회사 전체의 가치입니다. 대형주는 안정성과 유동성이 강하고, 중소형주는 변동성이 크지만 성장 여지가 클 수 있습니다.",
+  },
+  {
+    term: "배당수익률",
+    formula: "연간 주당 배당금 ÷ 현재 주가 × 100",
+    desc: "현재 주가로 주식을 샀을 때 배당으로 기대할 수 있는 연 수익률입니다. 주가 급락 때문에 배당수익률이 높아진 경우에는 배당 유지 가능성을 확인해야 합니다.",
+  },
+];
 
-  const tabLabels: Record<Tab, string> = {
-    finance: "📊 재무지표",
-    technical: "📈 기술지표",
-    methodology: "🔬 분석방법론",
-  };
+const technicalTerms = [
+  {
+    term: "RSI (상대강도지수)",
+    formula: "100 - 100 ÷ (1 + 평균 상승폭 ÷ 평균 하락폭)",
+    desc: "최근 상승과 하락의 힘을 0~100으로 표시하는 지표입니다. 보통 70 이상은 과열, 30 이하는 과매도로 보며, 이 대시보드는 RSI 40~60을 무리하지 않은 상승 초기 구간으로 봅니다.",
+  },
+  {
+    term: "이동평균(MA)",
+    formula: "N일 이동평균 = 최근 N일 종가 평균",
+    desc: "주가의 단기 흔들림을 줄여 추세를 보는 선입니다. MA5, MA20, MA60처럼 기간을 나누며, MA5 > MA20 > MA60은 단기·중기·장기 추세가 위로 정렬된 상태입니다.",
+  },
+  {
+    term: "골든크로스",
+    formula: "단기 이동평균선이 장기 이동평균선을 상향 돌파",
+    desc: "짧은 기간의 가격 흐름이 긴 기간의 흐름보다 강해지는 순간입니다. 이 대시보드는 최근 10거래일 안에 MA5가 MA20을 상향 돌파했는지를 진입 조건으로 사용합니다.",
+  },
+  {
+    term: "상대강도(RS, Relative Strength)",
+    formula: "종목 수익률 - 코스피 수익률 (동일 기간)",
+    desc: "시장 전체 흐름을 빼고도 종목이 얼마나 강한지 보는 지표입니다. RS가 양수(+)이면 코스피보다 강하게 올랐다는 뜻이며, 퀀트 스크리너에서 25% 비중으로 반영됩니다.",
+  },
+  {
+    term: "볼린저밴드",
+    formula: "중심선(MA20) ± 2 × 표준편차",
+    desc: "가격이 평균에서 얼마나 떨어져 있는지 변동성 범위로 보여줍니다. 밴드가 좁아지면 변동성 축소, 이후 밴드가 벌어지면 방향성 움직임이 커질 수 있습니다.",
+  },
+  {
+    term: "MACD",
+    formula: "MACD선 = 12일 EMA - 26일 EMA, 시그널선 = MACD의 9일 EMA",
+    desc: "두 지수이동평균의 차이로 추세 전환과 모멘텀 변화를 확인합니다. MACD선이 시그널선을 위로 넘으면 상승 전환 신호로 해석할 수 있습니다.",
+  },
+  {
+    term: "거래량",
+    formula: "당일 거래량 ÷ 20일 평균 거래량",
+    desc: "가격 움직임에 참여한 힘의 크기입니다. 상승과 함께 거래량이 늘면 신뢰도가 높고, 이 대시보드는 당일 거래량이 20일 평균의 1.2배를 넘는지를 확인합니다.",
+  },
+  {
+    term: "모멘텀",
+    formula: "현재가 ÷ 과거 기준가 - 1",
+    desc: "일정 기간 동안 가격이 얼마나 강하게 움직였는지 보는 지표입니다. 최근 강한 종목이 당분간 강세를 이어가는 경향을 포착하기 위해 사용합니다.",
+  },
+];
 
-  const items = sections[tab];
+const entryConditions = [
+  ["이동평균 정배열", "MA5 > MA20 > MA60"],
+  ["골든크로스", "최근 10거래일 안에 MA5가 MA20 상향 돌파"],
+  ["RSI 구간", "RSI 40~60"],
+  ["주간 추세 게이트", "주봉 기준 상승 추세 통과"],
+  ["거래량 확인", "당일 거래량 > 1.2 × 20일 평균 거래량"],
+];
 
+function TermCard({
+  term,
+  formula,
+  desc,
+}: {
+  term: string;
+  formula: string;
+  desc: string;
+}) {
   return (
-    <main className="min-h-screen" style={{ background: "var(--bg)" }}>
-      {/* Header */}
-      <header style={{ background: "#ffffff", borderBottom: "1px solid var(--border)", padding: "12px 24px" }}>
-        <div style={{ maxWidth: 900, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div>
-            <Link href="/" style={{ textDecoration: "none" }}>
-              <p style={{ fontSize: 10, letterSpacing: 3, color: "var(--blue)", fontWeight: 700, margin: 0 }}>KOREA STOCK AI</p>
-              <h1 style={{ fontSize: 20, fontWeight: 800, color: "var(--text-1)", letterSpacing: -0.5, margin: 0 }}>용어 & 방법론 가이드</h1>
-            </Link>
-          </div>
-          <Link href="/" style={{ fontSize: 13, color: "var(--text-3)", textDecoration: "none" }}>← 대시보드</Link>
+    <article className="rounded-xl border border-[var(--border)] bg-white p-5 shadow-[0_1px_4px_rgba(0,0,0,0.04)]">
+      <h3 className="text-base font-extrabold text-[var(--text-1)]">{term}</h3>
+      <div className="mt-3 inline-flex max-w-full rounded-lg bg-slate-50 px-3 py-2">
+        <code className="break-words text-xs text-slate-800">{formula}</code>
+      </div>
+      <p className="mt-3 text-sm leading-7 text-[var(--text-2)]">{desc}</p>
+    </article>
+  );
+}
+
+function Section({
+  id,
+  title,
+  eyebrow,
+  children,
+}: {
+  id: string;
+  title: string;
+  eyebrow: string;
+  children: ReactNode;
+}) {
+  return (
+    <section id={id} className="scroll-mt-6">
+      <div className="mb-4">
+        <p className="text-xs font-bold tracking-[0.18em] text-[var(--blue)]">{eyebrow}</p>
+        <h2 className="mt-1 text-2xl font-black text-[var(--text-1)]">{title}</h2>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+export default function GuidePage() {
+  return (
+    <main className="min-h-screen bg-[var(--bg)]">
+      <header className="border-b border-[var(--border)] bg-white px-6 py-3">
+        <div className="mx-auto flex max-w-[980px] items-center justify-between gap-4">
+          <Link href="/" className="no-underline">
+            <p className="m-0 text-[10px] font-bold tracking-[0.18em] text-[var(--blue)]">
+              KOREA STOCK AI
+            </p>
+            <h1 className="m-0 text-xl font-extrabold text-[var(--text-1)]">
+              용어 & 방법론 가이드
+            </h1>
+          </Link>
+          <Link href="/" className="shrink-0 text-sm font-semibold text-[var(--text-3)] no-underline">
+            ← 대시보드
+          </Link>
         </div>
       </header>
 
-      <div style={{ maxWidth: 900, margin: "0 auto", padding: "28px 24px" }}>
-        {/* Description */}
-        <div style={{ background: "#f0f7ff", borderRadius: 12, padding: "14px 18px", marginBottom: 24, border: "1px solid #dbeafe" }}>
-          <p style={{ fontSize: 13, color: "#1e40af", margin: 0, lineHeight: 1.6 }}>
-            이 페이지는 대시보드에서 사용하는 모든 지표와 분석 방법론을 설명합니다.
-            <strong> 어떻게 분석해서 이 값이 나왔는지</strong> 투명하게 공개합니다.
-          </p>
-        </div>
+      <div className="mx-auto max-w-[980px] px-6 py-7">
+        <nav className="sticky top-0 z-10 -mx-6 border-b border-[var(--border)] bg-[rgba(242,244,246,0.94)] px-6 py-3 backdrop-blur">
+          <div className="flex gap-2 overflow-x-auto">
+            {[
+              ["재무지표", "#financial"],
+              ["기술지표", "#technical"],
+              ["분석방법론", "#methodology"],
+            ].map(([label, href]) => (
+              <a
+                key={href}
+                href={href}
+                className="shrink-0 rounded-full border border-[var(--border)] bg-white px-4 py-2 text-sm font-bold text-[var(--text-2)] no-underline"
+              >
+                {label}
+              </a>
+            ))}
+          </div>
+        </nav>
 
-        {/* Tabs */}
-        <div style={{ display: "flex", gap: 8, marginBottom: 24, borderBottom: "2px solid var(--border)", paddingBottom: 0 }}>
-          {(Object.keys(tabLabels) as Tab[]).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              style={{
-                padding: "9px 18px",
-                fontSize: 13,
-                fontWeight: tab === t ? 700 : 500,
-                border: "none",
-                background: "none",
-                cursor: "pointer",
-                color: tab === t ? "var(--blue)" : "var(--text-3)",
-                borderBottom: tab === t ? "2px solid var(--blue)" : "2px solid transparent",
-                marginBottom: -2,
-                transition: "all 0.15s",
-              }}
-            >
-              {tabLabels[t]}
-            </button>
-          ))}
-        </div>
-
-        {/* Cards */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {items.map((item) => (
-            <div
-              key={item.term}
-              style={{
-                background: "#ffffff",
-                border: "1px solid var(--border)",
-                borderRadius: 12,
-                padding: "20px 22px",
-                boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 6 }}>
-                <h2 style={{ fontSize: 16, fontWeight: 700, color: "var(--text-1)", margin: 0 }}>{item.term}</h2>
-                <span style={{ fontSize: 11, color: "var(--text-3)", fontStyle: "italic" }}>{item.abbr}</span>
-              </div>
-
-              <div style={{ background: "#f8fafc", borderRadius: 6, padding: "6px 12px", marginBottom: 12, display: "inline-block" }}>
-                <code style={{ fontSize: 12, color: "#0f172a", fontFamily: "monospace" }}>{item.formula}</code>
-              </div>
-
-              <p style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.7, margin: "0 0 10px", whiteSpace: "pre-line" }}>
-                {item.desc}
-              </p>
-
-              {item.example && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                  <div style={{ fontSize: 12, color: "#64748b", background: "#f8fafc", borderLeft: "3px solid #94a3b8", padding: "6px 10px", borderRadius: "0 6px 6px 0" }}>
-                    예시: {item.example}
-                  </div>
-                  {item.signal && (
-                    <div style={{ fontSize: 12, color: "#1e40af", background: "#eff6ff", borderLeft: "3px solid #3b82f6", padding: "6px 10px", borderRadius: "0 6px 6px 0" }}>
-                      {item.signal}
-                    </div>
-                  )}
-                </div>
-              )}
+        <div className="mt-8 flex flex-col gap-12">
+          <Section id="financial" eyebrow="FINANCIAL" title="재무지표">
+            <div className="grid gap-4 md:grid-cols-2">
+              {financialTerms.map((item) => (
+                <TermCard key={item.term} {...item} />
+              ))}
             </div>
-          ))}
-        </div>
+          </Section>
 
-        <div style={{ marginTop: 32, textAlign: "center" }}>
-          <Link href="/" style={{ display: "inline-block", padding: "10px 24px", background: "var(--blue)", color: "#fff", borderRadius: 8, textDecoration: "none", fontSize: 13, fontWeight: 600 }}>
-            대시보드로 돌아가기
-          </Link>
+          <Section id="technical" eyebrow="TECHNICAL" title="기술지표">
+            <div className="grid gap-4 md:grid-cols-2">
+              {technicalTerms.map((item) => (
+                <TermCard key={item.term} {...item} />
+              ))}
+            </div>
+          </Section>
+
+          <Section id="methodology" eyebrow="METHODOLOGY" title="분석방법론">
+            <div className="flex flex-col gap-4">
+
+              {/* 진입신호 5조건 */}
+              <article className="rounded-xl border border-[var(--border)] bg-white p-5 shadow-[0_1px_4px_rgba(0,0,0,0.04)]">
+                <h3 className="text-base font-extrabold text-[var(--text-1)]">진입신호 5조건</h3>
+                <p className="mt-2 text-sm leading-7 text-[var(--text-2)]">
+                  종목 상세 페이지에서 아래 5가지 조건을 채점해 진입 적합성을 판단합니다.
+                </p>
+                <div className="mt-4 overflow-x-auto">
+                  <table className="w-full min-w-[620px] border-collapse text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-[var(--border)] text-xs text-[var(--text-3)]">
+                        <th className="px-3 py-2 font-bold">조건</th>
+                        <th className="px-3 py-2 font-bold">판정 기준</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {entryConditions.map(([name, rule]) => (
+                        <tr key={name} className="border-b border-slate-100 last:border-0">
+                          <td className="px-3 py-3 font-bold text-[var(--text-1)]">{name}</td>
+                          <td className="px-3 py-3 text-[var(--text-2)]">{rule}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                  <div className="rounded-lg bg-emerald-50 px-3 py-3 text-sm font-bold text-emerald-700">✅ 1점: 충족</div>
+                  <div className="rounded-lg bg-amber-50 px-3 py-3 text-sm font-bold text-amber-700">⚠ 0.5점: 부분 충족</div>
+                  <div className="rounded-lg bg-rose-50 px-3 py-3 text-sm font-bold text-rose-700">❌ 0점: 미충족</div>
+                </div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                  <div className="rounded-lg border border-emerald-100 px-3 py-3 text-sm text-[var(--text-2)]">
+                    <strong className="text-emerald-700">🟢 4점 이상</strong><br />진입 후보
+                  </div>
+                  <div className="rounded-lg border border-amber-100 px-3 py-3 text-sm text-[var(--text-2)]">
+                    <strong className="text-amber-700">🟡 2.5~3.5점</strong><br />대기
+                  </div>
+                  <div className="rounded-lg border border-rose-100 px-3 py-3 text-sm text-[var(--text-2)]">
+                    <strong className="text-rose-700">🔴 2.5점 미만</strong><br />위험
+                  </div>
+                </div>
+              </article>
+
+              {/* 퀀트 스크리너 종합점수 */}
+              <article className="rounded-xl border border-[var(--border)] bg-white p-5 shadow-[0_1px_4px_rgba(0,0,0,0.04)]">
+                <h3 className="text-base font-extrabold text-[var(--text-1)]">퀀트 스크리너 — 팩터 랭킹 공식</h3>
+                <div className="mt-3 rounded-lg bg-slate-50 px-3 py-2">
+                  <code className="text-xs text-slate-800">
+                    종합점수 = 모멘텀 40% + 상대강도(RS) 25% + 저변동성 15% + 수급(flow) 20%
+                  </code>
+                </div>
+                <p className="mt-3 text-sm leading-7 text-[var(--text-2)]">
+                  131개 종목 각각의 팩터를 Z-score로 정규화한 뒤 가중합산합니다. 그 결과를 0~100 percentile로
+                  변환하므로 <strong>100점 = 131개 중 최상단 이상치</strong>를 뜻합니다.
+                </p>
+                <div className="mt-4 grid gap-2 sm:grid-cols-5 text-sm text-center">
+                  {[
+                    ["75~100", "최상위", "#f04452"],
+                    ["55~75", "상위·진입검토", "#00b493"],
+                    ["40~55", "중립", "#f5a623"],
+                    ["25~40", "하위", "#888"],
+                    ["~25", "최하위", "#bbb"],
+                  ].map(([range, label, color]) => (
+                    <div key={range} style={{ borderColor: color }} className="rounded-lg border px-2 py-3">
+                      <p style={{ color }} className="font-extrabold">{range}</p>
+                      <p className="text-xs text-[var(--text-3)] mt-1">{label}</p>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-3 text-sm leading-7 text-[var(--text-2)]">
+                  <strong>주의:</strong> 점수가 높다고 지금 사야 한다는 뜻이 아닙니다. 75점 이상은 이미 많이 오른
+                  상태일 가능성이 높아 추격 매수 위험이 있습니다. <strong>55~75점 구간</strong>이 상승 초·중반으로
+                  진입 검토에 적합합니다.
+                </p>
+              </article>
+
+              {/* 매수타이밍 자동 선별 */}
+              <article className="rounded-xl border border-[var(--border)] bg-white p-5 shadow-[0_1px_4px_rgba(0,0,0,0.04)]">
+                <h3 className="text-base font-extrabold text-[var(--text-1)]">매수타이밍 자동 선별 기준</h3>
+                <p className="mt-3 text-sm leading-7 text-[var(--text-2)]">
+                  메인 화면 &ldquo;📈 매수타이밍&rdquo; 탭은 아래 기준으로 종목을 자동 선별합니다.
+                </p>
+                <div className="mt-3 rounded-lg bg-slate-50 px-4 py-3 text-sm text-[var(--text-2)] leading-7">
+                  <p>① 퀀트 종합점수 <strong>45~78점</strong> 구간 필터 (과열·과냉 제외)</p>
+                  <p>② 뉴스 분석에서 &ldquo;매수관심&rdquo; 신호 있으면 우선순위 상향</p>
+                  <p>③ 외국인·기관 5일 순매수 여부 보너스 반영</p>
+                  <p>④ 최종 최대 8개 종목 자동 추출</p>
+                </div>
+                <p className="mt-3 text-sm leading-7 text-[var(--text-2)]">
+                  각 종목의 <strong>&ldquo;판단근거 ▼&rdquo;</strong> 버튼을 누르면 선정 이유가 항목별로 표시됩니다.
+                  이 목록은 종목 상세 페이지의 진입신호 5조건과 함께 사용해야 최종 판단이 완성됩니다.
+                </p>
+              </article>
+
+              {/* 저평가 우량주 */}
+              <article className="rounded-xl border border-[var(--border)] bg-white p-5 shadow-[0_1px_4px_rgba(0,0,0,0.04)]">
+                <h3 className="text-base font-extrabold text-[var(--text-1)]">저평가 우량주 선별 기준 (PBR + ROE 연동)</h3>
+                <p className="mt-3 text-sm leading-7 text-[var(--text-2)]">
+                  단순히 PBR이 낮다고 저평가 우량주로 보지 않습니다. 수익성(ROE)이 동반되지 않은 저PBR은
+                  <strong> 가치함정(Value Trap)</strong>일 수 있습니다.
+                </p>
+                <div className="mt-3 overflow-x-auto">
+                  <table className="w-full border-collapse text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-[var(--border)] text-xs text-[var(--text-3)]">
+                        <th className="px-3 py-2 font-bold">조건</th>
+                        <th className="px-3 py-2 font-bold">가점</th>
+                        <th className="px-3 py-2 font-bold">설명</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-[var(--text-2)]">
+                      <tr className="border-b border-slate-100">
+                        <td className="px-3 py-3 font-bold">PBR &lt; 0.5 + ROE &gt; 10%</td>
+                        <td className="px-3 py-3 font-bold text-emerald-700">+30점</td>
+                        <td className="px-3 py-3">수익성이 확인된 진짜 저평가 — 두 조건 동시 충족 필수</td>
+                      </tr>
+                      <tr className="border-b border-slate-100">
+                        <td className="px-3 py-3 font-bold">PBR &lt; 1.0</td>
+                        <td className="px-3 py-3 font-bold text-amber-700">+20점</td>
+                        <td className="px-3 py-3">장부가 미만 거래 — ROE 확인 권장</td>
+                      </tr>
+                      <tr className="border-b border-slate-100">
+                        <td className="px-3 py-3 font-bold">PER &lt; 8</td>
+                        <td className="px-3 py-3 font-bold text-blue-600">+25점</td>
+                        <td className="px-3 py-3">이익 대비 매우 낮은 주가</td>
+                      </tr>
+                      <tr className="border-b border-slate-100">
+                        <td className="px-3 py-3 font-bold">ROE &gt; 15%</td>
+                        <td className="px-3 py-3 font-bold text-emerald-700">+20점</td>
+                        <td className="px-3 py-3">높은 자본 효율성</td>
+                      </tr>
+                      <tr>
+                        <td className="px-3 py-3 font-bold">부채비율 &lt; 100%</td>
+                        <td className="px-3 py-3 font-bold text-blue-600">+15점</td>
+                        <td className="px-3 py-3">재무 안전성 확보</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <p className="mt-3 text-sm leading-7 text-[var(--text-2)]">
+                  합계 <strong>25점 미만</strong>이면 저평가 우량주 목록에서 제외됩니다.
+                  배당수익률은 한국 시장에서 성장 정체·부실 신호와 겹치는 경우가 많아 평가에서 제외됐습니다.
+                </p>
+              </article>
+
+              {/* 섹터 로테이션 */}
+              <article className="rounded-xl border border-[var(--border)] bg-white p-5 shadow-[0_1px_4px_rgba(0,0,0,0.04)]">
+                <h3 className="text-base font-extrabold text-[var(--text-1)]">섹터 로테이션 단계 계산법</h3>
+                <p className="mt-3 text-sm leading-7 text-[var(--text-2)]">
+                  섹터별 최근 뉴스 감성, 수급, 가격 흐름을 합산해 현재 섹터가 시장을 주도하는지 판단합니다.
+                  점수는 0~100으로 환산하며 70 이상은 선도, 50~70은 추격, 30~50은 주의, 30 미만은 회피
+                  구간으로 해석합니다.
+                </p>
+              </article>
+
+              {/* 공포탐욕 */}
+              <article className="rounded-xl border border-[var(--border)] bg-white p-5 shadow-[0_1px_4px_rgba(0,0,0,0.04)]">
+                <h3 className="text-base font-extrabold text-[var(--text-1)]">공포탐욕 지수 — 5가지 구성요소</h3>
+                <div className="mt-3 overflow-x-auto">
+                  <table className="w-full border-collapse text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-[var(--border)] text-xs text-[var(--text-3)]">
+                        <th className="px-3 py-2 font-bold">구성요소</th>
+                        <th className="px-3 py-2 font-bold">측정 방법</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-[var(--text-2)]">
+                      {[
+                        ["코스피 변동성", "최근 변동성이 낮을수록 탐욕"],
+                        ["코스피 모멘텀", "최근 상승폭이 클수록 탐욕"],
+                        ["거래량 모멘텀", "거래량 증가 = 참여 심리 강화"],
+                        ["미국 CNN F&G", "글로벌 투자 심리 반영"],
+                        ["유튜브 심리", "국내 투자 채널 감성 분석"],
+                      ].map(([name, desc]) => (
+                        <tr key={name} className="border-b border-slate-100 last:border-0">
+                          <td className="px-3 py-3 font-bold">{name}</td>
+                          <td className="px-3 py-3">{desc}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </article>
+
+            </div>
+          </Section>
         </div>
       </div>
     </main>
