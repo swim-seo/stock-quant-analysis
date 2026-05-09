@@ -38,7 +38,7 @@ function parse<T>(val: string | T): T {
 function SignalBadge({ signal }: { signal: string }) {
   const color = signal === "매수관심" ? "#00b493" : signal === "주의" ? "#f04452" : "#f5a623";
   return (
-    <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 6, color, background: `${color}18` }}>
+    <span style={{ fontSize: 13, fontWeight: 700, padding: "3px 10px", borderRadius: 6, color, background: `${color}18` }}>
       {signal}
     </span>
   );
@@ -47,7 +47,7 @@ function SignalBadge({ signal }: { signal: string }) {
 function OutlookBadge({ outlook }: { outlook: string }) {
   const color = outlook === "긍정" ? "#00b493" : outlook === "부정" ? "#f04452" : "#f5a623";
   return (
-    <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 6, color, background: `${color}18` }}>
+    <span style={{ fontSize: 13, fontWeight: 700, padding: "3px 10px", borderRadius: 6, color, background: `${color}18` }}>
       {outlook}
     </span>
   );
@@ -100,8 +100,8 @@ export default function BriefingPage() {
       {/* 헤더 */}
       <header style={{ background: "#fff", borderBottom: "1px solid var(--border)", padding: "16px 24px" }}>
         <div style={{ maxWidth: 900, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <Link href="/" style={{ fontSize: 14, color: "var(--text-3)" }}>← 대시보드</Link>
-          <span style={{ fontSize: 12, color: "var(--text-3)" }}>{briefing.briefing_date}</span>
+          <Link href="/" style={{ fontSize: 15, color: "#444" }}>← 대시보드</Link>
+          <span style={{ fontSize: 14, color: "#555" }}>{briefing.briefing_date}</span>
         </div>
       </header>
 
@@ -109,12 +109,12 @@ export default function BriefingPage() {
 
         {/* 타이틀 */}
         <div style={{ background: "#fff", borderRadius: 16, padding: "20px 24px", boxShadow: "var(--shadow)" }}>
-          <p style={{ fontSize: 11, letterSpacing: 3, color: "var(--blue)", fontWeight: 700, marginBottom: 4 }}>MORNING BRIEFING</p>
-          <h1 style={{ fontSize: 22, fontWeight: 800, color: "var(--text-1)", marginBottom: 4 }}>오늘의 시장 브리핑</h1>
+          <p style={{ fontSize: 12, letterSpacing: 3, color: "var(--blue)", fontWeight: 700, marginBottom: 6 }}>MORNING BRIEFING</p>
+          <h1 style={{ fontSize: 26, fontWeight: 800, color: "#111", marginBottom: 6 }}>오늘의 시장 브리핑</h1>
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 13, color: "var(--text-3)" }}>{briefing.briefing_date} 기준</span>
+            <span style={{ fontSize: 15, color: "#444" }}>{briefing.briefing_date} 기준</span>
             {briefing.generated_at && (
-              <span style={{ fontSize: 12, color: "#00b493" }}>
+              <span style={{ fontSize: 14, color: "#00b493" }}>
                 · 생성{" "}
                 {new Date(briefing.generated_at).toLocaleString("ko-KR", {
                   month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit",
@@ -122,7 +122,7 @@ export default function BriefingPage() {
               </span>
             )}
             {briefing.latest_insight_at && (
-              <span style={{ fontSize: 12, color: "var(--text-3)" }}>
+              <span style={{ fontSize: 14, color: "#555" }}>
                 · 최근 영상{" "}
                 {new Date(briefing.latest_insight_at).toLocaleString("ko-KR", {
                   month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit",
@@ -134,8 +134,8 @@ export default function BriefingPage() {
 
         {/* 시장 요약 */}
         <div style={{ background: "#fff", borderRadius: 16, padding: "20px 24px", boxShadow: "var(--shadow)" }}>
-          <p style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", letterSpacing: 2, marginBottom: 12 }}>MARKET SUMMARY</p>
-          <p style={{ fontSize: 14, color: "var(--text-2)", lineHeight: 1.8, whiteSpace: "pre-line" }}>
+          <p style={{ fontSize: 12, fontWeight: 700, color: "#666", letterSpacing: 2, marginBottom: 14 }}>MARKET SUMMARY</p>
+          <p style={{ fontSize: 17, color: "#1a1a1a", lineHeight: 2.0, whiteSpace: "pre-line" }}>
             {briefing.market_summary}
           </p>
         </div>
@@ -145,25 +145,25 @@ export default function BriefingPage() {
 
           {/* 주목 종목 */}
           <div style={{ background: "#fff", borderRadius: 16, padding: "20px 24px", boxShadow: "var(--shadow)" }}>
-            <p style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", letterSpacing: 2, marginBottom: 14 }}>TOP STOCKS</p>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <p style={{ fontSize: 12, fontWeight: 700, color: "#666", letterSpacing: 2, marginBottom: 14 }}>TOP STOCKS</p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {Array.isArray(topStocks) && topStocks.map((stock, i) => (
                 <button
                   key={i}
                   onClick={() => router.push(`/stock?ticker=${encodeURIComponent(stock.name)}`)}
-                  style={{ width: "100%", textAlign: "left", padding: "12px 14px", borderRadius: 12, border: "1px solid var(--border)", background: "var(--bg)", cursor: "pointer" }}
+                  style={{ width: "100%", textAlign: "left", padding: "14px 16px", borderRadius: 12, border: "1px solid var(--border)", background: "var(--bg)", cursor: "pointer" }}
                 >
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: "var(--text-1)" }}>{stock.name}</span>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                    <span style={{ fontSize: 16, fontWeight: 700, color: "#111" }}>{stock.name}</span>
                     <SignalBadge signal={stock.signal} />
                   </div>
-                  <p style={{ fontSize: 12, color: "var(--text-3)", marginBottom: investorFlow[stock.name] ? 6 : 0 }}>{stock.reason}</p>
+                  <p style={{ fontSize: 14, color: "#333", lineHeight: 1.6, marginBottom: investorFlow[stock.name] ? 8 : 0 }}>{stock.reason}</p>
                   {investorFlow[stock.name] && (
                     <div style={{ display: "flex", gap: 12 }}>
-                      <span style={{ fontSize: 11, color: investorFlow[stock.name].foreign_5d >= 0 ? "#f04452" : "var(--blue)" }}>
+                      <span style={{ fontSize: 13, color: investorFlow[stock.name].foreign_5d >= 0 ? "#f04452" : "var(--blue)" }}>
                         외인 {investorFlow[stock.name].foreign_5d >= 0 ? "+" : ""}{investorFlow[stock.name].foreign_5d.toLocaleString("ko-KR")}
                       </span>
-                      <span style={{ fontSize: 11, color: investorFlow[stock.name].institution_5d >= 0 ? "#f04452" : "var(--blue)" }}>
+                      <span style={{ fontSize: 13, color: investorFlow[stock.name].institution_5d >= 0 ? "#f04452" : "var(--blue)" }}>
                         기관 {investorFlow[stock.name].institution_5d >= 0 ? "+" : ""}{investorFlow[stock.name].institution_5d.toLocaleString("ko-KR")}
                       </span>
                     </div>
@@ -175,15 +175,15 @@ export default function BriefingPage() {
 
           {/* 섹터 전망 */}
           <div style={{ background: "#fff", borderRadius: 16, padding: "20px 24px", boxShadow: "var(--shadow)" }}>
-            <p style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", letterSpacing: 2, marginBottom: 14 }}>SECTOR OUTLOOK</p>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <p style={{ fontSize: 12, fontWeight: 700, color: "#666", letterSpacing: 2, marginBottom: 14 }}>SECTOR OUTLOOK</p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {Array.isArray(sectorOutlook) && sectorOutlook.map((sector, i) => (
-                <div key={i} style={{ padding: "12px 14px", borderRadius: 12, border: "1px solid var(--border)", background: "var(--bg)" }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: "var(--text-1)" }}>{sector.sector}</span>
+                <div key={i} style={{ padding: "14px 16px", borderRadius: 12, border: "1px solid var(--border)", background: "var(--bg)" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                    <span style={{ fontSize: 16, fontWeight: 700, color: "#111" }}>{sector.sector}</span>
                     <OutlookBadge outlook={sector.outlook} />
                   </div>
-                  <p style={{ fontSize: 12, color: "var(--text-3)" }}>{sector.reason}</p>
+                  <p style={{ fontSize: 14, color: "#333", lineHeight: 1.6 }}>{sector.reason}</p>
                 </div>
               ))}
             </div>
@@ -192,8 +192,8 @@ export default function BriefingPage() {
 
         {/* 전문가 종합 의견 */}
         <div style={{ background: "#fff", borderRadius: 16, padding: "20px 24px", boxShadow: "var(--shadow)" }}>
-          <p style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", letterSpacing: 2, marginBottom: 12 }}>EXPERT CONSENSUS</p>
-          <p style={{ fontSize: 14, color: "var(--text-2)", lineHeight: 1.8, whiteSpace: "pre-line" }}>
+          <p style={{ fontSize: 12, fontWeight: 700, color: "#666", letterSpacing: 2, marginBottom: 14 }}>EXPERT CONSENSUS</p>
+          <p style={{ fontSize: 17, color: "#1a1a1a", lineHeight: 2.0, whiteSpace: "pre-line" }}>
             {briefing.expert_consensus}
           </p>
         </div>
@@ -201,12 +201,12 @@ export default function BriefingPage() {
         {/* 리스크 알림 */}
         {Array.isArray(riskAlerts) && riskAlerts.length > 0 && (
           <div style={{ background: "#fff", borderRadius: 16, padding: "20px 24px", boxShadow: "var(--shadow)", borderLeft: "4px solid #f04452" }}>
-            <p style={{ fontSize: 11, fontWeight: 700, color: "#f04452", letterSpacing: 2, marginBottom: 12 }}>RISK ALERTS</p>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <p style={{ fontSize: 12, fontWeight: 700, color: "#f04452", letterSpacing: 2, marginBottom: 14 }}>RISK ALERTS</p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {riskAlerts.map((risk, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-                  <span style={{ fontSize: 14, flexShrink: 0 }}>⚠️</span>
-                  <p style={{ fontSize: 14, color: "var(--text-2)", lineHeight: 1.6 }}>{risk}</p>
+                <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                  <span style={{ fontSize: 16, flexShrink: 0 }}>⚠️</span>
+                  <p style={{ fontSize: 16, color: "#1a1a1a", lineHeight: 1.7 }}>{risk}</p>
                 </div>
               ))}
             </div>
@@ -214,7 +214,7 @@ export default function BriefingPage() {
         )}
 
         {/* 면책 */}
-        <p style={{ fontSize: 11, textAlign: "center", color: "var(--text-3)", paddingBottom: 16 }}>
+        <p style={{ fontSize: 13, textAlign: "center", color: "#666", paddingBottom: 16 }}>
           본 브리핑은 AI가 자동 생성한 참고자료이며, 투자 판단의 근거로 사용할 수 없습니다.
         </p>
       </div>
