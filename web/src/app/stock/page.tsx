@@ -619,11 +619,11 @@ function StockContent() {
                     if (isFailed) return (
                       <p className="text-sm py-2" style={{ color: "var(--text-3)" }}>뉴스 분석을 가져올 수 없습니다.</p>
                     );
-                    const signal = analysis.trading_signal;
+                    const signal = analysis.trading_signal as string | null | undefined;
                     const signalColor = signal === "매수관심" ? "#00b493" : signal === "주의" ? "#f04452" : "#f5a623";
-                    const score = analysis.news_impact_score;
-                    const catalysts: string[] = analysis.catalysts || [];
-                    const risks: string[] = analysis.risk_factors || [];
+                    const score = analysis.news_impact_score as number | null | undefined;
+                    const catalysts: string[] = (analysis.catalysts as string[]) || [];
+                    const risks: string[] = (analysis.risk_factors as string[]) || [];
                     return (
                       <>
                         {/* 매매신호 + 영향도 */}
@@ -637,14 +637,14 @@ function StockContent() {
                             )}
                             {score !== undefined && (
                               <span className="text-xs" style={{ color: "var(--text-3)" }}>
-                                뉴스 영향도 <span className="font-bold" style={{ color: score >= 60 ? "#00b493" : score <= 40 ? "#f04452" : "#f5a623" }}>{score}</span>/100
+                                뉴스 영향도 <span className="font-bold" style={{ color: (score ?? 50) >= 60 ? "#00b493" : (score ?? 50) <= 40 ? "#f04452" : "#f5a623" }}>{score}</span>/100
                               </span>
                             )}
                           </div>
                         )}
                         {analysis.summary && (
                           <p className="text-sm leading-relaxed mb-3" style={{ color: "var(--text-2)" }}>
-                            {analysis.summary}
+                            {analysis.summary as string}
                           </p>
                         )}
                         {/* 촉매 */}
