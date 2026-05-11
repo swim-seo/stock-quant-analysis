@@ -31,7 +31,10 @@ export async function GET() {
     .gte("scanned_at", since)
     .order("scanned_at", { ascending: false });
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    console.error("[api/themes] supabase error:", error);
+    return NextResponse.json({ error: "internal error" }, { status: 500 });
+  }
 
   return NextResponse.json({ themes: data || [], scanned_at: latestAt });
 }

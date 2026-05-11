@@ -452,6 +452,7 @@ export async function GET(req: Request) {
     START_DATE = (reqDate && /^\d{4}-\d{2}-\d{2}$/.test(reqDate)) ? reqDate : DEFAULT_START_DATE;
     return NextResponse.json(await runSimulation());
   } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : "Unknown error" }, { status: 500 });
+    console.error("[api/portfolio] simulation failed:", e);
+    return NextResponse.json({ error: "internal error" }, { status: 500 });
   }
 }

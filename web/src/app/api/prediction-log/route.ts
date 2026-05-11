@@ -14,6 +14,11 @@ export async function GET(req: Request) {
   const ticker = searchParams.get("ticker");
   if (!ticker) return NextResponse.json({ error: "ticker required" }, { status: 400 });
 
+  // ticker 형식 검증
+  if (!/^[\w.\-^]{1,20}$/.test(ticker)) {
+    return NextResponse.json({ error: "invalid ticker" }, { status: 400 });
+  }
+
   const { data, error } = await supabase
     .from("prediction_log")
     .select("predicted_up, actual_up, correct, date")
@@ -22,7 +27,10 @@ export async function GET(req: Request) {
     .order("date", { ascending: false })
     .limit(90);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    console.error("[api/prediction-log] supabase error:", error);
+    return NextResponse.json({ error: "internal error" }, { status: 500 });
+  }
 
   const total = data?.length ?? 0;
   const correct = data?.filter((r) => r.correct).length ?? 0;
@@ -31,22 +39,6 @@ export async function GET(req: Request) {
   return NextResponse.json({ ticker, total, correct, rate, rows: data });
 }
 
-// POST /api/prediction-log  — save today's prediction
-// body: { ticker, predicted_up, probability }
-export async function POST(req: Request) {
-  const body = await req.json();
-  const { ticker, predicted_up, probability } = body;
-  if (!ticker || predicted_up === undefined || probability === undefined) {
-    return NextResponse.json({ error: "ticker, predicted_up, probability required" }, { status: 400 });
-  }
-
-  const today = new Date().toISOString().slice(0, 10);
-
-  const { error } = await supabase.from("prediction_log").upsert(
-    { date: today, ticker, predicted_up, probability },
-    { onConflict: "date,ticker" }
-  );
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ ok: true, date: today, ticker });
-}
+// NOTE: POST 라우트 제거됨 (2026-05-11 보안 강화)
+// prediction_log 쓰기는 Python 측 railway_job.py가 service-role key로 직접 수행.
+// 외부에서 클라이언트가 호출할 정당한 사유 없음.

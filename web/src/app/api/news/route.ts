@@ -18,11 +18,18 @@ export async function GET(request: NextRequest) {
       .order("collected_at", { ascending: false })
       .limit(20);
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+      console.error("[api/news] supabase error:", error);
+      return NextResponse.json({ error: "internal error" }, { status: 500 });
+    }
     return NextResponse.json(data);
   }
 
-  // 특정 종목 뉴스
+  // 특정 종목 뉴스 — 입력 검증 (영숫자/온점/^/.KS/.KQ 등만 허용)
+  if (!/^[\w.\-^]{1,20}$/.test(stockCode)) {
+    return NextResponse.json({ error: "invalid code" }, { status: 400 });
+  }
+
   const { data, error } = await supabase
     .from("stock_news")
     .select("*")
@@ -30,6 +37,9 @@ export async function GET(request: NextRequest) {
     .order("collected_at", { ascending: false })
     .limit(5);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    console.error("[api/news] supabase error:", error);
+    return NextResponse.json({ error: "internal error" }, { status: 500 });
+  }
   return NextResponse.json(data);
 }

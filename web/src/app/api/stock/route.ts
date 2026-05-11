@@ -11,6 +11,15 @@ export async function GET(request: NextRequest) {
   if (!ticker) {
     return NextResponse.json({ error: "ticker required" }, { status: 400 });
   }
+  // ticker 형식 검증 — 영숫자/온점/^ 만 허용
+  if (!/^[\w.\-^]{1,20}$/.test(ticker)) {
+    return NextResponse.json({ error: "invalid ticker" }, { status: 400 });
+  }
+  // period 화이트리스트
+  const ALLOWED_PERIODS = new Set(["3mo", "6mo", "1y", "2y", "3y"]);
+  if (!ALLOWED_PERIODS.has(period)) {
+    return NextResponse.json({ error: "invalid period" }, { status: 400 });
+  }
 
   // period → 날짜 계산
   const now = new Date();
@@ -57,7 +66,7 @@ export async function GET(request: NextRequest) {
       quotes,
     });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "Unknown error";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    console.error("[api/stock] fetch failed:", e);
+    return NextResponse.json({ error: "fetch failed" }, { status: 500 });
   }
 }

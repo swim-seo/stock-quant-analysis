@@ -11,6 +11,11 @@ const supabase = createClient(
 export async function GET(req: NextRequest) {
   const sector = req.nextUrl.searchParams.get("sector") ?? "";
 
+  // sector 입력 검증 — 한글/영어/슬래시/공백만 (길이 30 이하)
+  if (sector && (sector.length > 30 || !/^[\w가-힣/\s.&]+$/.test(sector))) {
+    return NextResponse.json({ error: "invalid sector" }, { status: 400 });
+  }
+
   let query = supabase
     .from("factor_scores")
     .select("*")
@@ -21,6 +26,9 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await query;
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    console.error("[api/screener] supabase error:", error);
+    return NextResponse.json({ error: "internal error" }, { status: 500 });
+  }
   return NextResponse.json(data ?? []);
 }

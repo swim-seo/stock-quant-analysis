@@ -17,7 +17,10 @@ export async function GET() {
     .order("return_pct", { ascending: false })
     .limit(100);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    console.error("[api/portfolio-live] supabase error:", error);
+    return NextResponse.json({ error: "internal error" }, { status: 500 });
+  }
 
   // 날짜별 그룹핑 + 요약 통계
   const byDate: Record<string, typeof data> = {};

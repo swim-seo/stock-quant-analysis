@@ -20,7 +20,10 @@ export async function GET() {
       .limit(1),
   ]);
 
-  if (briefingRes.error) return NextResponse.json({ error: briefingRes.error.message }, { status: 500 });
+  if (briefingRes.error) {
+    console.error("[api/briefing] supabase error:", briefingRes.error);
+    return NextResponse.json({ error: "internal error" }, { status: 500 });
+  }
   if (!briefingRes.data || briefingRes.data.length === 0) return NextResponse.json(null);
 
   const row = briefingRes.data[0];

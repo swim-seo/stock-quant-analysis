@@ -25,7 +25,10 @@ export async function GET(req: NextRequest) {
   if (minScore > 0) query = query.gte("composite_score", minScore);
 
   const { data, error } = await query;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    console.error("[api/signals] supabase error:", error);
+    return NextResponse.json({ error: "internal error" }, { status: 500 });
+  }
 
   const rows = data ?? [];
 
