@@ -54,6 +54,9 @@ export default async function Home() {
           </div>
           {/* 우: 네비게이션 */}
           <nav style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <Link href="/signals" style={{ padding: "7px 14px", borderRadius: 8, background: "#fff0f0", color: "#f04452", fontSize: 13, fontWeight: 700, textDecoration: "none", whiteSpace: "nowrap" }}>
+              매매 신호
+            </Link>
             <Link href="/screener" style={{ padding: "7px 14px", borderRadius: 8, background: "#e8f3ff", color: "var(--blue)", fontSize: 13, fontWeight: 700, textDecoration: "none", whiteSpace: "nowrap" }}>
               퀀트 스크리너
             </Link>

@@ -1659,6 +1659,14 @@ def _run_factor_calculator():
         print(f"  [팩터 계산 오류] {e}", file=sys.stderr)
 
 
+def _run_signal_aggregator():
+    try:
+        from signal_aggregator import run as signal_run
+        signal_run()
+    except Exception as e:
+        print(f"  [신호 집계 오류] {e}", file=sys.stderr)
+
+
 def main():
     global _DATE_OVERRIDE
     args = sys.argv[1:]
@@ -1696,6 +1704,7 @@ def main():
         update_portfolio_returns()
         _run_theme_scanner()
         _run_factor_calculator()
+        _run_signal_aggregator()
         send_daily_report()
         try:
             from monthly_agent import run_monthly_agent
@@ -1719,6 +1728,7 @@ def main():
         update_portfolio_returns()
         _run_theme_scanner()
         _run_factor_calculator()
+        _run_signal_aggregator()
 
     print(f"\n{'='*50}")
     print(f"  완료! {now_kst().strftime('%H:%M:%S')}")

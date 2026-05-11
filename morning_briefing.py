@@ -62,6 +62,16 @@ def get_recent_news(limit=10):
                   f"&order=collected_at.desc&limit={limit}")
 
 
+def get_top_trade_signals(limit: int = 5) -> list[dict]:
+    """trade_signals 테이블에서 BUY 신호 TOP N 조회"""
+    rows = sb_get(
+        "trade_signals",
+        f"select=ticker,stock_name,sector,composite_score,signal_agreement,yt_score,tech_score"
+        f"&signal=eq.BUY&order=composite_score.desc&limit={limit}"
+    )
+    return rows if isinstance(rows, list) else []
+
+
 def get_market_data():
     """코스피/코스닥 최근 데이터 (yfinance)"""
     try:
@@ -208,8 +218,12 @@ def main():
     news = get_recent_news(10)
     print(f"  → {len(news)}개 종목 뉴스")
 
+    print("\n[4] 매매 신호 TOP5 로드...")
+    top_signals = get_top_trade_signals(5)
+    print(f"  → BUY 신호 {len(top_signals)}개")
+
     # 2. Claude 브리핑 생성
-    print("\n[4] Claude 브리핑 생성 중...")
+    print("\n[5] Claude 브리핑 생성 중...")
     briefing = generate_briefing(market_data, youtube, news)
 
     print(f"\n=== 시장 요약 ===")
@@ -230,8 +244,14 @@ def main():
     for r in briefing.get("risk_alerts", []):
         print(f"  ⚠ {r}")
 
+    if top_signals:
+        print(f"\n=== 오늘의 매매 신호 TOP5 ===")
+        for sig in top_signals:
+            print(f"  • {sig.get('stock_name','')} [{sig.get('composite_score',0):.1f}점] "
+                  f"일치도 {sig.get('signal_agreement',0):.0f}%")
+
     # 3. Supabase 저장
-    print("\n[5] Supabase 저장...")
+    print("\n[6] Supabase 저장...")
     try:
         # 수급 데이터 요약
         investor_flow = {}
@@ -255,6 +275,7 @@ def main():
             "sector_outlook": json.dumps(briefing.get("sector_outlook", []), ensure_ascii=False),
             "expert_consensus": briefing.get("expert_consensus", ""),
             "risk_alerts": json.dumps(briefing.get("risk_alerts", []), ensure_ascii=False),
+            "top_trade_signals": json.dumps(top_signals, ensure_ascii=False),
             "investor_flow": json.dumps(investor_flow, ensure_ascii=False),
             "raw_data": json.dumps({
                 "market": market_data,
