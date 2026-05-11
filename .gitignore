@@ -13,3 +13,9 @@ backtest_results.csv
 node_modules/
 
 .vercel
+
+# Cookie/credential files (NEVER commit)
+*cookies*.txt
+*cookies*.json
+cookies.*
+*.cookie
