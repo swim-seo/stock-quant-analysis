@@ -12,6 +12,9 @@ interface Theme {
   reason: string;
   urgency: string;
   source_headlines: string[];
+  source_types?: string[];
+  confidence_score?: number;
+  source_youtube?: string[];
   scanned_at: string;
 }
 
@@ -20,6 +23,33 @@ const URGENCY_STYLE: Record<string, { color: string; bg: string; label: string }
   이번주: { color: "#f5a623", bg: "#f5a62318", label: "이번주" },
   중장기: { color: "#4d9fff", bg: "#4d9fff18", label: "중장기" },
 };
+
+function SourceBadge({ types }: { types: string[] }) {
+  const hasNews = types.includes("news");
+  const hasYT = types.includes("youtube");
+  if (hasNews && hasYT) {
+    return (
+      <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 5, background: "#e6f9f2", color: "#00b493", fontWeight: 700 }}>
+        📰+📺 양쪽
+      </span>
+    );
+  }
+  if (hasYT) {
+    return (
+      <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 5, background: "#fff4e6", color: "#f5a623", fontWeight: 700 }}>
+        📺 유튜브
+      </span>
+    );
+  }
+  if (hasNews) {
+    return (
+      <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 5, background: "#e8f3ff", color: "#3182f6", fontWeight: 700 }}>
+        📰 뉴스
+      </span>
+    );
+  }
+  return null;
+}
 
 export function ThemeScanner() {
   const router = useRouter();
@@ -58,7 +88,7 @@ export function ThemeScanner() {
   if (!themes.length) {
     return (
       <div style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "var(--shadow)" }}>
-        <p style={{ fontSize: 11, letterSpacing: 2, color: "var(--blue)", fontWeight: 700, marginBottom: 4 }}>TODAY&apos;S THEMES</p>
+        <p style={{ fontSize: 13, fontWeight: 700, color: "var(--text-1)", marginBottom: 4 }}>📰📺 오늘의 뉴스 & 유튜브 주목 테마</p>
         <p style={{ fontSize: 13, color: "var(--text-3)" }}>아직 테마 스캔 결과가 없습니다.</p>
       </div>
     );
@@ -67,8 +97,8 @@ export function ThemeScanner() {
   return (
     <div style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "var(--shadow)" }}>
       {/* 헤더 */}
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 14 }}>
-        <p style={{ fontSize: 13, letterSpacing: 2, color: "var(--blue)", fontWeight: 700 }}>TODAY&apos;S THEMES</p>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 14, gap: 8, flexWrap: "wrap" }}>
+        <p style={{ fontSize: 14, fontWeight: 700, color: "var(--text-1)" }}>📰📺 오늘의 뉴스 & 유튜브 주목 테마</p>
         {scannedAt && (
           <span style={{ fontSize: 12, color: "var(--text-3)" }}>
             {new Date(scannedAt).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} 스캔
@@ -89,13 +119,24 @@ export function ThemeScanner() {
               onClick={() => setExpanded(isOpen ? null : theme.id)}
             >
               {/* 요약 행 */}
-              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 14px", flexWrap: "wrap" }}>
                 <span style={{ fontSize: 13, fontWeight: 700, padding: "3px 10px", borderRadius: 6, color: ug.color, background: ug.bg, flexShrink: 0 }}>
                   {ug.label}
                 </span>
+                {theme.source_types && theme.source_types.length > 0 && (
+                  <SourceBadge types={theme.source_types} />
+                )}
                 <span style={{ fontSize: 15, fontWeight: 700, color: "var(--text-1)", flex: 1, minWidth: 0, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
                   {theme.theme_name}
                 </span>
+                {typeof theme.confidence_score === "number" && (
+                  <span style={{
+                    fontSize: 11, color: theme.confidence_score >= 80 ? "#00b493" : theme.confidence_score >= 60 ? "#3182f6" : "#888",
+                    fontWeight: 700, flexShrink: 0,
+                  }}>
+                    신뢰도 {Math.round(theme.confidence_score)}
+                  </span>
+                )}
                 <span style={{ fontSize: 13, color: "var(--text-3)", flexShrink: 0 }}>{isOpen ? "▲" : "▼"}</span>
               </div>
 
@@ -128,11 +169,24 @@ export function ThemeScanner() {
                   )}
 
                   {theme.source_headlines.length > 0 && (
-                    <div>
-                      <p style={{ fontSize: 12, color: "var(--text-3)", fontWeight: 600, marginBottom: 6 }}>관련 헤드라인</p>
+                    <div style={{ marginBottom: 10 }}>
+                      <p style={{ fontSize: 12, color: "var(--text-3)", fontWeight: 600, marginBottom: 6 }}>📰 관련 헤드라인 / 인용</p>
                       {theme.source_headlines.map((h, i) => (
                         <p key={i} style={{ fontSize: 13, color: "#333", lineHeight: 1.6, paddingLeft: 10, borderLeft: "2px solid var(--border)", marginBottom: 6 }}>{h}</p>
                       ))}
+                    </div>
+                  )}
+
+                  {theme.source_youtube && theme.source_youtube.length > 0 && (
+                    <div>
+                      <p style={{ fontSize: 12, color: "var(--text-3)", fontWeight: 600, marginBottom: 6 }}>📺 출처 채널</p>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        {theme.source_youtube.map((ch, i) => (
+                          <span key={i} style={{ fontSize: 12, padding: "2px 8px", borderRadius: 5, background: "#fff4e6", color: "#f5a623", fontWeight: 600 }}>
+                            {ch}
+                          </span>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
