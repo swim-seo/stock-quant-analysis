@@ -14,8 +14,19 @@ node_modules/
 
 .vercel
 
-# Cookie/credential files (NEVER commit)
+# Cookie / credential / secret files (NEVER commit)
 *cookies*.txt
 *cookies*.json
 cookies.*
 *.cookie
+*.pem
+*.key
+*token*.txt
+*token*.json
+*api_key*
+secrets.*
+credentials.*
+auth.json
+session.*
+.env.local
+.env.*.local
