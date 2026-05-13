@@ -172,6 +172,13 @@ def mom(prices: pd.Series, days: int) -> float | None:
     return float(prices.iloc[-1] / prices.iloc[-days] - 1)
 
 
+def mom_skip(prices: pd.Series, long: int, skip: int = 21) -> float | None:
+    """Momentum with 1-month skip to avoid short-term reversal noise."""
+    if len(prices) < long + 5:
+        return None
+    return float(prices.iloc[-skip] / prices.iloc[-long] - 1)
+
+
 def vol(prices: pd.Series, days: int) -> float | None:
     if len(prices) < days + 5:
         return None
@@ -190,7 +197,7 @@ def run():
 
     print("  KOSPI 벤치마크 로딩...")
     kospi_prices = fetch_prices(KOSPI_TICKER)
-    kospi_3m = mom(kospi_prices, 65) or 0.0
+    kospi_3m = mom_skip(kospi_prices, 65) or 0.0
 
     # 수급 데이터: Supabase stock_news에서 일괄 로드 (Naver API IP 제한 우회)
     flow_map = load_investor_flow_from_supabase()
@@ -208,9 +215,9 @@ def run():
         flow = flow_map.get(code, {"foreign_5d": 0, "foreign_20d": 0, "inst_5d": 0, "inst_20d": 0})
         time.sleep(0.15)
 
-        m3  = mom(prices, 65)
-        m6  = mom(prices, 130)
-        m12 = mom(prices, 252)
+        m3  = mom_skip(prices, 65)
+        m6  = mom_skip(prices, 130)
+        m12 = mom_skip(prices, 252)
         v20 = vol(prices, 20)
         v60 = vol(prices, 60)
         rs3 = (m3 - kospi_3m) if m3 is not None else None
@@ -264,8 +271,8 @@ def run():
         df["z_volatility"] * 0.15 +
         df["z_flow"]       * 0.20
     )
-    mn, mx = raw.min(), raw.max()
-    df["composite_score"] = ((raw - mn) / (mx - mn) * 100).round(1) if mx > mn else 50.0
+    # P5: Rank-based percentile (robust to outliers vs min-max)
+    df["composite_score"] = (raw.rank(pct=True) * 100).round(1)
     df = df.sort_values("composite_score", ascending=False).reset_index(drop=True)
     df["rank_total"]    = range(1, len(df) + 1)
     df["calculated_at"] = datetime.now().isoformat()

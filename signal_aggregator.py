@@ -469,6 +469,44 @@ def _calc_data_quality(
 
 
 # ---------------------------------------------------------------------------
+# P1: Weight redistribution composite
+# P2: Dynamic thresholds
+# ---------------------------------------------------------------------------
+
+_WEIGHTS: dict[str, float] = {"tech": 0.40, "factor": 0.25, "news": 0.15, "yt": 0.20}
+
+
+def _weighted_composite(
+    tech_raw: float | None,
+    factor_score: float | None,
+    news_score: float | None,
+    yt_raw: float,
+    yt_no_data: bool,
+) -> float:
+    """Redistribute weights among available signals instead of filling missing with 50."""
+    components = {
+        "tech":   tech_raw,
+        "factor": factor_score,
+        "news":   news_score,
+        "yt":     None if yt_no_data else yt_raw,
+    }
+    available = {k: v for k, v in components.items() if v is not None}
+    if not available:
+        return 50.0
+    total_w = sum(_WEIGHTS[k] for k in available)
+    return sum(_WEIGHTS[k] * v for k, v in available.items()) / total_w
+
+
+def _get_thresholds(data_quality: float) -> tuple[float, float]:
+    """Return (buy_threshold, sell_threshold) based on data quality."""
+    if data_quality >= 0.75:
+        return 65.0, 35.0
+    if data_quality >= 0.50:
+        return 70.0, 30.0
+    return float("inf"), float("-inf")  # force HOLD
+
+
+# ---------------------------------------------------------------------------
 # Main run
 # ---------------------------------------------------------------------------
 
@@ -539,26 +577,26 @@ def run() -> None:
         # News score
         news_score = news_map.get(code)
 
-        # Fill missing with neutral
-        tech = tech_raw if tech_raw is not None else 50.0
-        yt = yt_raw
-        factor = factor_score if factor_score is not None else 50.0
-        news = news_score if news_score is not None else 50.0
+        # Data quality first (needed for dynamic thresholds)
+        data_quality = _calc_data_quality(tech_raw, factor_score, news_score, yt_no_data, yt_mentions)
 
-        # Weighted composite
-        composite = tech * 0.40 + factor * 0.25 + news * 0.15 + yt * 0.20
+        # P1: Weight redistribution — missing signals excluded, not filled with 50
+        composite = _weighted_composite(tech_raw, factor_score, news_score, yt_raw, yt_no_data)
 
-        # Apply agreement multiplier
-        composite = _apply_agreement_multiplier(composite, tech, yt, yt_no_data)
+        # Agreement multiplier uses filled value for direction check only
+        tech_filled = tech_raw if tech_raw is not None else 50.0
+        composite = _apply_agreement_multiplier(composite, tech_filled, yt_raw, yt_no_data)
 
         # Bear market dampener (pull toward 50)
         if regime_dampener < 1.0:
             composite = 50.0 + (composite - 50.0) * regime_dampener
 
         composite = round(min(100.0, max(0.0, composite)), 2)
-        signal = _score_to_signal(composite)
-        agreement = _calc_signal_agreement(tech, yt, yt_no_data)
-        data_quality = _calc_data_quality(tech_raw, factor_score, news_score, yt_no_data, yt_mentions)
+
+        # P2: Dynamic thresholds — low quality data forces HOLD
+        buy_thr, sell_thr = _get_thresholds(data_quality)
+        signal = "BUY" if composite >= buy_thr else "SELL" if composite <= sell_thr else "HOLD"
+        agreement = _calc_signal_agreement(tech_filled, yt_raw, yt_no_data)
 
         row_data = {
             "ticker": ticker,
@@ -567,10 +605,10 @@ def run() -> None:
             "signal": signal,
             "composite_score": composite,
             "signal_version": SIGNAL_VERSION,
-            "tech_score": round(tech, 2) if tech_raw is not None else None,
-            "yt_score": round(yt, 2),
-            "factor_score": round(factor, 2) if factor_score is not None else None,
-            "news_score": round(news, 2) if news_score is not None else None,
+            "tech_score": round(tech_raw, 2) if tech_raw is not None else None,
+            "yt_score": round(yt_raw, 2),
+            "factor_score": round(factor_score, 2) if factor_score is not None else None,
+            "news_score": round(news_score, 2) if news_score is not None else None,
             "signal_agreement": agreement,
             "market_regime": market_regime,
             "yt_mentions": yt_mentions,
@@ -583,7 +621,7 @@ def run() -> None:
             "calculated_at": datetime.now(timezone.utc).isoformat(),
         }
         results.append(row_data)
-        print(f"{signal} ({composite:.1f}) [tech={tech:.0f} yt={yt:.0f} q={data_quality:.2f}]")
+        print(f"{signal} ({composite:.1f}) [tech={tech_filled:.0f} yt={yt_raw:.0f} q={data_quality:.2f}]")
 
     # Upsert to trade_signals
     print(f"\n  trade_signals upsert: {len(results)}개...")
