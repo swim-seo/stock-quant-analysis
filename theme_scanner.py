@@ -17,6 +17,7 @@ import urllib.request
 import urllib.error
 from datetime import datetime, timedelta, timezone
 from xml.etree import ElementTree as ET
+from pathlib import Path
 from dotenv import load_dotenv
 import anthropic
 
@@ -25,7 +26,7 @@ if sys.stdout.encoding != "utf-8":
 if sys.stderr.encoding != "utf-8":
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-load_dotenv()
+load_dotenv(Path(__file__).parent / ".env")
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
