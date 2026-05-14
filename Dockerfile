@@ -16,6 +16,8 @@ COPY railway_job.py .
 COPY theme_scanner.py .
 COPY agent_supervisor.py .
 COPY trigger_server.py .
+COPY factor_calculator.py .
+COPY signal_aggregator.py .
 
 # Level 2 AI Supervisor — 실패 감지 + Claude 진단 + 알림
 CMD ["python", "agent_supervisor.py"]

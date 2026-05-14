@@ -3,3 +3,5 @@ anthropic
 supabase
 yfinance
 python-dotenv
+pykrx
+scipy

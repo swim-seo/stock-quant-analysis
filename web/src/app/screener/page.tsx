@@ -20,6 +20,8 @@ interface FactorRow {
   z_rs: number | null;
   z_volatility: number | null;
   z_flow: number | null;
+  z_value: number | null;
+  pbr: number | null;
   is_speculative: boolean;
   speculative_reason: string | null;
   calculated_at: string;
@@ -140,7 +142,7 @@ export default function ScreenerPage() {
             )}
           </div>
           <div style={{ fontSize: 13, color: "var(--text-3)", maxWidth: 320, lineHeight: 1.6 }}>
-            샤프모멘텀 55% · 상대강도 25% · 수급 20%
+            샤프모멘텀 45% · 상대강도 20% · 가치PBR 20% · 수급 15%
           </div>
         </div>
       </header>
@@ -287,11 +289,12 @@ export default function ScreenerPage() {
                                 <div>
                                   <p style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 8 }}>팩터 Z-score 상세</p>
                                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                                    {[
-                                      ["샤프모멘텀 (55%)", row.z_momentum],
-                                      ["상대강도 (25%)", row.z_rs],
-                                      ["수급 (20%)", row.z_flow],
-                                    ].map(([label, z]) => (
+                                    {([
+                                      ["샤프모멘텀 (45%)", row.z_momentum],
+                                      ["상대강도 (20%)", row.z_rs],
+                                      ["수급 (15%)", row.z_flow],
+                                      ...(row.z_value != null ? [["가치PBR (20%)", row.z_value]] : []),
+                                    ] as [string, number | null][]).map(([label, z]) => (
                                       <div key={label as string} style={{ display: "flex", alignItems: "center", gap: 10 }}>
                                         <span style={{ fontSize: 12, color: "var(--text-2)", width: 110 }}>{label as string}</span>
                                         <ZBar z={z as number | null} />

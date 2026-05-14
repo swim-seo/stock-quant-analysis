@@ -3,10 +3,10 @@ factor_calculator.py — 퀀트 팩터 계산 → Supabase factor_scores 저장
 커버리지: stocks.ts 개별 종목 (ETF/지수 제외, ~158개)
 
 팩터 구성:
-  모멘텀 (40%) : 3M*0.5 + 6M*0.3 + 12M*0.2 z-score
-  상대강도 (25%): 3M 수익률 - KOSPI 3M 수익률 z-score
-  저변동성 (15%): 20일 변동성 역수 z-score
-  수급 (20%)   : 외국인+기관 5d/20d 가중합 z-score
+  샤프모멘텀 (45%): (3M*0.5+6M*0.3+12M*0.2) / vol_60d  z-score
+  상대강도   (20%): 3M 수익률 - KOSPI 3M 수익률 z-score
+  수급       (15%): 외국인+기관 5d/20d 가중합 z-score
+  가치       (20%): 섹터중립 PBR 역수 z-score (pykrx)
 """
 import os
 import sys
@@ -221,6 +221,40 @@ def zscore(s: pd.Series) -> pd.Series:
     return (s - s.mean()) / std if std > 0 else pd.Series(0.0, index=s.index)
 
 
+def sector_neutral_zscore(df: pd.DataFrame, col: str, sector_col: str = "sector") -> pd.Series:
+    """Z-score within each sector. Falls back to universe-level for sectors with < 3 stocks."""
+    result = pd.Series(0.0, index=df.index)
+    universe_z = zscore(df[col])
+    for sector, grp in df.groupby(sector_col):
+        if len(grp) >= 3:
+            result.loc[grp.index] = zscore(grp[col]).values
+        else:
+            result.loc[grp.index] = universe_z.loc[grp.index].values
+    return result
+
+
+def fetch_pbr_from_pykrx(date_str: str) -> dict[str, float]:
+    """Fetch PBR for all listed stocks via pykrx (KRX official data)."""
+    try:
+        from pykrx import stock as krx
+        df_kospi  = krx.get_market_fundamental_by_ticker(date_str, market="KOSPI")
+        df_kosdaq = krx.get_market_fundamental_by_ticker(date_str, market="KOSDAQ")
+        df_all = pd.concat([df_kospi, df_kosdaq])
+        pbr_map = {}
+        for ticker, row in df_all.iterrows():
+            pbr = row.get("PBR")
+            if pbr and pbr > 0:
+                pbr_map[str(ticker)] = float(pbr)
+        print(f"  pykrx PBR 로드: {len(pbr_map)}개 종목")
+        return pbr_map
+    except ImportError:
+        print("  [pykrx 미설치] 가치 팩터 건너뜀")
+        return {}
+    except Exception as e:
+        print(f"  [pykrx PBR 로드 실패] {e}")
+        return {}
+
+
 def run():
     print("\n=== 퀀트 팩터 계산 시작 ===")
     print(f"  대상: {len(STOCKS)}개 종목")
@@ -231,6 +265,10 @@ def run():
 
     # 수급 데이터: Supabase stock_news에서 일괄 로드 (Naver API IP 제한 우회)
     flow_map = load_investor_flow_from_supabase()
+
+    # 가치 팩터: pykrx PBR (KRX 공식 금액 기준)
+    today_krx = datetime.now().strftime("%Y%m%d")
+    pbr_map = fetch_pbr_from_pykrx(today_krx)
 
     raw_rows = []
     for i, (ticker, name, sector) in enumerate(STOCKS):
@@ -252,7 +290,6 @@ def run():
         v60 = vol(prices, 60)
         rs3 = (m3 - kospi_3m) if m3 is not None else None
         is_spec, spec_reason = detect_speculative(prices, v20)
-
         if is_spec:
             print(f"⚠️  투기주 감지: {name} ({spec_reason})")
 
@@ -270,6 +307,7 @@ def run():
             "foreign_flow_20d":     flow["foreign_20d"],
             "institution_flow_5d":  flow["inst_5d"],
             "institution_flow_20d": flow["inst_20d"],
+            "pbr":                  pbr_map.get(code),
             "is_speculative":       is_spec,
             "speculative_reason":   spec_reason or None,
         })
@@ -304,12 +342,32 @@ def run():
     df["z_flow"] = zscore(flow_raw)
 
     # ── 종합점수 0~100 ────────────────────────────────────────────
-    # Sharpe-like momentum absorbs volatility factor: 55% = old momentum(40%) + volatility(15%)
-    raw = (
-        df["z_momentum"]   * 0.55 +
-        df["z_rs"]         * 0.25 +
-        df["z_flow"]       * 0.20
-    )
+    # 가치 팩터: 섹터 중립 PBR 역수 z-score (pykrx 데이터 있을 때만)
+    has_pbr = df["pbr"].notna().sum() > 10
+    if has_pbr:
+        df["z_value"] = sector_neutral_zscore(
+            df.assign(pbr_inv=-df["pbr"].fillna(df["pbr"].median())), "pbr_inv"
+        )
+        print(f"  가치 팩터 적용: {df['pbr'].notna().sum()}개 종목 PBR 데이터")
+    else:
+        df["z_value"] = 0.0
+        print("  가치 팩터 미적용 (PBR 데이터 없음)")
+
+    # 가중치: 샤프모멘텀(45%) + 상대강도(20%) + 수급(15%) + 가치(20%)
+    # pykrx 없을 시 가치 가중치를 모멘텀에 흡수 → 55%+25%+20%
+    if has_pbr:
+        raw = (
+            df["z_momentum"] * 0.45 +
+            df["z_rs"]       * 0.20 +
+            df["z_flow"]     * 0.15 +
+            df["z_value"]    * 0.20
+        )
+    else:
+        raw = (
+            df["z_momentum"] * 0.55 +
+            df["z_rs"]       * 0.25 +
+            df["z_flow"]     * 0.20
+        )
     # P5: Rank-based percentile (robust to outliers vs min-max)
     df["composite_score"] = (raw.rank(pct=True) * 100).round(1)
     df = df.sort_values("composite_score", ascending=False).reset_index(drop=True)

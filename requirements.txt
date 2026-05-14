@@ -12,3 +12,5 @@ yt-dlp
 schedule
 python-dotenv
 supabase
+pykrx
+scipy
