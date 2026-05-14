@@ -288,7 +288,10 @@ def run():
         df["momentum_6m"].fillna(med("momentum_6m"))  * 0.30 +
         df["momentum_12m"].fillna(med("momentum_12m")) * 0.20
     )
-    df["z_momentum"]   = zscore(mom_raw)
+    # Sharpe-like momentum: momentum / volatility (same return, less risk = better)
+    # clip vol at 10% floor to avoid division by near-zero
+    vol_adj = df["volatility_60d"].fillna(med("volatility_60d")).clip(lower=0.10)
+    df["z_momentum"]   = zscore(mom_raw / vol_adj)
     df["z_rs"]         = zscore(df["relative_strength_3m"].fillna(0))
     df["z_volatility"] = zscore(-df["volatility_20d"].fillna(med("volatility_20d")))
 
@@ -301,10 +304,10 @@ def run():
     df["z_flow"] = zscore(flow_raw)
 
     # ── 종합점수 0~100 ────────────────────────────────────────────
+    # Sharpe-like momentum absorbs volatility factor: 55% = old momentum(40%) + volatility(15%)
     raw = (
-        df["z_momentum"]   * 0.40 +
+        df["z_momentum"]   * 0.55 +
         df["z_rs"]         * 0.25 +
-        df["z_volatility"] * 0.15 +
         df["z_flow"]       * 0.20
     )
     # P5: Rank-based percentile (robust to outliers vs min-max)
