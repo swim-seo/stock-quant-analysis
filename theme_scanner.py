@@ -287,38 +287,18 @@ def extract_themes_with_claude(
 
     message = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=2500,
+        max_tokens=8192,
         messages=[{"role": "user", "content": prompt}],
     )
 
     try:
         content = message.content[0].text
         start = content.find("[")
-        if start == -1:
+        end = content.rfind("]")
+        if start == -1 or end == -1 or end <= start:
             return []
-        depth = 0
-        in_string = False
-        escape_next = False
-        for i in range(start, len(content)):
-            ch = content[i]
-            if escape_next:
-                escape_next = False
-                continue
-            if ch == "\\" and in_string:
-                escape_next = True
-                continue
-            if ch == '"':
-                in_string = not in_string
-                continue
-            if in_string:
-                continue
-            if ch == "[":
-                depth += 1
-            elif ch == "]":
-                depth -= 1
-                if depth == 0:
-                    themes = json.loads(content[start : i + 1])
-                    return themes if isinstance(themes, list) else []
+        themes = json.loads(content[start : end + 1])
+        return themes if isinstance(themes, list) else []
     except Exception as e:
         print(f"  [WARN] 테마 파싱 실패: {e}", file=sys.stderr)
     return []
