@@ -186,6 +186,36 @@ def vol(prices: pd.Series, days: int) -> float | None:
     return float(rets.iloc[-days:].std() * (252 ** 0.5))
 
 
+def detect_speculative(prices: pd.Series, vol_annual: float | None) -> tuple[bool, str]:
+    """Detect speculative/manipulated stocks.
+
+    Criteria:
+    - Annualized vol > 150%
+    - Clustered upper-circuit: 2+ days hitting ≥28% within any 7-trading-day window
+      (spread-out single events are normal; consecutive pumping is not)
+    """
+    reasons = []
+
+    if vol_annual is not None and vol_annual > 1.50:
+        reasons.append(f"고변동성 {vol_annual*100:.0f}%")
+
+    if len(prices) >= 60:
+        ret = prices.pct_change().dropna().tail(60)
+        circuit_idx = [i for i, v in enumerate(ret.values) if v >= 0.28]
+        # Check for 2+ upper-circuit days within a 7-trading-day window
+        clustered = 0
+        for i in range(len(circuit_idx)):
+            for j in range(i + 1, len(circuit_idx)):
+                if circuit_idx[j] - circuit_idx[i] <= 7:
+                    clustered = max(clustered, circuit_idx[j] - circuit_idx[i] + 1)
+                else:
+                    break
+        if clustered >= 2:
+            reasons.append(f"상한가 집중 {len(circuit_idx)}회({clustered}일내)")
+
+    return len(reasons) > 0, " | ".join(reasons) if reasons else ""
+
+
 def zscore(s: pd.Series) -> pd.Series:
     std = s.std()
     return (s - s.mean()) / std if std > 0 else pd.Series(0.0, index=s.index)
@@ -221,6 +251,10 @@ def run():
         v20 = vol(prices, 20)
         v60 = vol(prices, 60)
         rs3 = (m3 - kospi_3m) if m3 is not None else None
+        is_spec, spec_reason = detect_speculative(prices, v20)
+
+        if is_spec:
+            print(f"⚠️  투기주 감지: {name} ({spec_reason})")
 
         raw_rows.append({
             "ticker":               ticker,
@@ -236,6 +270,8 @@ def run():
             "foreign_flow_20d":     flow["foreign_20d"],
             "institution_flow_5d":  flow["inst_5d"],
             "institution_flow_20d": flow["inst_20d"],
+            "is_speculative":       is_spec,
+            "speculative_reason":   spec_reason or None,
         })
         print(f"3M={( m3 or 0)*100:+.1f}%  RS={( rs3 or 0)*100:+.1f}%")
 

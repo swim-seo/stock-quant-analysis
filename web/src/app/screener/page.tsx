@@ -20,6 +20,8 @@ interface FactorRow {
   z_rs: number | null;
   z_volatility: number | null;
   z_flow: number | null;
+  is_speculative: boolean;
+  speculative_reason: string | null;
   calculated_at: string;
 }
 
@@ -100,6 +102,7 @@ export default function ScreenerPage() {
     return copy;
   }, [rows, sortKey, sortAsc]);
 
+
   function handleSort(key: keyof FactorRow) {
     if (sortKey === key) setSortAsc(p => !p);
     else { setSortKey(key); setSortAsc(false); }
@@ -160,7 +163,7 @@ export default function ScreenerPage() {
         </div>
 
         {/* 범례 */}
-        <div style={{ display: "flex", gap: 20, marginBottom: 16, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 20, marginBottom: 8, flexWrap: "wrap" }}>
           {[["75+ 최상위", "#00b493"], ["55~75 상위", "#3182f6"], ["40~55 중립", "#888"], ["25~40 하위", "#f5a623"], ["~25 최하위", "#f04452"]].map(([l, c]) => (
             <div key={l} style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <div style={{ width: 10, height: 10, borderRadius: "50%", background: c as string }} />
@@ -168,6 +171,9 @@ export default function ScreenerPage() {
             </div>
           ))}
         </div>
+        <p style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 16 }}>
+          ⚠️ 표시 기준: 연간 변동성 150% 초과 또는 7거래일 내 상한가(+28%↑) 2회 이상 — 팩터 신뢰도 낮으므로 참고용으로만 활용
+        </p>
 
         {/* 테이블 */}
         {loading && (
@@ -226,11 +232,17 @@ export default function ScreenerPage() {
                             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                               <div style={{ width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0 }} />
                               <div>
-                                <Link href={`/stock?ticker=${encodeURIComponent(row.ticker)}`}
-                                  onClick={e => e.stopPropagation()}
-                                  style={{ fontSize: 14, fontWeight: 700, color: "var(--text-1)", textDecoration: "none" }}>
-                                  {row.stock_name}
-                                </Link>
+                                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                  <Link href={`/stock?ticker=${encodeURIComponent(row.ticker)}`}
+                                    onClick={e => e.stopPropagation()}
+                                    style={{ fontSize: 14, fontWeight: 700, color: "var(--text-1)", textDecoration: "none" }}>
+                                    {row.stock_name}
+                                  </Link>
+                                  {row.is_speculative && (
+                                    <span title={`투기 주의: ${row.speculative_reason ?? ""}\n기준: 변동성 150% 초과 또는 7거래일 내 상한가 2회 이상`}
+                                      style={{ fontSize: 13, cursor: "help" }}>⚠️</span>
+                                  )}
+                                </div>
                                 <p style={{ fontSize: 11, color: "var(--text-3)", margin: 0 }}>{row.ticker}</p>
                               </div>
                             </div>
@@ -319,6 +331,8 @@ export default function ScreenerPage() {
             </div>
           </div>
         )}
+
+
       </div>
     </main>
   );
