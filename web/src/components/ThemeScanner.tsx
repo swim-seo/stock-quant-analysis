@@ -126,7 +126,7 @@ export function ThemeScanner() {
                 {theme.source_types && theme.source_types.length > 0 && (
                   <SourceBadge types={theme.source_types} />
                 )}
-                <span style={{ fontSize: 15, fontWeight: 700, color: "var(--text-1)", flex: 1, minWidth: 0, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
+                <span style={{ fontSize: 15, fontWeight: 700, color: "var(--text-1)", flex: 1, minWidth: 0 }}>
                   {theme.theme_name}
                 </span>
                 {typeof theme.confidence_score === "number" && (
@@ -158,6 +158,7 @@ export function ThemeScanner() {
               {/* 펼쳐지는 상세 */}
               {isOpen && (
                 <div style={{ borderTop: "1px solid var(--border)", padding: "14px 16px", background: "#fafafa" }}>
+                  <p style={{ fontSize: 16, fontWeight: 700, color: "var(--text-1)", marginBottom: 10 }}>{theme.theme_name}</p>
                   <p style={{ fontSize: 14, color: "#222", lineHeight: 1.7, marginBottom: 12 }}>{theme.reason}</p>
 
                   {theme.keywords.length > 0 && (
