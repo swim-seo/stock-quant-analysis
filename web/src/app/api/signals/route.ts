@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-export const revalidate = 900; // 15 min cache
+export const revalidate = 60; // 1 min cache
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
