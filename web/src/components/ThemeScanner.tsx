@@ -119,25 +119,30 @@ export function ThemeScanner() {
               onClick={() => setExpanded(isOpen ? null : theme.id)}
             >
               {/* 요약 행 */}
-              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 14px", flexWrap: "wrap" }}>
-                <span style={{ fontSize: 13, fontWeight: 700, padding: "3px 10px", borderRadius: 6, color: ug.color, background: ug.bg, flexShrink: 0 }}>
-                  {ug.label}
-                </span>
-                {theme.source_types && theme.source_types.length > 0 && (
-                  <SourceBadge types={theme.source_types} />
-                )}
-                <span style={{ fontSize: 15, fontWeight: 700, color: "var(--text-1)", flex: 1, minWidth: 0 }}>
+              <div style={{ padding: "12px 14px" }}>
+                {/* 첫 줄: 뱃지 + 신뢰도 + 화살표 */}
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, padding: "3px 10px", borderRadius: 6, color: ug.color, background: ug.bg, flexShrink: 0 }}>
+                    {ug.label}
+                  </span>
+                  {theme.source_types && theme.source_types.length > 0 && (
+                    <SourceBadge types={theme.source_types} />
+                  )}
+                  <span style={{ flex: 1 }} />
+                  {typeof theme.confidence_score === "number" && (
+                    <span style={{
+                      fontSize: 11, color: theme.confidence_score >= 80 ? "#00b493" : theme.confidence_score >= 60 ? "#3182f6" : "#888",
+                      fontWeight: 700, flexShrink: 0,
+                    }}>
+                      신뢰도 {Math.round(theme.confidence_score)}
+                    </span>
+                  )}
+                  <span style={{ fontSize: 13, color: "var(--text-3)", flexShrink: 0 }}>{isOpen ? "▲" : "▼"}</span>
+                </div>
+                {/* 둘째 줄: 테마 이름 전체 폭 */}
+                <span style={{ fontSize: 15, fontWeight: 700, color: "var(--text-1)" }}>
                   {theme.theme_name}
                 </span>
-                {typeof theme.confidence_score === "number" && (
-                  <span style={{
-                    fontSize: 11, color: theme.confidence_score >= 80 ? "#00b493" : theme.confidence_score >= 60 ? "#3182f6" : "#888",
-                    fontWeight: 700, flexShrink: 0,
-                  }}>
-                    신뢰도 {Math.round(theme.confidence_score)}
-                  </span>
-                )}
-                <span style={{ fontSize: 13, color: "var(--text-3)", flexShrink: 0 }}>{isOpen ? "▲" : "▼"}</span>
               </div>
 
               {/* 관련 종목 (항상 표시) */}
