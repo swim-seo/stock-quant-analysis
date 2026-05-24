@@ -10,6 +10,7 @@ import time
 import sys
 import tempfile
 import glob
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 from datetime import datetime, timedelta
 from pathlib import Path
 from dotenv import load_dotenv
@@ -103,9 +104,16 @@ def _setup_cookies() -> str | None:
     print(f"  [쿠키] YouTube 쿠키 파일 로드됨: {_COOKIE_FILE}")
     return _COOKIE_FILE
 
+_PLAYLIST_TIMEOUT = 120  # 재생목록당 최대 대기 시간 (초)
+
 def _ydl_base_opts() -> dict:
-    """공통 yt-dlp 옵션 (쿠키 포함)"""
-    opts = {"quiet": True}
+    """공통 yt-dlp 옵션 (쿠키 + 타임아웃)"""
+    opts = {
+        "quiet": True,
+        "socket_timeout": 30,   # 소켓 연결 타임아웃 30초
+        "retries": 2,           # 최대 2회 재시도
+        "fragment_retries": 2,
+    }
     cookie_file = _setup_cookies()
     if cookie_file:
         opts["cookiefile"] = cookie_file
@@ -382,7 +390,13 @@ def collect(collect_time: str = None, max_days: int = 2):
         print(f"\n[{name}] ({channel}) 수집 중...")
 
         try:
-            videos = get_playlist_videos(config["playlist_url"], max_days=max_days)
+            with ThreadPoolExecutor(max_workers=1) as ex:
+                fut = ex.submit(get_playlist_videos, config["playlist_url"], max_days)
+                try:
+                    videos = fut.result(timeout=_PLAYLIST_TIMEOUT)
+                except FuturesTimeout:
+                    print(f"  재생목록 로딩 타임아웃 ({_PLAYLIST_TIMEOUT}초) — 건너뜀")
+                    continue
         except Exception as e:
             print(f"  재생목록 로딩 실패: {e}")
             continue
