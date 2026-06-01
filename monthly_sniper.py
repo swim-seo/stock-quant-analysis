@@ -42,10 +42,20 @@ _SB_HEADERS = {
 # ── 전략 파라미터 ──────────────────────────────────────────────────────────────
 BUDGET          = 2_000_000     # 월 투자 예산 (원)
 MAX_POSITIONS   = 3             # 동시 최대 보유 종목 수
-TARGET_PROFIT   = 0.07          # 익절 목표 7%
-STOP_LOSS       = -0.05         # 손절 기준 -5%
-MAX_HOLD_DAYS   = 3             # 최대 보유 기간 (거래일)
+STOP_LOSS       = -0.05         # 손절 기준 -5% (절대 하드룰)
 MIN_SIGNAL_CONF = 0.60          # ML 모델 최소 신뢰도 (60% 이상)
+NEAR_LIMIT_PCT  = 0.25          # 상한가 근접 기준 (+25%) → 즉시 전량 익절
+PARTIAL_RATIO   = 0.50          # 1차 익절 비율 (50%)
+
+# 촉매 강도별 파라미터: (min_composite, trailing_stop%, first_target%, max_hold_days, label)
+# trailing_stop: 고점 대비 이 %이상 하락하면 트레일링 발동
+# first_target:  1차 익절(50%) 목표
+CATALYST_TIERS: list[tuple[float, float, float, int, str]] = [
+    (0.85, 0.10, 0.20, 7, "초강"),   # composite ≥ 0.85: 트레일링 -10%, 익절 +20%, 7일
+    (0.70, 0.08, 0.15, 5, "강"),     # composite ≥ 0.70: 트레일링  -8%, 익절 +15%, 5일
+    (0.55, 0.06, 0.10, 4, "보통"),   # composite ≥ 0.55: 트레일링  -6%, 익절 +10%, 4일
+    (0.00, 0.04, 0.07, 3, "약"),     # composite  < 0.55: 트레일링  -4%, 익절  +7%, 3일
+]
 
 # 매달 25일 → 다음달 10일 (스나이퍼 기간)
 PERIOD_START_DAY = 25
@@ -61,8 +71,15 @@ SIGNAL_WEIGHTS = {
 
 
 # ── Supabase 헬퍼 ─────────────────────────────────────────────────────────────
+def _encode_params(params: str) -> str:
+    """URL 쿼리 파라미터의 값 부분만 인코딩 (=, &, ., ~ 는 유지)."""
+    import urllib.parse
+    return urllib.parse.quote(params, safe="=&.~*(),-+:@!$'[]")
+
+
 def _sb_get(table: str, params: str = "") -> list:
-    url = f"{SUPABASE_URL}/rest/v1/{table}?{params}"
+    encoded = _encode_params(params) if params else ""
+    url = f"{SUPABASE_URL}/rest/v1/{table}?{encoded}"
     req = urllib.request.Request(url, headers=_SB_HEADERS)
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
@@ -73,9 +90,10 @@ def _sb_get(table: str, params: str = "") -> list:
 
 
 def _sb_post(table: str, data: dict, on_conflict: str | None = None) -> bool:
+    import urllib.parse
     url = f"{SUPABASE_URL}/rest/v1/{table}"
     if on_conflict:
-        url += f"?on_conflict={on_conflict}"
+        url += f"?on_conflict={urllib.parse.quote(on_conflict, safe='')}"
     headers = {**_SB_HEADERS, "Prefer": "resolution=merge-duplicates,return=minimal"}
     body = json.dumps(data).encode("utf-8")
     req = urllib.request.Request(url, data=body, headers=headers, method="POST")
@@ -88,7 +106,7 @@ def _sb_post(table: str, data: dict, on_conflict: str | None = None) -> bool:
 
 
 def _sb_patch(table: str, filters: dict, data: dict) -> bool:
-    query = "&".join(f"{k}=eq.{v}" for k, v in filters.items())
+    query = _encode_params("&".join(f"{k}=eq.{v}" for k, v in filters.items()))
     url = f"{SUPABASE_URL}/rest/v1/{table}?{query}"
     headers = {**_SB_HEADERS, "Prefer": "return=minimal"}
     body = json.dumps(data).encode("utf-8")
@@ -346,6 +364,14 @@ def _get_current_price(stock_code: str) -> float | None:
         return None
 
 
+def _get_catalyst_tier(signal_score: float) -> tuple[float, float, int, str]:
+    """신호 점수 → (trailing_stop%, first_target%, max_hold_days, label)"""
+    for min_score, trail, target, hold, label in CATALYST_TIERS:
+        if signal_score >= min_score:
+            return trail, target, hold, label
+    return 0.04, 0.07, 3, "약"
+
+
 def _get_current_signals_map() -> dict[str, dict]:
     """trade_signals에서 종목별 최신 신호 조회."""
     rows = _sb_get(
@@ -383,63 +409,106 @@ def _eval_exit(
     today_bad_news: set[str],
 ) -> tuple[str | None, str, str]:
     """
-    매도 판단.
+    촉매 강도 기반 동적 청산 판단.
     반환: (close_reason, exit_label, urgency)
-      close_reason: None이면 보유, 문자열이면 청산
-      exit_label: 웹 UI 표시용
-      urgency: 'sell_now' | 'watch' | 'hold'
+      urgency: 'sell_now' | 'sell_partial' | 'watch' | 'hold'
     """
-    name      = pos["stock_name"]
-    entry_p   = pos["entry_price"]
-    entry_sig = pos.get("signal_score", 0.5)  # 진입 시 신호 점수
-    max_price = pos.get("max_price") or cur_price  # 최고가 (트레일링용)
+    name         = pos["stock_name"]
+    entry_p      = pos["entry_price"]
+    entry_sig    = float(pos.get("signal_score") or 0.5)
+    max_price    = float(pos.get("max_price") or cur_price)
+    partial_done = bool(pos.get("partial_exit_done", False))
 
-    pnl_pct = (cur_price - entry_p) / entry_p * 100
+    pnl_pct = (cur_price - entry_p) / entry_p
 
-    # ── 하드 규칙 (즉시 청산) ──────────────────────────────────────────────
-    if pnl_pct >= TARGET_PROFIT * 100:
-        return f"익절 +{pnl_pct:.1f}%", "🎯 익절", "sell_now"
-
-    if pnl_pct <= STOP_LOSS * 100:
-        return f"손절 {pnl_pct:.1f}%", "🛑 손절", "sell_now"
-
-    # ── 트레일링 스탑: +5% 이상 올랐다가 고점 대비 -4% 하락 ─────────────
-    if max_price and max_price > entry_p * 1.05:
-        trail_stop = max_price * 0.96   # 고점 대비 -4%
-        if cur_price <= trail_stop:
-            return (
-                f"트레일링 청산 (고점 {max_price:,.0f}→현재 {cur_price:,.0f})",
-                "📉 고점 이탈",
-                "sell_now",
-            )
-
-    # ── 촉매 소멸: 진입 신호의 50% 미만으로 약해짐 ─────────────────────
+    # ── 현재 촉매 점수 ─────────────────────────────────────────────────────
     if current_signal:
-        cur_score = (current_signal.get("tech_score") or 50) / 100
-        signal_dropped = cur_score < entry_sig * 0.5
-        is_sell_signal = current_signal.get("signal") == "SELL"
+        cur_composite = (
+            float(current_signal.get("tech_score") or 50) * 0.60 +
+            float(current_signal.get("composite_score") or 50) * 0.40
+        ) / 100
+    else:
+        cur_composite = entry_sig * 0.70  # 신호 없으면 진입 신호 70%로 추정
 
-        if is_sell_signal:
+    # 보수적 유효 점수 (진입 vs 현재 중 낮은 값)
+    effective_sig = min(entry_sig, cur_composite * 1.10)
+    trail_pct, first_target, max_hold, tier = _get_catalyst_tier(effective_sig)
+
+    # ── 1. 손절 (하드룰, 절대 불변) ────────────────────────────────────────
+    if pnl_pct <= STOP_LOSS:
+        return f"손절 {pnl_pct*100:.1f}%", "🛑 손절", "sell_now"
+
+    # ── 2. 악재 뉴스 (보유 1일 이상) ──────────────────────────────────────
+    if name in today_bad_news and hold_days >= 1:
+        return f"악재 뉴스 ({hold_days}일 보유)", "📰 악재", "sell_now"
+
+    # ── 3. 신호 반전 SELL ──────────────────────────────────────────────────
+    if current_signal and current_signal.get("signal") == "SELL":
+        return "신호 반전 SELL", "🔴 매도 신호", "sell_now"
+
+    # ── 4. 상한가 근접 (+25% 이상) → 즉시 전량 익절 ───────────────────────
+    if pnl_pct >= NEAR_LIMIT_PCT:
+        return (
+            f"상한가 근접 +{pnl_pct*100:.1f}%",
+            "🚀 상한가 익절",
+            "sell_now",
+        )
+
+    # ── 5. 1차 부분 익절 (50%): first_target 도달 시 ──────────────────────
+    if not partial_done and pnl_pct >= first_target:
+        return (
+            f"1차 익절 {pnl_pct*100:.1f}% [{tier}]",
+            f"🎯 1차 익절 50% [{tier}]",
+            "sell_partial",
+        )
+
+    # ── 6. 트레일링 스탑 (촉매 강도 기반 동적 %) ───────────────────────────
+    # first_target의 50% 이상 수익 달성 후부터 활성화
+    trail_activate = first_target * 0.50
+    if max_price > entry_p * (1 + trail_activate):
+        trail_stop = max_price * (1 - trail_pct)
+        if cur_price <= trail_stop:
+            # 강한 촉매 + 1차 익절 미완료 → 경고만 (아직 수익 충분히 못 챙김)
+            if effective_sig >= 0.70 and not partial_done:
+                return (
+                    None,
+                    f"⚠️ 트레일링 근접 [{tier} -{trail_pct*100:.0f}%]",
+                    "watch",
+                )
             return (
-                f"신호 반전 SELL (현재 {cur_score:.2f})",
-                "🔴 매도 신호",
+                f"트레일링 -{trail_pct*100:.0f}% [{tier}] "
+                f"고점 {max_price:,.0f}→현재 {cur_price:,.0f}",
+                "📉 트레일링 청산",
                 "sell_now",
             )
-        if signal_dropped and hold_days >= 1:
-            return None, "⚠️ 촉매 약화", "watch"  # 경고만, 청산 안 함
 
-    # ── 오늘 악재 뉴스 ──────────────────────────────────────────────────
-    if name in today_bad_news and hold_days >= 1:
-        return f"악재 뉴스 + {hold_days}일 보유", "📰 악재", "sell_now"
+    # ── 7. 촉매 소멸 경고 ──────────────────────────────────────────────────
+    if cur_composite < entry_sig * 0.50 and hold_days >= 1:
+        return None, "⚠️ 촉매 약화 (모니터링)", "watch"
 
-    # ── 만기 청산 (신호 약한 경우만) ────────────────────────────────────
-    if hold_days >= MAX_HOLD_DAYS:
-        cur_score = (current_signal.get("tech_score") or 50) / 100 if current_signal else 0.3
-        if cur_score < 0.55:  # 신호가 여전히 강하면 하루 더 보유
-            return f"만기 {hold_days}일 ({pnl_pct:+.1f}%)", "⏰ 만기", "sell_now"
-        return None, f"⏳ {hold_days}일 (신호 유지 중)", "watch"
+    # ── 8. 만기 청산 ──────────────────────────────────────────────────────
+    if hold_days >= max_hold:
+        # 촉매 여전히 강하고 수익 중이면 1일 연장 (1회)
+        can_extend = (
+            cur_composite >= entry_sig * 0.80
+            and pnl_pct > 0
+            and hold_days < max_hold + 1
+        )
+        if can_extend:
+            return None, f"⏳ {hold_days}일 (촉매 유지 연장 [{tier}])", "watch"
+        return (
+            f"만기 {hold_days}일 ({pnl_pct*100:+.1f}%, {tier})",
+            "⏰ 만기",
+            "sell_now",
+        )
 
-    return None, "🟢 보유", "hold"
+    # 트레일링 스탑 현재 수준 계산 (UI 표시용)
+    if max_price > entry_p * (1 + trail_activate):
+        trail_display = f"트레일링 {max_price*(1-trail_pct):,.0f}원"
+    else:
+        trail_display = f"익절목표 {entry_p*(1+first_target):,.0f}원"
+
+    return None, f"🟢 보유 [{tier}] {trail_display}", "hold"
 
 
 def manage_positions(period_label: str, dry_run: bool = False) -> None:
@@ -487,12 +556,34 @@ def manage_positions(period_label: str, dry_run: bool = False) -> None:
         )
 
         # 출력
-        icon = {"sell_now": "🔴", "watch": "🟡", "hold": "🟢"}[urgency]
+        icon = {"sell_now": "🔴", "sell_partial": "🟠", "watch": "🟡", "hold": "🟢"}[urgency]
+        suffix = " → 전량청산" if close_reason and urgency == "sell_now" else \
+                 " → 50% 부분익절" if urgency == "sell_partial" else ""
         print(f"  {icon} {name}: {entry_p:,}→{cur_price:,}원 "
-              f"({pnl_pct:+.1f}%, {pnl_amt:+,}원, {hold_days}일) {exit_label}"
-              + (f" → 청산" if close_reason else ""))
+              f"({pnl_pct:+.1f}%, {pnl_amt:+,}원, {hold_days}일) {exit_label}{suffix}")
 
-        if close_reason and not dry_run:
+        if urgency == "sell_partial" and not dry_run:
+            # 1차 부분 익절 (50%): 잔량 절반으로 줄이고 partial_exit_done = True
+            partial_shares = max(1, pos["shares"] // 2)
+            remain_shares  = pos["shares"] - partial_shares
+            partial_pnl    = round((cur_price - entry_p) * partial_shares)
+            _sb_patch(
+                "sniper_positions",
+                {"id": pos["id"]},
+                {
+                    "shares":             remain_shares,
+                    "partial_exit_done":  True,
+                    "partial_exit_price": cur_price,
+                    "partial_exit_date":  today_str,
+                    "max_price":          new_max,
+                    "exit_label":         exit_label,
+                    "updated_at":         datetime.now(KST).isoformat(),
+                },
+            )
+            print(f"     → {partial_shares}주 부분 익절 완료 (+{partial_pnl:,}원), "
+                  f"잔량 {remain_shares}주 트레일링 継続")
+
+        elif close_reason and not dry_run:
             _sb_patch(
                 "sniper_positions",
                 {"id": pos["id"]},
