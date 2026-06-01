@@ -77,6 +77,20 @@ export default function ScreenerPage() {
   const [sortAsc, setSortAsc] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState("");
+  const [sniperNames, setSniperNames] = useState<Set<string>>(new Set());
+
+  // 스나이퍼 BUY 신호 종목 이름 가져오기 (★ 표시용)
+  useEffect(() => {
+    fetch("/api/sniper?tab=signals")
+      .then(r => r.json())
+      .then(d => {
+        const names = (d.signals ?? [])
+          .filter((s: { has_catalyst: boolean }) => s.has_catalyst)
+          .map((s: { stock_name: string }) => s.stock_name);
+        setSniperNames(new Set(names));
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     setLoading(true);
@@ -141,8 +155,23 @@ export default function ScreenerPage() {
               </p>
             )}
           </div>
-          <div style={{ fontSize: 13, color: "var(--text-3)", maxWidth: 320, lineHeight: 1.6 }}>
-            샤프모멘텀 45% · 상대강도 20% · 가치PBR 20% · 수급 15%
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
+            <div style={{ fontSize: 13, color: "var(--text-3)", lineHeight: 1.6 }}>
+              샤프모멘텀 45% · 상대강도 20% · 가치PBR 20% · 수급 15%
+            </div>
+            <Link href="/sniper" style={{
+              fontSize: 13, fontWeight: 700, color: "#fff",
+              background: "linear-gradient(135deg, #f04452, #f5a623)",
+              padding: "8px 16px", borderRadius: 10, textDecoration: "none",
+              display: "flex", alignItems: "center", gap: 6,
+            }}>
+              ⚡ 스나이퍼 단타
+              {sniperNames.size > 0 && (
+                <span style={{ background: "rgba(255,255,255,0.3)", borderRadius: 99, padding: "1px 7px", fontSize: 11 }}>
+                  {sniperNames.size}개 신호
+                </span>
+              )}
+            </Link>
           </div>
         </div>
       </header>
@@ -240,6 +269,15 @@ export default function ScreenerPage() {
                                     style={{ fontSize: 14, fontWeight: 700, color: "var(--text-1)", textDecoration: "none" }}>
                                     {row.stock_name}
                                   </Link>
+                                  {sniperNames.has(row.stock_name) && (
+                                    <Link href="/sniper" onClick={e => e.stopPropagation()}
+                                      title="스나이퍼 오늘 신호 있음"
+                                      style={{ fontSize: 11, fontWeight: 700, color: "#fff",
+                                        background: "linear-gradient(135deg, #f04452, #f5a623)",
+                                        padding: "1px 6px", borderRadius: 5, textDecoration: "none" }}>
+                                      ⚡
+                                    </Link>
+                                  )}
                                   {row.is_speculative && (
                                     <span title={`투기 주의: ${row.speculative_reason ?? ""}\n기준: 변동성 150% 초과 또는 7거래일 내 상한가 2회 이상`}
                                       style={{ fontSize: 13, cursor: "help" }}>⚠️</span>
