@@ -4,4 +4,8 @@ supabase
 yfinance
 python-dotenv
 pykrx
-scipy
+numpy
+pandas
+xgboost
+lightgbm
+scikit-learn

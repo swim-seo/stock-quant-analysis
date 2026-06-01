@@ -109,11 +109,15 @@ def _sb_patch(table: str, filters: dict, data: dict) -> bool:
     query = _encode_params("&".join(f"{k}=eq.{v}" for k, v in filters.items()))
     url = f"{SUPABASE_URL}/rest/v1/{table}?{query}"
     headers = {**_SB_HEADERS, "Prefer": "return=minimal"}
-    body = json.dumps(data).encode("utf-8")
+    body = json.dumps(data, ensure_ascii=False).encode("utf-8")
     req = urllib.request.Request(url, data=body, headers=headers, method="PATCH")
     try:
         urllib.request.urlopen(req, timeout=10)
         return True
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", errors="replace")
+        print(f"  [Supabase 수정 오류] HTTP {e.code}: {detail}")
+        return False
     except Exception as e:
         print(f"  [Supabase 수정 오류] {e}")
         return False
