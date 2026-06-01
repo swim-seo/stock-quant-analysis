@@ -710,7 +710,7 @@ def print_status(period_label: str) -> None:
             entry = pos["entry_price"]
             if cur:
                 pnl_pct = (cur - entry) / entry * 100
-                icon = "📈" if pnl_pct > 0 else "📉"
+                icon = "📈" if pnl_pct > 0 else "📉" if pnl_pct < 0 else "⏳"
                 print(f"  {icon} {name}: {entry:,}→{cur:,}원 ({pnl_pct:+.1f}%)")
             else:
                 print(f"  ⏳ {name}: 진입가 {entry:,}원")
@@ -737,11 +737,12 @@ def run(dry_run: bool = False, scan_only: bool = False, status_only: bool = Fals
     print(f"  {'DRY-RUN 모드 (실제 저장 안 함)' if dry_run else '실제 실행 모드'}")
     print(f"{'='*55}")
 
-    # 1. 포지션 관리 (익절/손절/만기)
-    manage_positions(period, dry_run=dry_run)
+    # 1. 포지션 관리 (익절/손절/만기) — scan_only면 건너뜀
+    if not scan_only:
+        manage_positions(period, dry_run=dry_run)
 
     if scan_only:
-        # 2. 신호 스캔만
+        # 신호 스캔만 (포지션 관리 없음)
         scan_signals(verbose=True)
         return
 
