@@ -575,7 +575,104 @@ def _calc_data_quality(
 # P2: Dynamic thresholds
 # ---------------------------------------------------------------------------
 
-_WEIGHTS: dict[str, float] = {"tech": 0.40, "factor": 0.25, "news": 0.15, "yt": 0.20}
+# ---------------------------------------------------------------------------
+# 2-Stage Architecture: Quality Gate (퀀트) × Timing (매매)
+#
+# Stage 1 — Quality Gate (factor_calculator 결과)
+#   "이 종목이 구조적으로 강한가?"
+#   A: factor_score ≥ 65 (상위 35%, 모멘텀+수급+가치 우수)
+#   B: 40 ≤ factor_score < 65 (중립)
+#   C: factor_score < 40 (구조적 취약)
+#
+# Stage 2 — Timing Signal (tech + news + yt)
+#   "지금 들어갈 타이밍인가?"
+#   tech 55%, news 25%, yt 20% (factor 제외 — stage 1에서 이미 반영)
+#
+# Decision Matrix:
+#   Quality A + Good timing  → BUY ✅✅  (구조 강 + 타이밍 맞음)
+#   Quality A + Bad timing   → HOLD ⏳   (구조 강, 타이밍 기다려)
+#   Quality B + Good timing  → BUY (NEUTRAL/BULL 시장만)
+#   Quality B + Bad timing   → SELL
+#   Quality C + Any timing   → HOLD/SELL (구조 약, 매수 금지)
+#
+# Market Regime:
+#   BULL: 진입 기준 완화 (Quality B도 BUY 가능)
+#   BEAR: 진입 기준 강화 (Quality A만 BUY, 나머지 HOLD→SELL)
+# ---------------------------------------------------------------------------
+
+_TIMING_WEIGHTS: dict[str, float] = {"tech": 0.55, "news": 0.25, "yt": 0.20}
+_COMPOSITE_WEIGHTS: dict[str, float] = {"quality": 0.40, "timing": 0.60}
+
+
+def _quality_tier(factor_score: float | None) -> str:
+    """퀀트 팩터 품질 등급 분류."""
+    if factor_score is None:
+        return "UNKNOWN"
+    if factor_score >= 65:
+        return "A"   # 구조적으로 강함
+    if factor_score >= 40:
+        return "B"   # 중립
+    return "C"        # 구조적으로 취약
+
+
+def _calc_timing_score(
+    tech_raw: float | None,
+    news_score: float | None,
+    yt_raw: float,
+    yt_no_data: bool,
+) -> float:
+    """타이밍 점수: tech + news + yt (factor 제외 — stage 1에서 반영)."""
+    components = {
+        "tech": tech_raw,
+        "news": news_score,
+        "yt":   None if yt_no_data else yt_raw,
+    }
+    available = {k: v for k, v in components.items() if v is not None}
+    if not available:
+        return 50.0
+    total_w = sum(_TIMING_WEIGHTS[k] for k in available)
+    return sum(_TIMING_WEIGHTS[k] * v for k, v in available.items()) / total_w
+
+
+def _two_stage_signal(
+    quality_tier: str,
+    timing_score: float,
+    market_regime: str,
+    data_quality: float,
+) -> str:
+    """2단계 결합 신호 결정."""
+    if data_quality < 0.40:
+        return "HOLD"  # 데이터 품질 부족
+
+    # 시장 국면에 따른 임계값 조정
+    if market_regime == "BULL":
+        buy_thr, sell_thr = 60.0, 32.0   # 진입 완화
+    elif market_regime == "BEAR":
+        buy_thr, sell_thr = 70.0, 40.0   # 진입 강화
+    else:
+        buy_thr, sell_thr = 65.0, 35.0   # 표준
+
+    good_timing = timing_score >= buy_thr
+    bad_timing  = timing_score <= sell_thr
+
+    if quality_tier == "A":
+        if good_timing:
+            return "BUY"                      # 구조 강 + 타이밍 맞음 ✅
+        if bad_timing and market_regime == "BEAR":
+            return "SELL"                     # 강세 종목도 약세장엔 매도
+        return "HOLD"                         # 타이밍 기다리기 ⏳
+
+    if quality_tier == "B":
+        if good_timing and market_regime != "BEAR":
+            return "BUY"                      # 중립 종목, 타이밍+시장 모두 좋을 때만
+        if bad_timing:
+            return "SELL"
+        return "HOLD"
+
+    # Quality C (구조 취약)
+    if bad_timing:
+        return "SELL"
+    return "HOLD"                             # 구조 약, 타이밍 좋아도 매수 금지
 
 
 def _weighted_composite(
@@ -585,22 +682,17 @@ def _weighted_composite(
     yt_raw: float,
     yt_no_data: bool,
 ) -> float:
-    """Redistribute weights among available signals instead of filling missing with 50."""
-    components = {
-        "tech":   tech_raw,
-        "factor": factor_score,
-        "news":   news_score,
-        "yt":     None if yt_no_data else yt_raw,
-    }
-    available = {k: v for k, v in components.items() if v is not None}
-    if not available:
-        return 50.0
-    total_w = sum(_WEIGHTS[k] for k in available)
-    return sum(_WEIGHTS[k] * v for k, v in available.items()) / total_w
+    """복합 점수: quality(40%) × timing(60%) 구조."""
+    quality_score = factor_score if factor_score is not None else 50.0
+    timing_score  = _calc_timing_score(tech_raw, news_score, yt_raw, yt_no_data)
+    return (
+        _COMPOSITE_WEIGHTS["quality"] * quality_score +
+        _COMPOSITE_WEIGHTS["timing"]  * timing_score
+    )
 
 
 def _get_thresholds(data_quality: float) -> tuple[float, float]:
-    """Return (buy_threshold, sell_threshold) based on data quality."""
+    """데이터 품질 기반 임계값 (레거시 호환용, 실제 신호는 _two_stage_signal 사용)."""
     if data_quality >= 0.75:
         return 65.0, 35.0
     if data_quality >= 0.50:
@@ -679,25 +771,23 @@ def run() -> None:
         # News score
         news_score = news_map.get(code)
 
-        # Data quality first (needed for dynamic thresholds)
+        # Data quality
         data_quality = _calc_data_quality(tech_raw, factor_score, news_score, yt_no_data, yt_mentions)
 
-        # P1: Weight redistribution — missing signals excluded, not filled with 50
-        composite = _weighted_composite(tech_raw, factor_score, news_score, yt_raw, yt_no_data)
+        # Stage 1: Quality tier (퀀트 팩터)
+        q_tier = _quality_tier(factor_score)
 
-        # Agreement multiplier uses filled value for direction check only
+        # Stage 2: Timing score (기술적 + 감성)
         tech_filled = tech_raw if tech_raw is not None else 50.0
-        composite = _apply_agreement_multiplier(composite, tech_filled, yt_raw, yt_no_data)
+        timing = _calc_timing_score(tech_raw, news_score, yt_raw, yt_no_data)
 
-        # Bear market dampener (pull toward 50)
-        if regime_dampener < 1.0:
-            composite = 50.0 + (composite - 50.0) * regime_dampener
+        # 2-Stage signal decision
+        signal = _two_stage_signal(q_tier, timing, market_regime, data_quality)
 
+        # Composite score: quality(40%) + timing(60%) — 두 차원 모두 반영
+        composite = _weighted_composite(tech_raw, factor_score, news_score, yt_raw, yt_no_data)
         composite = round(min(100.0, max(0.0, composite)), 2)
 
-        # P2: Dynamic thresholds — low quality data forces HOLD
-        buy_thr, sell_thr = _get_thresholds(data_quality)
-        signal = "BUY" if composite >= buy_thr else "SELL" if composite <= sell_thr else "HOLD"
         agreement = _calc_signal_agreement(tech_filled, yt_raw, yt_no_data)
 
         row_data = {
@@ -723,7 +813,7 @@ def run() -> None:
             "calculated_at": datetime.now(timezone.utc).isoformat(),
         }
         results.append(row_data)
-        print(f"{signal} ({composite:.1f}) [tech={tech_filled:.0f} yt={yt_raw:.0f} q={data_quality:.2f}]")
+        print(f"{signal} ({composite:.1f}) [Q{q_tier} tech={tech_filled:.0f} timing={timing:.0f} yt={yt_raw:.0f} q={data_quality:.2f}]")
 
     # Upsert to trade_signals
     print(f"\n  trade_signals upsert: {len(results)}개...")
