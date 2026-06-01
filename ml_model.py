@@ -73,8 +73,17 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     # 갭 (전일 종가 대비 오늘 시가)
     df["gap"] = df["시가"] / df["종가"].shift(1) - 1
 
-    # 타겟: 다음날 종가가 오늘보다 높으면 1 (상승), 낮으면 0 (하락)
-    df["target"] = (df["종가"].shift(-1) > df["종가"]).astype(int)
+    # 타겟 v3: 3 거래일 후 7%+ 상승 여부 (스윙 단타용)
+    # 기존 1일 방향 예측(51%)보다 신호 가치 높음 — 희귀 이벤트 포착
+    TARGET_DAYS = 3
+    TARGET_THRESHOLD = 0.07   # 3일 7% 이상
+    future_return = df["종가"].shift(-TARGET_DAYS) / df["종가"] - 1
+    df["target"] = (future_return >= TARGET_THRESHOLD).astype(int)
+
+    # 참고: 레이블 비율 출력
+    pos_rate = df["target"].mean()
+    if pos_rate < 0.03 or pos_rate > 0.50:
+        print(f"  [주의] 타겟 레이블 비율: {pos_rate:.1%} — 불균형 심함")
 
     return df
 
@@ -182,7 +191,19 @@ def train_model(df: pd.DataFrame):
     ens_pred = (ens_proba > 0.5).astype(int)
 
     print("\n=== 테스트셋 성능 (앙상블) ===")
-    print(classification_report(y_test, ens_pred, target_names=["하락", "상승"]))
+    print(classification_report(y_test, ens_pred, target_names=["미달성", "7%+달성"]))
+
+    # 핵심 지표: Precision@고신뢰 (확률 0.6 이상인 예측의 적중률)
+    high_conf_mask = ens_proba >= 0.60
+    if high_conf_mask.sum() > 0:
+        high_conf_precision = y_test[high_conf_mask].mean()
+        print(f"\n  Precision@0.60 (고신뢰 예측): {high_conf_precision:.1%} ({high_conf_mask.sum()}건)")
+        print(f"  → 모델이 60% 이상 확신한 종목 중 실제 3일 7%+ 달성 비율")
+
+    # 기대값(EV) 계산 (가정: 성공시 +7%, 실패시 -5% 손절)
+    prec = y_test[ens_proba >= 0.60].mean() if high_conf_mask.sum() > 0 else 0
+    ev = prec * 0.07 + (1 - prec) * (-0.05)
+    print(f"  기대값(EV): {ev:+.2%} per trade (성공+7%, 실패-5% 가정)")
 
     # EnsembleModel 래퍼 반환
     final_model = EnsembleModel(final_xgb, final_lgb)

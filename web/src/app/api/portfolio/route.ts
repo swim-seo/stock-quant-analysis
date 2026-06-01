@@ -204,13 +204,38 @@ function getSignal(
 // ── Data fetching ─────────────────────────────────────────────
 let START_DATE = DEFAULT_START_DATE;
 
+// Supabase KIS 데이터 우선 → yfinance fallback
 async function fetchQuotes(ticker: string): Promise<Quote[]> {
-  const yf = new YahooFinance();
-  const warmup = new Date(START_DATE);
-  warmup.setDate(warmup.getDate() - 150);
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
+
+  // KIS 데이터 (stock_prices 테이블)
+  const warmupDate = new Date(START_DATE);
+  warmupDate.setDate(warmupDate.getDate() - 150);
+  const fromDate = warmupDate.toISOString().split("T")[0];
+
+  const { data: kisData } = await supabase
+    .from("stock_prices")
+    .select("trade_date, open, high, low, close, volume")
+    .eq("ticker", ticker)
+    .gte("trade_date", fromDate)
+    .order("trade_date", { ascending: true });
+
+  if (kisData && kisData.length >= 30) {
+    return kisData.map((row) => ({
+      date:   row.trade_date as string,
+      close:  row.close as number,
+      volume: row.volume as number,
+    }));
+  }
+
+  // yfinance fallback (KIS 데이터 없을 때)
   try {
+    const yf = new YahooFinance();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const res: any = await yf.chart(ticker, { period1: warmup, period2: new Date(), interval: "1d" });
+    const res: any = await yf.chart(ticker, { period1: warmupDate, period2: new Date(), interval: "1d" });
     return res.quotes
       .filter((q: any) => q.close != null && q.volume != null)
       .map((q: any) => ({ date: q.date.toISOString().split("T")[0], close: q.close, volume: q.volume }));

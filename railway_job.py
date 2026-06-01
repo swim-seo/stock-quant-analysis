@@ -538,6 +538,48 @@ def _classify_sector_phase(history: list[dict]) -> tuple[str, int]:
     return "침체", score  # 횡보(-5%~+1%) 포함
 
 
+def collect_stock_prices(days: int = 5) -> None:
+    """KIS OHLCV 일봉 → Supabase stock_prices 저장 (백테스트 가격 소스).
+
+    Args:
+        days: 최근 N 거래일치만 저장 (일반 크론: 5일, 초기 적재: 400일)
+    """
+    print(f"\n[KIS 주가 수집 → stock_prices ({days}일)]")
+    try:
+        kis = get_kis_client()
+    except Exception as e:
+        print(f"  KIS 클라이언트 오류: {e}")
+        return
+
+    # WATCH_STOCKS 기준 수집
+    for name, code in WATCH_STOCKS.items():
+        ticker = _ticker_sym(code)
+        try:
+            rows = kis.fetch_ohlcv_daily(code, days=days)
+            if not rows:
+                print(f"  {name}: 데이터 없음")
+                continue
+
+            for row in rows:
+                sb_post("stock_prices", {
+                    "ticker":     ticker,
+                    "stock_name": name,
+                    "trade_date": row["date"],
+                    "open":       row["open"],
+                    "high":       row["high"],
+                    "low":        row["low"],
+                    "close":      row["close"],
+                    "volume":     row["volume"],
+                    "updated_at": now_kst().isoformat(),
+                }, on_conflict="ticker,trade_date")
+
+            latest = rows[-1]
+            print(f"  {name}: {len(rows)}일 저장 (최신 {latest['date']} 종가 {latest['close']:,})")
+
+        except Exception as e:
+            print(f"  {name} 가격 수집 실패: {e}")
+
+
 def collect_sector_index() -> None:
     """KIS 업종 지수 수집 → Supabase sector_index / sector_index_history 저장."""
     print("\n[섹터 인덱스 수집]")
@@ -1769,6 +1811,7 @@ def main():
         collect_news()
         collect_youtube(collect_time="morning")
         generate_briefing()
+        collect_stock_prices(days=5)   # KIS 최근 5거래일 가격 저장
         collect_sector_index()
         stock_data = _collect_stock_data()
         save_predictions(stock_data)
