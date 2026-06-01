@@ -84,6 +84,26 @@ def resolve_name_to_ticker(name: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 def _fetch_prices(ticker: str) -> pd.DataFrame | None:
+    """KIS OHLCV 우선, yfinance fallback. 130일(약 6개월) 데이터."""
+    # KIS 우선 (KOSPI/KOSDAQ 종목)
+    if not ticker.startswith("^"):
+        try:
+            from kis_fetcher import get_client as _get_kis
+            code = ticker.split(".")[0]
+            rows = _get_kis().fetch_ohlcv_daily(code, days=130)
+            if rows and len(rows) >= 30:
+                df = pd.DataFrame(rows)
+                df["date"] = pd.to_datetime(df["date"])
+                df = df.set_index("date").sort_index()
+                df.columns = [c if c not in ("open","high","low","close","volume")
+                              else {"open":"시가","high":"고가","low":"저가",
+                                    "close":"종가","volume":"거래량"}[c]
+                              for c in df.columns]
+                return df[["시가", "고가", "저가", "종가", "거래량"]]
+        except Exception:
+            pass  # yfinance fallback
+
+    # yfinance fallback
     try:
         stock = yf.Ticker(ticker)
         df = stock.history(period="6mo")
@@ -177,6 +197,26 @@ def _calc_tech_score(ticker: str) -> float | None:
     if not pd.isna(adx) and adx > 25:
         direction = 1 if score >= 50 else -1
         score += direction * 5
+
+    # Bollinger Bands: oversold(하단 이탈) / overbought(상단 돌파)
+    bb_upper = last.get("BB_upper", float("nan"))
+    bb_lower = last.get("BB_lower", float("nan"))
+    if not (pd.isna(bb_upper) or pd.isna(bb_lower) or pd.isna(close)):
+        if close < bb_lower:
+            score += 8   # 볼린저 하단 이탈 → 과매도 반등 가능성
+        elif close > bb_upper:
+            score -= 8   # 볼린저 상단 돌파 → 과매수 주의
+
+    # OBV trend (최근 5일 OBV 기울기)
+    obv_col = "OBV" if "OBV" in df.columns else None
+    if obv_col:
+        obv_recent = df[obv_col].tail(5).dropna()
+        if len(obv_recent) >= 3:
+            obv_slope = (obv_recent.iloc[-1] - obv_recent.iloc[0]) / max(abs(obv_recent.iloc[0]), 1)
+            if obv_slope > 0.02:
+                score += 5   # OBV 상승 → 매집 신호
+            elif obv_slope < -0.02:
+                score -= 5   # OBV 하락 → 분산 신호
 
     return float(max(0.0, min(100.0, score)))
 
@@ -388,25 +428,87 @@ def _load_news_scores() -> dict[str, float]:
 # ---------------------------------------------------------------------------
 
 def _calc_market_regime(current_regime: str) -> str:
+    """다중 지표 기반 시장 국면 탐지 (YouTube 단일 의존 개선).
+
+    4개 지표 중 3개 이상 부정 → BEAR, 히스테리시스 유지:
+    1. YouTube 부정 비율 > 60%
+    2. KOSPI가 20일 이동평균 아래
+    3. 외국인 5일 누적 순매수 음수 (매도 우위)
+    4. 뉴스 부정 감성 비율 > 50%
+    """
+    bear_signals = 0
+
+    # ── 지표 1: YouTube 감성 ──────────────────────────────────────
     cutoff = (datetime.now(timezone.utc) - timedelta(days=YT_LOOKBACK_DAYS)).isoformat()
-    rows = (
+    yt_rows = (
         supabase.table("youtube_insights")
         .select("market_sentiment")
         .gte("upload_date", cutoff[:10])
         .limit(200)
         .execute()
     )
-    sentiments = [r.get("market_sentiment", "") for r in (rows.data or [])]
-    total = len(sentiments)
-    if total == 0:
-        return current_regime or "NEUTRAL"
+    sentiments = [r.get("market_sentiment", "") for r in (yt_rows.data or [])]
+    if sentiments:
+        yt_neg_ratio = sum(1 for s in sentiments if "부정" in str(s)) / len(sentiments)
+        if yt_neg_ratio >= BEAR_ENTRY_THRESHOLD:
+            bear_signals += 1
 
-    negative_ratio = sum(1 for s in sentiments if "부정" in str(s)) / total
+    # ── 지표 2: KOSPI MA20 위치 ───────────────────────────────────
+    try:
+        kospi_df = _fetch_prices("^KS11")
+        if kospi_df is not None and len(kospi_df) >= 20:
+            ma20 = kospi_df["종가"].rolling(20).mean().iloc[-1]
+            if kospi_df["종가"].iloc[-1] < ma20:
+                bear_signals += 1
+    except Exception:
+        pass
 
+    # ── 지표 3: 외국인 5일 순매수 ────────────────────────────────
+    try:
+        news_rows = (
+            supabase.table("stock_news")
+            .select("investor_data")
+            .order("collected_at", desc=True)
+            .limit(50)
+            .execute()
+        )
+        total_foreign_5d = 0
+        count = 0
+        for row in (news_rows.data or []):
+            inv = row.get("investor_data", [])
+            if isinstance(inv, str):
+                try: inv = __import__("json").loads(inv)
+                except: inv = []
+            if inv:
+                total_foreign_5d += sum(d.get("foreign_net", 0) for d in inv[:5])
+                count += 1
+        if count > 0 and (total_foreign_5d / count) < 0:
+            bear_signals += 1
+    except Exception:
+        pass
+
+    # ── 지표 4: 뉴스 감성 ─────────────────────────────────────────
+    try:
+        news_sent_rows = (
+            supabase.table("stock_news")
+            .select("sentiment")
+            .order("collected_at", desc=True)
+            .limit(100)
+            .execute()
+        )
+        sentiments_news = [r.get("sentiment", "") for r in (news_sent_rows.data or [])]
+        if sentiments_news:
+            news_neg = sum(1 for s in sentiments_news if "악재" in str(s)) / len(sentiments_news)
+            if news_neg > 0.50:
+                bear_signals += 1
+    except Exception:
+        pass
+
+    # ── 히스테리시스 적용 ─────────────────────────────────────────
     if current_regime == "BEAR":
-        return "BEAR" if negative_ratio >= NEUTRAL_REENTRY_THRESHOLD else "NEUTRAL"
+        return "BEAR" if bear_signals >= 2 else "NEUTRAL"
     else:
-        return "BEAR" if negative_ratio >= BEAR_ENTRY_THRESHOLD else "NEUTRAL"
+        return "BEAR" if bear_signals >= 3 else "NEUTRAL"
 
 
 # ---------------------------------------------------------------------------

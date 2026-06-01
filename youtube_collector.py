@@ -41,6 +41,9 @@ except Exception as e:
     print(f"ChromaDB 초기화 실패: {e}")
     CHROMA_AVAILABLE = False
 
+# Anthropic client singleton
+_anthropic_client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+
 # 재생목록 기반 수집 설정
 PLAYLISTS = {
     "마켓브리핑": {
@@ -378,8 +381,6 @@ def _extract_json_from_text(text: str) -> dict | None:
 
 def analyze_with_claude(title: str, transcript: str, channel: str, trading_focus: str = "both") -> dict:
     """Claude API로 투자 인사이트 추출. trading_focus에 따라 분석 관점 조정."""
-    client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
-
     if trading_focus == "swing":
         focus_instruction = """분석 관점: 스윙 트레이딩 위주로 분석해주세요.
 - 1~4주 단위 추세, 기술적 분석 포인트, 지지/저항선, 추세 전환 시그널에 집중
@@ -420,12 +421,13 @@ def analyze_with_claude(title: str, transcript: str, channel: str, trading_focus
 
 출력 형식: {{"summary": "...", "market_sentiment": "...", ...}} 형태의 JSON만 출력."""
 
-    message = client.messages.create(
+    _SYSTEM = "당신은 주식/투자 전문 분석가입니다. 영상 스크립트를 분석해 JSON만 출력하세요."
+    message = _anthropic_client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=1500,
-        messages=[
-            {"role": "user", "content": prompt},
-        ],
+        system=[{"type": "text", "text": _SYSTEM,
+                 "cache_control": {"type": "ephemeral"}}],
+        messages=[{"role": "user", "content": prompt}],
     )
 
     try:

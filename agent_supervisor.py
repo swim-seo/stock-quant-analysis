@@ -90,6 +90,9 @@ def _send_alert_email(step, diagnosis):
 
 
 # ── Claude 진단 ─────────────────────────────────────────────────
+_DIAGNOSE_SYSTEM = "당신은 파이썬 데이터 파이프라인 전문가입니다. 오류 로그를 보고 한국어로 간결하게 원인과 해결 방법을 진단하세요."
+
+
 def _claude_diagnose(step, errors):
     try:
         client = anthropic.Anthropic()
@@ -99,16 +102,10 @@ def _claude_diagnose(step, errors):
         resp = client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=600,
-            messages=[{"role": "user", "content": f"""
-주식 데이터 수집 파이프라인 '{step}' 단계가 {len(errors)}번 연속 실패했습니다.
-
-오류:
-{error_text}
-
-한국어로 간결하게:
-1. 오류 원인
-2. 예상 해결 방법
-"""}]
+            system=[{"type": "text", "text": _DIAGNOSE_SYSTEM,
+                     "cache_control": {"type": "ephemeral"}}],
+            messages=[{"role": "user", "content":
+                       f"'{step}' 단계가 {len(errors)}번 연속 실패했습니다.\n\n오류:\n{error_text}\n\n1. 오류 원인\n2. 예상 해결 방법"}],
         )
         return resp.content[0].text
     except Exception as e:

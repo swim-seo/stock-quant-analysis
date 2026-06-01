@@ -13,12 +13,15 @@ import urllib.request
 import urllib.parse
 from datetime import datetime, timedelta
 from pathlib import Path
+import anthropic
 from dotenv import load_dotenv
 
 if sys.stdout.encoding != 'utf-8':
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 load_dotenv(Path(__file__).parent / ".env")
+
+_anthropic_client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
 # Supabase HTTP
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
@@ -123,43 +126,43 @@ def fetch_investor_trading(stock_code: str, days: int = 10) -> list:
 # ③ Claude 뉴스 분석
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+_NEWS_SYSTEM_PROMPT = """당신은 한국 주식 시장 전문 애널리스트입니다.
+종목 뉴스를 분석해 다음 필드를 포함한 JSON을 마크다운 없이 순수 JSON만 출력하세요:
+- summary: 전체 뉴스 흐름 3줄 요약
+- sentiment: "호재" | "중립" | "악재"
+- key_points: 핵심 포인트 3~5개 리스트 (각 1줄)
+- risk_factors: 리스크 요인 1~3개 리스트
+- catalysts: 주가 상승 촉매 1~3개 리스트
+- trading_signal: "매수관심" | "관망" | "주의"
+- news_impact_score: 0~100 숫자 (100이 가장 강한 영향)
+- price_direction: "상승" | "중립" | "하락" """
+
+
 def analyze_news_with_claude(stock_name: str, articles: list) -> dict:
-    """뉴스 목록을 Claude로 분석: 요약 + 호재/악재 판단"""
-    import anthropic
-
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key or len(articles) == 0:
-        return {"summary": "분석 불가", "sentiment": "중립", "key_points": []}
-
-    client = anthropic.Anthropic(api_key=api_key)
+    """뉴스 목록을 Claude로 분석: 요약 + 호재/악재 판단 + 방향성"""
+    _empty = {
+        "summary": "분석 불가", "sentiment": "중립", "key_points": [],
+        "risk_factors": [], "catalysts": [], "trading_signal": "관망",
+        "news_impact_score": 0, "price_direction": "중립",
+    }
+    if not articles:
+        return _empty
 
     news_text = "\n".join([
         f"- [{a['date']}] {a['title']} ({a['source']})"
         for a in articles[:15]
     ])
 
-    prompt = f"""당신은 한국 주식 시장 전문 애널리스트입니다.
-아래는 '{stock_name}' 관련 최근 뉴스 제목 목록입니다.
-
-{news_text}
-
-다음을 JSON으로 작성해주세요 (마크다운 없이 순수 JSON만 출력):
-1. summary: 전체 뉴스 흐름 3줄 요약
-2. sentiment: 종합 판단 ("호재"/"중립"/"악재" 중 하나)
-3. key_points: 핵심 포인트 3~5개 리스트 (각 1줄)
-4. risk_factors: 리스크 요인 1~3개 리스트
-5. catalysts: 주가 상승 촉매 1~3개 리스트
-6. trading_signal: 매매 신호 ("매수관심"/"관망"/"주의" 중 하나)
-7. news_impact_score: 주가 영향도 점수 0~100 숫자 (100이 가장 강한 영향)"""
-
     try:
-        message = client.messages.create(
+        message = _anthropic_client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=1024,
-            messages=[{"role": "user", "content": prompt}],
+            system=[{"type": "text", "text": _NEWS_SYSTEM_PROMPT,
+                     "cache_control": {"type": "ephemeral"}}],
+            messages=[{"role": "user", "content":
+                       f"'{stock_name}' 관련 최근 뉴스 제목 목록입니다:\n\n{news_text}"}],
         )
         content = message.content[0].text
-        # 마크다운 코드블록 제거
         content = re.sub(r'```(?:json)?\s*', '', content).strip()
         json_match = re.search(r'\{.*\}', content, re.DOTALL)
         if json_match:
@@ -167,8 +170,78 @@ def analyze_news_with_claude(stock_name: str, articles: list) -> dict:
     except Exception as e:
         print(f"  Claude 분석 실패: {e}")
 
-    return {"summary": "분석 실패", "sentiment": "중립", "key_points": [],
-            "risk_factors": [], "catalysts": [], "trading_signal": "관망", "news_impact_score": 0}
+    return {**_empty, "summary": "분석 실패"}
+
+
+BATCH_SIZE = 5
+
+_ANALYSIS_EMPTY: dict = {
+    "summary": "분석 불가", "sentiment": "중립", "key_points": [],
+    "risk_factors": [], "catalysts": [], "trading_signal": "관망",
+    "news_impact_score": 0, "price_direction": "중립",
+}
+
+_BATCH_SYSTEM_PROMPT = """당신은 한국 주식 시장 전문 애널리스트입니다.
+여러 종목의 뉴스를 분석해 각 종목별로 다음 필드를 포함한 JSON 객체를 마크다운 없이 순수 JSON만 출력하세요.
+종목명을 키로 하며, 각 값에는 아래 필드를 포함하세요:
+- summary: 2~3줄 요약
+- sentiment: "호재" | "중립" | "악재"
+- key_points: 핵심 포인트 2~3개 리스트
+- risk_factors: 리스크 요인 1~3개 리스트
+- catalysts: 주가 상승 촉매 1~3개 리스트
+- trading_signal: "매수관심" | "관망" | "주의"
+- news_impact_score: 0~100 숫자
+- price_direction: "상승" | "중립" | "하락" """
+
+
+def _normalize_key(s: str) -> str:
+    return s.strip().replace(" ", "").lower()
+
+
+def analyze_news_batch(stock_articles: list[tuple[str, list]]) -> dict[str, dict]:
+    """여러 종목 뉴스를 단일 Claude 호출로 일괄 분석.
+
+    Args:
+        stock_articles: [(stock_name, articles), ...] (최대 BATCH_SIZE개)
+    Returns:
+        {stock_name: analysis_dict}
+    """
+    if not stock_articles:
+        return {}
+
+    sections = []
+    for stock_name, articles in stock_articles:
+        lines = "\n".join(
+            f"- [{a['date']}] {a['title']} ({a['source']})"
+            for a in articles[:10]
+        )
+        sections.append(f"[{stock_name}]\n{lines}" if lines else f"[{stock_name}]\n- 뉴스 없음")
+
+    user_content = "아래 각 종목의 최근 뉴스를 분석해주세요.\n\n" + "\n\n".join(sections)
+
+    try:
+        message = _anthropic_client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=4000,
+            system=[{"type": "text", "text": _BATCH_SYSTEM_PROMPT,
+                     "cache_control": {"type": "ephemeral"}}],
+            messages=[{"role": "user", "content": user_content}],
+        )
+        content = message.content[0].text
+        content = re.sub(r'```(?:json)?\s*', '', content).strip()
+        json_match = re.search(r'\{.*\}', content, re.DOTALL)
+        if json_match:
+            parsed = json.loads(json_match.group())
+            if isinstance(parsed, dict):
+                normalized = {_normalize_key(k): v for k, v in parsed.items()}
+                return {
+                    name: normalized.get(_normalize_key(name), {**_ANALYSIS_EMPTY})
+                    for name, _ in stock_articles
+                }
+    except Exception as e:
+        print(f"  Claude 배치 분석 실패: {e}")
+
+    return {name: {**_ANALYSIS_EMPTY, "summary": "분석 실패"} for name, _ in stock_articles}
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

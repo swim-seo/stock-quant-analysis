@@ -285,9 +285,12 @@ def analyze_with_claude(title: str, transcript: str, channel: str, trading_focus
 
 JSON만 출력하세요."""
 
+    _SYSTEM = "당신은 주식/투자 전문 분석가입니다. 영상 스크립트를 분석해 JSON만 출력하세요."
     message = claude.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=2048,
+        system=[{"type": "text", "text": _SYSTEM,
+                 "cache_control": {"type": "ephemeral"}}],
         messages=[{"role": "user", "content": prompt}],
     )
 

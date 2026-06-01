@@ -285,9 +285,12 @@ def extract_themes_with_claude(
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
     prompt = _build_prompt(headlines, yt_items, today_str)
 
+    _SYSTEM = "당신은 한국 주식 시장 테마 분석 전문가입니다. 뉴스와 유튜브 데이터를 분석해 JSON 배열만 출력하세요."
     message = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=8192,
+        max_tokens=4096,
+        system=[{"type": "text", "text": _SYSTEM,
+                 "cache_control": {"type": "ephemeral"}}],
         messages=[{"role": "user", "content": prompt}],
     )
 

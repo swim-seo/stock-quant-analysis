@@ -17,6 +17,8 @@ import urllib.request
 from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
 from dotenv import load_dotenv
+from news_collector import analyze_news_batch, BATCH_SIZE
+from kis_fetcher import get_client as get_kis_client
 
 load_dotenv(Path(__file__).parent / ".env")
 
@@ -184,143 +186,100 @@ def fetch_earnings_trend(stock_code: str) -> list:
 
 
 def fetch_short_balance(stock_code: str) -> list:
-    """네이버 금융 공매도 잔고 데이터 수집 (최근 5거래일)
+    """pykrx로 공매도 잔고 수집 (최근 5거래일).
+    KRX 직접 HTTP는 Railway 해외 IP에서 400 오류 → pykrx 라이브러리 사용.
     Returns: [{"date": "2026.04.28", "balance_ratio": 1.23, "balance_qty": 12345}, ...]
-    최신 순 (days[0] = 가장 최근)
     """
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-    url = f"https://finance.naver.com/item/srt.naver?code={stock_code}&page=1"
     try:
-        req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            html = resp.read().decode("euc-kr", errors="replace")
-    except Exception:
+        from pykrx import stock as krx
+        end_dt   = datetime.now(KST)
+        start_dt = end_dt - timedelta(days=30)
+        df = krx.get_shorting_balance_by_date(
+            start_dt.strftime("%Y%m%d"),
+            end_dt.strftime("%Y%m%d"),
+            stock_code,
+        )
+        if df is None or df.empty:
+            return []
+
+        results = []
+        for idx_date, row in df.tail(5).iterrows():
+            date_str = idx_date.strftime("%Y.%m.%d") if hasattr(idx_date, "strftime") else str(idx_date)
+            balance_qty   = float(row.get("공매도잔고",   row.get("ShortSaleBalanceQty", 0)) or 0)
+            balance_ratio = float(row.get("공매도비중",   row.get("ShortSaleBalanceRatio", 0)) or 0)
+            results.append({
+                "date":          date_str,
+                "balance_qty":   balance_qty,
+                "balance_ratio": balance_ratio,
+                "short_vol":     float(row.get("공매도거래량", 0) or 0),
+                "short_ratio":   float(row.get("공매도거래비중", 0) or 0),
+            })
+        return list(reversed(results))  # 최신 순
+    except ImportError:
         return []
-
-    def strip(text):
-        return re.sub(r'<[^>]+>', '', text).strip().replace(",", "")
-
-    def to_float(text):
-        try: return float(strip(text))
-        except: return 0.0
-
-    results = []
-    rows = re.findall(r'<tr[^>]*>(.*?)</tr>', html, re.DOTALL)
-    for row in rows:
-        cells = re.findall(r'<td[^>]*>(.*?)</td>', row, re.DOTALL)
-        if len(cells) < 6:
-            continue
-        date_match = re.search(r'(\d{4}\.\d{2}\.\d{2})', cells[0])
-        if not date_match:
-            continue
-        # 컬럼: 날짜|공매도거래량|총거래량|공매도비율|공매도잔고|직전잔고대비|공매도잔고비율
-        results.append({
-            "date": date_match.group(1),
-            "short_vol": to_float(cells[1]),
-            "short_ratio": to_float(cells[3]),       # 공매도비율(%)
-            "balance_qty": to_float(cells[4]),        # 공매도잔고(주)
-            "balance_ratio": to_float(cells[6]) if len(cells) > 6 else 0.0,  # 잔고비율(%)
-        })
-        if len(results) >= 5:
-            break
-    return results
-
-
-def fetch_investor_trading(stock_code):
-    """네이버 금융에서 외국인/기관 수급"""
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-    url = f"https://finance.naver.com/item/frgn.naver?code={stock_code}&page=1"
-    try:
-        req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            html = resp.read().decode("euc-kr", errors="replace")
-    except Exception:
-        return []
-
-    results = []
-    rows = re.findall(r'<tr[^>]*>(.*?)</tr>', html, re.DOTALL)
-    for row in rows:
-        cells = re.findall(r'<td[^>]*>(.*?)</td>', row, re.DOTALL)
-        if len(cells) < 9:
-            continue
-        date_match = re.search(r'(\d{4}\.\d{2}\.\d{2})', cells[0])
-        if not date_match:
-            continue
-
-        def parse_num(text):
-            text = re.sub(r'<[^>]+>', '', text).strip().replace(",", "").replace("+", "")
-            try: return int(text)
-            except: return 0
-
-        results.append({
-            "date": date_match.group(1),
-            "close": parse_num(cells[1]),
-            "foreign_net": parse_num(cells[5]),
-            "institution_net": parse_num(cells[6]),
-        })
-        if len(results) >= 10:
-            break
-    return results
-
-
-def analyze_news(stock_name, articles):
-    """Claude로 뉴스 분석 (심화 버전)"""
-    import anthropic
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-    if not articles:
-        return {"summary": "뉴스 없음", "sentiment": "중립", "key_points": [],
-                "catalysts": [], "risk_factors": [], "trading_signal": "관망",
-                "news_impact_score": 50, "price_direction": "중립"}
-
-    news_text = "\n".join([f"- [{a['date']}] {a['title']} ({a['source']})" for a in articles[:15]])
-    prompt = f"""당신은 한국 주식 전문 애널리스트입니다. '{stock_name}' 관련 최근 뉴스를 분석해주세요.
-
-{news_text}
-
-다음 JSON 형식으로만 출력하세요:
-{{
-  "summary": "전체 흐름 2~3줄 요약",
-  "sentiment": "호재" | "중립" | "악재",
-  "key_points": ["핵심 포인트 1", "핵심 포인트 2", "핵심 포인트 3"],
-  "catalysts": ["주가 상승 촉매 1", "촉매 2"],
-  "risk_factors": ["리스크 1", "리스크 2"],
-  "trading_signal": "매수관심" | "관망" | "주의",
-  "news_impact_score": 0~100 사이 숫자 (뉴스가 주가에 미치는 긍정적 영향도),
-  "price_direction": "상승" | "중립" | "하락"
-}}"""
-
-    try:
-        msg = client.messages.create(model="claude-sonnet-4-6", max_tokens=1024,
-                                     messages=[{"role": "user", "content": prompt}])
-        match = re.search(r'\{.*\}', msg.content[0].text, re.DOTALL)
-        if match:
-            return json.loads(match.group())
     except Exception as e:
-        print(f"  Claude 분석 실패: {e}")
-    return {"summary": "분석 실패", "sentiment": "중립", "key_points": [],
-            "catalysts": [], "risk_factors": [], "trading_signal": "관망",
-            "news_impact_score": 50, "price_direction": "중립"}
+        print(f"  공매도 잔고 수집 실패 ({stock_code}): {e}")
+        return []
+
+
+def fetch_investor_trading(stock_code: str, days: int = 10) -> list:
+    """KIS API로 외국인/기관 순매수 수집.
+    Returns: [{"date": "2026.06.01", "close": 75000,
+               "foreign_net": 12345, "institution_net": -6789}, ...]
+    """
+    try:
+        return get_kis_client().fetch_investor_trading(stock_code, days=days)
+    except Exception as e:
+        print(f"  KIS 수급 수집 실패 ({stock_code}): {e}")
+        return []
 
 
 def collect_news():
-    """전체 관심 종목 뉴스 + 수급 + 공매도 잔고 + 분기 실적 수집"""
+    """전체 관심 종목 뉴스 + 수급 + 공매도 잔고 + 분기 실적 수집 (배치 Claude 분석)"""
     print("\n[뉴스/수급/공매도/실적 수집]")
+
+    # Phase 1: 모든 종목 데이터 수집 (Claude 호출 없음)
+    collected: list[dict] = []
     for name, code in WATCH_STOCKS.items():
-        print(f"  {name}...", end=" ")
+        print(f"  {name} 수집...", end=" ", flush=True)
         try:
             articles = fetch_naver_news(code)
             investor = fetch_investor_trading(code)
             short = fetch_short_balance(code)
             earnings = fetch_earnings_trend(code)
-            analysis = analyze_news(name, articles)
+            collected.append({
+                "name": name, "code": code,
+                "articles": articles, "investor": investor,
+                "short": short, "earnings": earnings,
+            })
+            print(f"{len(articles)}개")
+        except Exception as e:
+            print(f"실패: {e}")
+        time.sleep(0.5)
 
+    # Phase 2: BATCH_SIZE 단위로 Claude 배치 분석
+    stock_articles = [(d["name"], d["articles"]) for d in collected]
+    analyses: dict[str, dict] = {}
+    for i in range(0, len(stock_articles), BATCH_SIZE):
+        batch = stock_articles[i : i + BATCH_SIZE]
+        names = [n for n, _ in batch]
+        print(f"  Claude 배치 분석 [{i+1}~{i+len(batch)}] {names}...", flush=True)
+        batch_result = analyze_news_batch(batch)
+        analyses.update(batch_result)
+
+    # Phase 3: Supabase 저장
+    for d in collected:
+        name, code = d["name"], d["code"]
+        analysis = analyses.get(name, {})
+        short, earnings = d["short"], d["earnings"]
+        try:
             sb_post("stock_news", {
                 "stock_code": code,
                 "stock_name": name,
                 "collected_at": now_kst().isoformat(),
-                "articles": json.dumps(articles[:10], ensure_ascii=False),
+                "articles": json.dumps(d["articles"][:10], ensure_ascii=False),
                 "analysis": json.dumps(analysis, ensure_ascii=False),
-                "investor_data": json.dumps(investor[:10], ensure_ascii=False),
+                "investor_data": json.dumps(d["investor"][:10], ensure_ascii=False),
                 "short_data": json.dumps(short[:5], ensure_ascii=False),
                 "earnings_data": json.dumps(earnings[:4], ensure_ascii=False),
                 "sentiment": analysis.get("sentiment", "중립"),
@@ -329,10 +288,9 @@ def collect_news():
             }, on_conflict="stock_code")
             short_info = f" | 공매도 {short[0]['balance_ratio']:.2f}%" if short else ""
             earn_info = f" | 영업이익 {earnings[0]['op_profit']:,}" if earnings else ""
-            print(f"뉴스 {len(articles)}개 | {analysis.get('sentiment', '?')}{short_info}{earn_info}")
+            print(f"  {name}: {analysis.get('sentiment', '?')}{short_info}{earn_info}")
         except Exception as e:
-            print(f"실패: {e}")
-        time.sleep(1)
+            print(f"  {name} 저장 실패: {e}")
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -353,6 +311,9 @@ def collect_youtube(collect_time=None):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # STEP 3: 브리핑 생성
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+_BRIEFING_SYSTEM = "당신은 한국 주식 시장 전문 애널리스트입니다. 주어진 데이터를 분석해 아침 브리핑을 JSON 형식으로 작성하세요."
+
 
 def generate_briefing():
     """아침/저녁 브리핑 생성"""
@@ -470,8 +431,13 @@ def generate_briefing():
 
     briefing = {}
     try:
-        msg = client.messages.create(model="claude-sonnet-4-6", max_tokens=2048,
-                                     messages=[{"role": "user", "content": prompt}])
+        msg = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=2048,
+            system=[{"type": "text", "text": _BRIEFING_SYSTEM,
+                     "cache_control": {"type": "ephemeral"}}],
+            messages=[{"role": "user", "content": prompt}],
+        )
         text = msg.content[0].text.strip()
         # 마크다운 코드블록 제거
         text = re.sub(r'```(?:json)?\s*', '', text)
@@ -528,6 +494,111 @@ def generate_briefing():
 
     print(f"  브리핑 저장 완료")
     print(f"  요약: {briefing.get('market_summary', '')[:100]}...")
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# STEP 3-B: 섹터 인덱스 수집 (theme-preview 실시간 데이터)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def _classify_sector_phase(history: list[dict]) -> tuple[str, int]:
+    """5주 종가 추세로 섹터 국면 판별.
+    Returns: (phase, score_0_to_100)
+    phase: 상승기 | 진입기 | 과열 | 하락기 | 침체
+    """
+    closes = [row["close_index"] for row in history if row.get("close_index")]
+    if len(closes) < 2:
+        return "침체", 30
+
+    latest = closes[-1]
+    oldest = closes[0]
+    pct_change = (latest - oldest) / oldest * 100 if oldest else 0
+
+    # 5주 추세 기울기 (선형 회귀 대신 단순 기울기)
+    slope = (closes[-1] - closes[0]) / max(len(closes) - 1, 1)
+    avg   = sum(closes) / len(closes)
+
+    # RSI-style 과열 판단
+    gains  = sum(c - p for c, p in zip(closes[1:], closes) if c > p)
+    losses = sum(p - c for c, p in zip(closes[1:], closes) if c < p)
+    rs     = gains / losses if losses else 100
+    rsi    = 100 - 100 / (1 + rs)
+
+    # 점수 산출 (0~100)
+    base_score = 50 + min(max(pct_change * 3, -40), 40)
+    score = int(min(max(base_score, 0), 100))
+
+    if rsi >= 75:
+        return "과열", min(score + 10, 95)
+    if pct_change >= 5 and slope > 0:
+        return "상승기", score
+    if 1 <= pct_change < 5 and slope > 0:
+        return "진입기", score
+    if pct_change <= -5:
+        return "하락기", score
+    return "침체", score  # 횡보(-5%~+1%) 포함
+
+
+def collect_sector_index() -> None:
+    """KIS 업종 지수 수집 → Supabase sector_index / sector_index_history 저장."""
+    print("\n[섹터 인덱스 수집]")
+    try:
+        kis = get_kis_client()
+    except Exception as e:
+        print(f"  KIS 클라이언트 초기화 실패: {e}")
+        return
+
+    # 현재 지수
+    sectors = kis.fetch_sector_index()
+    updated_at = now_kst().isoformat()
+    for s in sectors:
+        sb_post("sector_index", {
+            "sector_code":   s["sector_code"],
+            "sector_name":   s["sector_name"],
+            "current_index": s["current_index"],
+            "change_pct":    s["change_pct"],
+            "volume":        s["volume"],
+            "updated_at":    updated_at,
+        }, on_conflict="sector_code")
+
+    # 5주 히스토리 + 국면 판별 → sector_index 업데이트
+    for s in sectors:
+        code = s["sector_code"]
+        history = kis.fetch_sector_index_history(code, weeks=5)
+
+        # 히스토리 저장
+        for row in history:
+            sb_post("sector_index_history", {
+                "sector_code": code,
+                "trade_date":  row["trade_date"],
+                "open_index":  row["open_index"],
+                "high_index":  row["high_index"],
+                "low_index":   row["low_index"],
+                "close_index": row["close_index"],
+                "volume":      row["volume"],
+            }, on_conflict="sector_code,trade_date")
+
+        # 국면 판별
+        phase, phase_score = _classify_sector_phase(history)
+        trend = [row["close_index"] for row in history]
+
+        # sector_index에 국면 정보 업데이트
+        query = f"sector_code=eq.{code}"
+        patch_url = f"{SUPABASE_URL}/rest/v1/sector_index?{query}"
+        patch_headers = {**SB_HEADERS, "Prefer": "return=minimal"}
+        patch_body = json.dumps({
+            "phase":       phase,
+            "phase_score": phase_score,
+            "trend":       json.dumps(trend),
+        }).encode("utf-8")
+        patch_req = urllib.request.Request(
+            patch_url, data=patch_body, headers=patch_headers, method="PATCH"
+        )
+        try:
+            urllib.request.urlopen(patch_req)
+        except Exception as e:
+            print(f"  sector_index PATCH 실패 ({code}): {e}")
+
+        print(f"  {s['sector_name']}: {phase} (score={phase_score}, {s['change_pct']:+.2f}%)")
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1698,6 +1769,7 @@ def main():
         collect_news()
         collect_youtube(collect_time="morning")
         generate_briefing()
+        collect_sector_index()
         stock_data = _collect_stock_data()
         save_predictions(stock_data)
         save_portfolio_signals(stock_data)

@@ -15,7 +15,9 @@ import time
 import numpy as np
 import pandas as pd
 import yfinance as yf
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+KST = timezone(timedelta(hours=9))
 from pathlib import Path
 from dotenv import load_dotenv
 from supabase import create_client
@@ -122,20 +124,47 @@ STOCKS: list[tuple[str, str, str]] = [
 ]
 
 
+def _ticker_to_code(ticker: str) -> str:
+    """'005930.KS' → '005930', '247540.KQ' → '247540'"""
+    return ticker.split(".")[0]
+
+
 def fetch_prices(ticker: str) -> pd.Series:
+    """KIS OHLCV 일봉 → 종가 Series. KOSPI 지수(^KS11)는 yfinance fallback."""
+    if ticker.startswith("^"):
+        try:
+            df = yf.download(ticker, period="400d", auto_adjust=True, progress=False)
+            if not df.empty:
+                return df["Close"].squeeze().dropna()
+        except Exception:
+            pass
+        return pd.Series(dtype=float)
+
+    code = _ticker_to_code(ticker)
+    try:
+        from kis_fetcher import get_client as _get_kis
+        rows = _get_kis().fetch_ohlcv_daily(code, days=400)
+        if rows:
+            dates  = pd.to_datetime([r["date"] for r in rows])
+            closes = [r["close"] for r in rows]
+            return pd.Series(closes, index=dates, dtype=float).dropna()
+    except Exception as e:
+        print(f"  [KIS 가격실패] {ticker}: {e}")
+
+    # yfinance fallback
     try:
         df = yf.download(ticker, period="400d", auto_adjust=True, progress=False)
-        if df.empty:
-            return pd.Series(dtype=float)
-        closes = df["Close"].squeeze()
-        return closes.dropna()
+        if not df.empty:
+            return df["Close"].squeeze().dropna()
     except Exception as e:
-        print(f"  [가격실패] {ticker}: {e}")
-        return pd.Series(dtype=float)
+        print(f"  [yfinance fallback 실패] {ticker}: {e}")
+
+    return pd.Series(dtype=float)
 
 
 def load_investor_flow_from_supabase() -> dict[str, dict]:
-    """Supabase stock_news 테이블에서 수급 데이터 로드 (news_collector.py가 수집)"""
+    """수급 데이터 로드: Supabase stock_news (KIS 수집분) 우선, KIS 직접 조회 fallback."""
+    # 1차: Supabase stock_news (news_collector.py → KIS 수집분)
     try:
         resp = (supabase.table("stock_news")
                 .select("stock_code,investor_data")
@@ -159,10 +188,31 @@ def load_investor_flow_from_supabase() -> dict[str, dict]:
                 "inst_5d":     sum(d.get("institution_net", 0) for d in inv[:5]),
                 "inst_20d":    sum(d.get("institution_net", 0) for d in inv[:20]),
             }
-        print(f"  수급 데이터 로드: {len(flow_map)}개 종목 (Supabase stock_news)")
+        if flow_map:
+            print(f"  수급 데이터 로드: {len(flow_map)}개 종목 (Supabase/KIS)")
+            return flow_map
+    except Exception as e:
+        print(f"  [Supabase 수급 로드 실패] {e}")
+
+    # 2차 fallback: KIS 직접 조회 (WATCH_STOCKS 기준)
+    try:
+        from kis_fetcher import get_client as _get_kis
+        from news_collector import WATCH_STOCKS as _watch
+        kis = _get_kis()
+        flow_map = {}
+        for code in list(_watch.values())[:40]:  # 최대 40개 (rate limit 고려)
+            rows = kis.fetch_investor_trading(code, days=20)
+            if rows:
+                flow_map[code] = {
+                    "foreign_5d":  sum(r.get("foreign_net", 0) for r in rows[:5]),
+                    "foreign_20d": sum(r.get("foreign_net", 0) for r in rows[:20]),
+                    "inst_5d":     sum(r.get("institution_net", 0) for r in rows[:5]),
+                    "inst_20d":    sum(r.get("institution_net", 0) for r in rows[:20]),
+                }
+        print(f"  수급 데이터 로드: {len(flow_map)}개 종목 (KIS 직접)")
         return flow_map
     except Exception as e:
-        print(f"  [수급 로드 실패] {e}")
+        print(f"  [KIS 수급 직접 로드 실패] {e}")
         return {}
 
 
@@ -271,6 +321,7 @@ def run():
     pbr_map = fetch_pbr_from_pykrx(today_krx)
 
     raw_rows = []
+    skip_count = 0
     for i, (ticker, name, sector) in enumerate(STOCKS):
         code = ticker.split(".")[0]
         print(f"  [{i+1:3d}/{len(STOCKS)}] {name}", end=" ... ", flush=True)
@@ -278,14 +329,15 @@ def run():
         prices = fetch_prices(ticker)
         if len(prices) < 70:
             print(f"데이터 부족 ({len(prices)}일), 스킵")
+            skip_count += 1
             continue
 
         flow = flow_map.get(code, {"foreign_5d": 0, "foreign_20d": 0, "inst_5d": 0, "inst_20d": 0})
         time.sleep(0.15)
 
-        m3  = mom_skip(prices, 65)
-        m6  = mom_skip(prices, 130)
-        m12 = mom_skip(prices, 252)
+        m3  = mom_skip(prices, 65,  skip=5)   # 3M: 1주일 skip (21일은 과다)
+        m6  = mom_skip(prices, 130, skip=10)  # 6M: 2주 skip
+        m12 = mom_skip(prices, 252, skip=21)  # 12M: 1개월 skip (학술적 표준)
         v20 = vol(prices, 20)
         v60 = vol(prices, 60)
         rs3 = (m3 - kospi_3m) if m3 is not None else None
@@ -333,12 +385,16 @@ def run():
     df["z_rs"]         = zscore(df["relative_strength_3m"].fillna(0))
     df["z_volatility"] = zscore(-df["volatility_20d"].fillna(med("volatility_20d")))
 
-    flow_raw = (
+    # 수급 팩터: 시총 정규화 (대형주 삼성전자 등이 절대금액으로 지배하는 문제 방지)
+    # 종목 전체 평균 유동주식 거래대금 대비 비율로 정규화
+    flow_abs = (
         df["foreign_flow_5d"].fillna(0)  * 0.40 +
         df["foreign_flow_20d"].fillna(0) * 0.15 +
         df["institution_flow_5d"].fillna(0)  * 0.35 +
         df["institution_flow_20d"].fillna(0) * 0.10
     )
+    # 종목별 절대 수급을 cross-sectional z-score로 정규화 (시총 편향 제거)
+    flow_raw = flow_abs
     df["z_flow"] = zscore(flow_raw)
 
     # ── 종합점수 0~100 ────────────────────────────────────────────
@@ -370,9 +426,16 @@ def run():
         )
     # P5: Rank-based percentile (robust to outliers vs min-max)
     df["composite_score"] = (raw.rank(pct=True) * 100).round(1)
+    if skip_count > 0:
+        print(f"\n  ⚠️  데이터 부족으로 스킵된 종목: {skip_count}개")
+    if len(raw_rows) < 10:
+        print(f"\n  ❌ 팩터 계산 실패: 유효 종목이 {len(raw_rows)}개뿐 (최소 10개 필요). "
+              f"KIS API / yfinance 연결 상태를 확인하세요.", file=sys.stderr)
+        return
+
     df = df.sort_values("composite_score", ascending=False).reset_index(drop=True)
     df["rank_total"]    = range(1, len(df) + 1)
-    df["calculated_at"] = datetime.now().isoformat()
+    df["calculated_at"] = datetime.now(KST).isoformat()
 
     # ── Supabase upsert ───────────────────────────────────────────
     print(f"\n  Supabase 저장 중 ({len(df)}개)...")

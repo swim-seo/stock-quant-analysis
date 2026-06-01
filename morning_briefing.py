@@ -172,10 +172,13 @@ def generate_briefing(market_data, youtube_insights, stock_news):
 
 JSON만 출력하세요."""
 
+    _SYSTEM = "당신은 한국 주식 시장 전문 애널리스트입니다. 주어진 데이터를 분석해 아침 브리핑을 JSON 형식으로 작성하세요."
     try:
         message = client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=2048,
+            system=[{"type": "text", "text": _SYSTEM,
+                     "cache_control": {"type": "ephemeral"}}],
             messages=[{"role": "user", "content": prompt}],
         )
         content = message.content[0].text
