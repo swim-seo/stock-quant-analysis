@@ -25,6 +25,8 @@ interface Position {
   news_score: number;
   yt_score: number;
   status: string;
+  max_price: number | null;
+  exit_label: string | null;   // '🟢 보유' | '⚠️ 촉매 약화' | '🔴 매도 신호' | '📉 고점 이탈' etc
 }
 
 interface Signal {
@@ -248,27 +250,55 @@ export default function SniperPage() {
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {positions.map(pos => {
-                  const holdDays = Math.floor((Date.now() - new Date(pos.entry_date).getTime()) / 86400000);
-                  const urgency = holdDays >= 2 ? "#f04452" : holdDays >= 1 ? "#f5a623" : "#00b493";
+                  const holdDays  = Math.floor((Date.now() - new Date(pos.entry_date).getTime()) / 86400000);
+                  const label     = pos.exit_label ?? "🟢 보유";
+                  const isSell    = ["🔴","🛑","📉","📰","⏰"].some(e => label.includes(e));
+                  const isWatch   = label.includes("⚠️");
+                  const cardBorder = isSell ? "2px solid #f04452" : isWatch ? "2px solid #f5a623" : "1.5px solid #e5e7eb";
+                  const cardBg     = isSell ? "#fff5f5" : isWatch ? "#fffbeb" : "#fff";
+
                   return (
-                    <div key={pos.id} style={{ background: "#fff", borderRadius: 16, padding: "18px 20px" }}>
+                    <div key={pos.id} style={{ background: cardBg, borderRadius: 16, padding: "18px 20px", border: cardBorder }}>
+                      {/* 매도 신호 배너 (강조) */}
+                      {isSell && (
+                        <div style={{ background: "#f04452", borderRadius: 8, padding: "8px 12px", marginBottom: 12,
+                          display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 14, fontWeight: 800, color: "#fff" }}>{label}</span>
+                          <span style={{ fontSize: 12, color: "rgba(255,255,255,0.85)" }}>— 매도를 검토하세요</span>
+                        </div>
+                      )}
+                      {isWatch && (
+                        <div style={{ background: "#f5a623", borderRadius: 8, padding: "6px 12px", marginBottom: 12,
+                          display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>{label}</span>
+                          <span style={{ fontSize: 12, color: "rgba(255,255,255,0.85)" }}>— 모니터링 필요</span>
+                        </div>
+                      )}
+
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
                         <div>
                           <span style={{ fontSize: 16, fontWeight: 700, color: "#191919" }}>{pos.stock_name}</span>
                           <span style={{ fontSize: 12, color: "#b0b8c1", marginLeft: 8 }}>{pos.stock_code}</span>
                         </div>
-                        <span style={{ fontSize: 12, fontWeight: 600, color: urgency, background: `${urgency}15`, padding: "2px 8px", borderRadius: 6 }}>
-                          D+{holdDays} {holdDays >= 2 ? "⚠️ 만기임박" : ""}
+                        <span style={{ fontSize: 12, fontWeight: 600, color: "#8b95a1", background: "#f2f4f6", padding: "3px 8px", borderRadius: 6 }}>
+                          D+{holdDays}
                         </span>
                       </div>
+
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, fontSize: 13 }}>
                         <div><p style={{ color: "#8b95a1", fontSize: 11 }}>진입가</p><p style={{ fontWeight: 700 }}>{pos.entry_price.toLocaleString()}원</p></div>
                         <div><p style={{ color: "#8b95a1", fontSize: 11 }}>보유 수량</p><p style={{ fontWeight: 700 }}>{pos.shares}주</p></div>
                         <div><p style={{ color: "#8b95a1", fontSize: 11 }}>투자금</p><p style={{ fontWeight: 700 }}>{fmtMoney(pos.cost)}원</p></div>
                       </div>
-                      <div style={{ marginTop: 12, padding: "10px 12px", background: "#f8f9fa", borderRadius: 10, fontSize: 12, color: "#8b95a1" }}>
-                        목표: +7% ({Math.round(pos.entry_price * 1.07).toLocaleString()}원) · 손절: -5% ({Math.round(pos.entry_price * 0.95).toLocaleString()}원)
+
+                      <div style={{ marginTop: 12, padding: "10px 12px", background: "rgba(0,0,0,0.04)", borderRadius: 10, fontSize: 12, color: "#8b95a1", display: "flex", justifyContent: "space-between" }}>
+                        <span>익절 목표: <b style={{ color: "#f04452" }}>+7% ({Math.round(pos.entry_price * 1.07).toLocaleString()}원)</b></span>
+                        <span>손절선: <b style={{ color: "#3182f6" }}>-5% ({Math.round(pos.entry_price * 0.95).toLocaleString()}원)</b></span>
+                        {pos.max_price && pos.max_price > pos.entry_price * 1.05 && (
+                          <span>트레일링: <b style={{ color: "#f5a623" }}>{Math.round(pos.max_price * 0.96).toLocaleString()}원</b></span>
+                        )}
                       </div>
+
                       <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
                         <div style={{ flex: 1, background: "#f0fdf4", borderRadius: 8, padding: "6px 10px", fontSize: 11, color: "#057a55" }}>
                           📰 뉴스 {(pos.news_score * 100).toFixed(0)}점

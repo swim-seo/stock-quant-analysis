@@ -346,20 +346,117 @@ def _get_current_price(stock_code: str) -> float | None:
         return None
 
 
+def _get_current_signals_map() -> dict[str, dict]:
+    """trade_signals에서 종목별 최신 신호 조회."""
+    rows = _sb_get(
+        "trade_signals",
+        "select=stock_name,signal,composite_score,tech_score,news_score,yt_score"
+        "&order=calculated_at.desc&limit=300",
+    )
+    seen: set[str] = set()
+    result: dict[str, dict] = {}
+    for r in rows:
+        name = r.get("stock_name", "")
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        result[name] = r
+    return result
+
+
+def _get_today_bad_news(today_str: str) -> set[str]:
+    """오늘 악재 뉴스가 나온 종목명 집합."""
+    rows = _sb_get(
+        "stock_news",
+        f"collected_at=gte.{today_str}T00:00:00"
+        f"&sentiment=eq.악재"
+        f"&select=stock_name",
+    )
+    return {r.get("stock_name", "") for r in rows}
+
+
+def _eval_exit(
+    pos: dict,
+    cur_price: float,
+    hold_days: int,
+    current_signal: dict | None,
+    today_bad_news: set[str],
+) -> tuple[str | None, str, str]:
+    """
+    매도 판단.
+    반환: (close_reason, exit_label, urgency)
+      close_reason: None이면 보유, 문자열이면 청산
+      exit_label: 웹 UI 표시용
+      urgency: 'sell_now' | 'watch' | 'hold'
+    """
+    name      = pos["stock_name"]
+    entry_p   = pos["entry_price"]
+    entry_sig = pos.get("signal_score", 0.5)  # 진입 시 신호 점수
+    max_price = pos.get("max_price") or cur_price  # 최고가 (트레일링용)
+
+    pnl_pct = (cur_price - entry_p) / entry_p * 100
+
+    # ── 하드 규칙 (즉시 청산) ──────────────────────────────────────────────
+    if pnl_pct >= TARGET_PROFIT * 100:
+        return f"익절 +{pnl_pct:.1f}%", "🎯 익절", "sell_now"
+
+    if pnl_pct <= STOP_LOSS * 100:
+        return f"손절 {pnl_pct:.1f}%", "🛑 손절", "sell_now"
+
+    # ── 트레일링 스탑: +5% 이상 올랐다가 고점 대비 -4% 하락 ─────────────
+    if max_price and max_price > entry_p * 1.05:
+        trail_stop = max_price * 0.96   # 고점 대비 -4%
+        if cur_price <= trail_stop:
+            return (
+                f"트레일링 청산 (고점 {max_price:,.0f}→현재 {cur_price:,.0f})",
+                "📉 고점 이탈",
+                "sell_now",
+            )
+
+    # ── 촉매 소멸: 진입 신호의 50% 미만으로 약해짐 ─────────────────────
+    if current_signal:
+        cur_score = (current_signal.get("tech_score") or 50) / 100
+        signal_dropped = cur_score < entry_sig * 0.5
+        is_sell_signal = current_signal.get("signal") == "SELL"
+
+        if is_sell_signal:
+            return (
+                f"신호 반전 SELL (현재 {cur_score:.2f})",
+                "🔴 매도 신호",
+                "sell_now",
+            )
+        if signal_dropped and hold_days >= 1:
+            return None, "⚠️ 촉매 약화", "watch"  # 경고만, 청산 안 함
+
+    # ── 오늘 악재 뉴스 ──────────────────────────────────────────────────
+    if name in today_bad_news and hold_days >= 1:
+        return f"악재 뉴스 + {hold_days}일 보유", "📰 악재", "sell_now"
+
+    # ── 만기 청산 (신호 약한 경우만) ────────────────────────────────────
+    if hold_days >= MAX_HOLD_DAYS:
+        cur_score = (current_signal.get("tech_score") or 50) / 100 if current_signal else 0.3
+        if cur_score < 0.55:  # 신호가 여전히 강하면 하루 더 보유
+            return f"만기 {hold_days}일 ({pnl_pct:+.1f}%)", "⏰ 만기", "sell_now"
+        return None, f"⏳ {hold_days}일 (신호 유지 중)", "watch"
+
+    return None, "🟢 보유", "hold"
+
+
 def manage_positions(period_label: str, dry_run: bool = False) -> None:
-    """보유 포지션 점검 → 익절/손절/만기 청산."""
+    """보유 포지션 점검 → 스마트 매도 판단 (촉매소멸/트레일링/신호반전)."""
     positions = get_current_positions(period_label)
     if not positions:
         print("  보유 포지션 없음")
         return
 
-    today = datetime.now(KST).date()
+    today     = datetime.now(KST).date()
+    today_str = today.isoformat()
     print(f"\n[포지션 관리] {len(positions)}개 보유 중")
 
     from railway_job import WATCH_STOCKS
-    name_to_code = {v: k for k, v in {n: c for n, c in WATCH_STOCKS.items()}.items()}
-    # name_to_code: stock_name → code
-    name_to_code = {name: code for name, code in WATCH_STOCKS.items()}
+    name_to_code    = {name: code for name, code in WATCH_STOCKS.items()}
+    signal_map      = _get_current_signals_map()
+    today_bad_news  = _get_today_bad_news(today_str)
 
     for pos in positions:
         name       = pos["stock_name"]
@@ -379,31 +476,45 @@ def manage_positions(period_label: str, dry_run: bool = False) -> None:
         pnl_pct = (cur_price - entry_p) / entry_p * 100
         pnl_amt = round((cur_price - entry_p) * shares)
 
-        # 청산 판단
-        reason = None
-        if pnl_pct >= TARGET_PROFIT * 100:
-            reason = f"익절 +{pnl_pct:.1f}%"
-        elif pnl_pct <= STOP_LOSS * 100:
-            reason = f"손절 {pnl_pct:.1f}%"
-        elif hold_days >= MAX_HOLD_DAYS:
-            reason = f"만기 {hold_days}일 ({pnl_pct:+.1f}%)"
+        # 최고가 갱신 (트레일링 스탑용)
+        prev_max   = pos.get("max_price") or cur_price
+        new_max    = max(float(prev_max), cur_price)
 
-        icon = "✅" if pnl_pct > 0 else "❌"
-        print(f"  {icon} {name}: 진입 {entry_p:,}원 → 현재 {cur_price:,}원 "
-              f"({pnl_pct:+.1f}%, {pnl_amt:+,}원, {hold_days}일 보유)"
-              + (f" → {reason}" if reason else ""))
+        # 매도 판단
+        cur_signal = signal_map.get(name)
+        close_reason, exit_label, urgency = _eval_exit(
+            pos, cur_price, hold_days, cur_signal, today_bad_news
+        )
 
-        if reason and not dry_run:
+        # 출력
+        icon = {"sell_now": "🔴", "watch": "🟡", "hold": "🟢"}[urgency]
+        print(f"  {icon} {name}: {entry_p:,}→{cur_price:,}원 "
+              f"({pnl_pct:+.1f}%, {pnl_amt:+,}원, {hold_days}일) {exit_label}"
+              + (f" → 청산" if close_reason else ""))
+
+        if close_reason and not dry_run:
             _sb_patch(
                 "sniper_positions",
                 {"id": pos["id"]},
                 {
                     "status":      "closed",
                     "exit_price":  cur_price,
-                    "exit_date":   today.isoformat(),
+                    "exit_date":   today_str,
                     "pnl_pct":     round(pnl_pct, 2),
                     "pnl_amount":  pnl_amt,
-                    "exit_reason": reason,
+                    "exit_reason": close_reason,
+                    "exit_label":  exit_label,
+                    "updated_at":  datetime.now(KST).isoformat(),
+                },
+            )
+        elif not dry_run:
+            # 최고가 및 현재 상태 업데이트 (청산 안 해도 매일 갱신)
+            _sb_patch(
+                "sniper_positions",
+                {"id": pos["id"]},
+                {
+                    "max_price":   new_max,
+                    "exit_label":  exit_label,
                     "updated_at":  datetime.now(KST).isoformat(),
                 },
             )

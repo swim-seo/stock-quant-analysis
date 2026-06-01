@@ -1,7 +1,7 @@
 -- 스나이퍼 포지션 추적 테이블
 CREATE TABLE IF NOT EXISTS sniper_positions (
     id           BIGSERIAL PRIMARY KEY,
-    period       TEXT NOT NULL,          -- '2026-06 스나이퍼 (6월25일~7월10일)'
+    period       TEXT NOT NULL,
     stock_name   TEXT NOT NULL,
     stock_code   TEXT NOT NULL,
     entry_date   DATE NOT NULL,
@@ -12,6 +12,8 @@ CREATE TABLE IF NOT EXISTS sniper_positions (
     signal_score NUMERIC,
     news_score   NUMERIC,
     yt_score     NUMERIC,
+    max_price    NUMERIC,               -- 보유 중 최고가 (트레일링 스탑용)
+    exit_label   TEXT,                  -- 현재 매도 신호: '🟢 보유' | '⚠️ 촉매 약화' | '🔴 매도 신호'
     exit_price   NUMERIC,
     exit_date    DATE,
     pnl_pct      NUMERIC,
