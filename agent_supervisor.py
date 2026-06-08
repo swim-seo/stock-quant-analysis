@@ -177,6 +177,8 @@ if __name__ == "__main__":
         run_step("뉴스 수집",            rj.collect_news)
         run_step("유튜브 수집(아침)",     lambda: rj.collect_youtube(collect_time="morning"))
         run_step("브리핑 생성",           rj.generate_briefing)
+        run_step("섹터 인덱스",           rj.collect_sector_index)
+        run_step("주가 DB 저장",          lambda: rj.collect_stock_prices(days=5))
 
         state = {"stock_data": {}}
         run_step("주가 수집",             lambda: state.update(stock_data=rj._collect_stock_data()))
@@ -184,7 +186,11 @@ if __name__ == "__main__":
         run_step("포트폴리오 신호",       lambda: rj.save_portfolio_signals(state["stock_data"]))
         run_step("수익률 업데이트",       rj.update_portfolio_returns)
         run_step("테마 스캐너",           rj._run_theme_scanner)
+        run_step("팩터 계산",             rj._run_factor_calculator)
+        run_step("신호 집계",             rj._run_signal_aggregator)
         run_step("일일 리포트",           rj.send_daily_report)
+        run_step("스나이퍼",              rj._run_sniper)
+        run_step("월간 에이전트",         rj._run_monthly_agent)
 
     elif mode == "afternoon":
         run_step("뉴스 수집(오후)",       rj.collect_news)
@@ -205,12 +211,16 @@ if __name__ == "__main__":
         run_step("뉴스 수집",             rj.collect_news)
         run_step("유튜브 수집",           rj.collect_youtube)
         run_step("브리핑 생성",           rj.generate_briefing)
+        run_step("섹터 인덱스",           rj.collect_sector_index)
+        run_step("주가 DB 저장",          lambda: rj.collect_stock_prices(days=5))
         state = {"stock_data": {}}
         run_step("주가 수집",             lambda: state.update(stock_data=rj._collect_stock_data()))
         run_step("예측 저장",             lambda: rj.save_predictions(state["stock_data"]))
         run_step("포트폴리오 신호",       lambda: rj.save_portfolio_signals(state["stock_data"]))
         run_step("수익률 업데이트",       rj.update_portfolio_returns)
         run_step("테마 스캐너",           rj._run_theme_scanner)
+        run_step("팩터 계산",             rj._run_factor_calculator)
+        run_step("신호 집계",             rj._run_signal_aggregator)
 
     print(f"\n{'='*50}")
     print(f"  AI Supervisor 완료 {datetime.now(KST).strftime('%H:%M:%S')}")

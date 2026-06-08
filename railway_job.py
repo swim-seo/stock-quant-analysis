@@ -1813,6 +1813,30 @@ def _run_signal_aggregator():
         print(traceback.format_exc())
 
 
+def _run_sniper():
+    try:
+        from monthly_sniper import run as run_sniper, is_sniper_period
+        if is_sniper_period():
+            print("\n[스나이퍼] 기간 활성 → 신호 스캔 + 진입")
+            run_sniper()
+        else:
+            print("\n[스나이퍼] 기간 외 → 스킵")
+    except Exception as e:
+        import traceback
+        print(f"  [스나이퍼 오류] {e}", file=sys.stderr)
+        print(traceback.format_exc(), file=sys.stderr)
+
+
+def _run_monthly_agent():
+    try:
+        from monthly_agent import run_monthly_agent
+        run_monthly_agent()
+    except Exception as e:
+        import traceback
+        print(f"  [월간에이전트 오류] {e}", file=sys.stderr)
+        print(traceback.format_exc(), file=sys.stderr)
+
+
 def main():
     global _DATE_OVERRIDE
     args = sys.argv[1:]
