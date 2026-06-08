@@ -21,6 +21,11 @@ export function UpdateButton({ compact = false }: { compact?: boolean }) {
     } catch {}
   }, []);
 
+  // 마운트 시 서버 상태 즉시 조회
+  useEffect(() => {
+    fetchStatus();
+  }, [fetchStatus]);
+
   // 실행 중이면 5초마다 폴링
   useEffect(() => {
     if (!status.running) return;
