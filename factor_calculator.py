@@ -322,48 +322,54 @@ def run():
 
     raw_rows = []
     skip_count = 0
+    error_count = 0
     for i, (ticker, name, sector) in enumerate(STOCKS):
         code = ticker.split(".")[0]
         print(f"  [{i+1:3d}/{len(STOCKS)}] {name}", end=" ... ", flush=True)
+        try:
+            prices = fetch_prices(ticker)
+            if len(prices) < 70:
+                print(f"데이터 부족 ({len(prices)}일), 스킵")
+                skip_count += 1
+                continue
 
-        prices = fetch_prices(ticker)
-        if len(prices) < 70:
-            print(f"데이터 부족 ({len(prices)}일), 스킵")
-            skip_count += 1
-            continue
+            flow = flow_map.get(code, {"foreign_5d": 0, "foreign_20d": 0, "inst_5d": 0, "inst_20d": 0})
 
-        flow = flow_map.get(code, {"foreign_5d": 0, "foreign_20d": 0, "inst_5d": 0, "inst_20d": 0})
-        time.sleep(0.15)
+            m3  = mom_skip(prices, 65,  skip=5)
+            m6  = mom_skip(prices, 130, skip=10)
+            m12 = mom_skip(prices, 252, skip=21)
+            v20 = vol(prices, 20)
+            v60 = vol(prices, 60)
+            rs3 = (m3 - kospi_3m) if m3 is not None else None
+            is_spec, spec_reason = detect_speculative(prices, v20)
+            if is_spec:
+                print(f"⚠️  투기주 감지: {name} ({spec_reason})")
 
-        m3  = mom_skip(prices, 65,  skip=5)   # 3M: 1주일 skip (21일은 과다)
-        m6  = mom_skip(prices, 130, skip=10)  # 6M: 2주 skip
-        m12 = mom_skip(prices, 252, skip=21)  # 12M: 1개월 skip (학술적 표준)
-        v20 = vol(prices, 20)
-        v60 = vol(prices, 60)
-        rs3 = (m3 - kospi_3m) if m3 is not None else None
-        is_spec, spec_reason = detect_speculative(prices, v20)
-        if is_spec:
-            print(f"⚠️  투기주 감지: {name} ({spec_reason})")
+            raw_rows.append({
+                "ticker":               ticker,
+                "stock_name":           name,
+                "sector":               sector,
+                "momentum_3m":          m3,
+                "momentum_6m":          m6,
+                "momentum_12m":         m12,
+                "relative_strength_3m": rs3,
+                "volatility_20d":       v20,
+                "volatility_60d":       v60,
+                "foreign_flow_5d":      flow["foreign_5d"],
+                "foreign_flow_20d":     flow["foreign_20d"],
+                "institution_flow_5d":  flow["inst_5d"],
+                "institution_flow_20d": flow["inst_20d"],
+                "pbr":                  pbr_map.get(code),
+                "is_speculative":       is_spec,
+                "speculative_reason":   spec_reason or None,
+            })
+            print(f"3M={( m3 or 0)*100:+.1f}%  RS={( rs3 or 0)*100:+.1f}%")
+        except Exception as e:
+            print(f"❌ 오류: {e}", file=sys.stderr)
+            error_count += 1
 
-        raw_rows.append({
-            "ticker":               ticker,
-            "stock_name":           name,
-            "sector":               sector,
-            "momentum_3m":          m3,
-            "momentum_6m":          m6,
-            "momentum_12m":         m12,
-            "relative_strength_3m": rs3,
-            "volatility_20d":       v20,
-            "volatility_60d":       v60,
-            "foreign_flow_5d":      flow["foreign_5d"],
-            "foreign_flow_20d":     flow["foreign_20d"],
-            "institution_flow_5d":  flow["inst_5d"],
-            "institution_flow_20d": flow["inst_20d"],
-            "pbr":                  pbr_map.get(code),
-            "is_speculative":       is_spec,
-            "speculative_reason":   spec_reason or None,
-        })
-        print(f"3M={( m3 or 0)*100:+.1f}%  RS={( rs3 or 0)*100:+.1f}%")
+    if error_count > 0:
+        print(f"\n  ⚠️  개별 종목 오류: {error_count}개 (계속 진행)", file=sys.stderr)
 
     if not raw_rows:
         print("계산된 종목 없음, 종료")
@@ -435,16 +441,22 @@ def run():
 
     df = df.sort_values("composite_score", ascending=False).reset_index(drop=True)
     df["rank_total"]    = range(1, len(df) + 1)
-    df["calculated_at"] = datetime.now(KST).isoformat()
+    df["calculated_at"] = datetime.now(timezone.utc).isoformat()
 
     # ── Supabase upsert ───────────────────────────────────────────
     print(f"\n  Supabase 저장 중 ({len(df)}개)...")
+    records = []
     for _, row in df.iterrows():
         record = {k: (None if isinstance(v, float) and np.isnan(v) else
                       (int(v) if isinstance(v, (np.integer,)) else
                        (float(v) if isinstance(v, (np.floating,)) else v)))
                   for k, v in row.items()}
-        supabase.table("factor_scores").upsert(record, on_conflict="ticker").execute()
+        records.append(record)
+    try:
+        supabase.table("factor_scores").upsert(records, on_conflict="ticker").execute()
+        print(f"  저장 완료 ({len(records)}개)")
+    except Exception as e:
+        print(f"  [팩터 Supabase 저장 오류] {e}")
 
     print("\n  상위 15 종목:")
     print(f"  {'순위':>4} {'종목':12} {'섹터':10} {'종합':>6} {'3M':>7} {'RS':>7} {'변동성':>7}")

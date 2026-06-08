@@ -731,7 +731,14 @@ def sb_patch(table, match_params, data):
 
 
 def fetch_naver_closes(code: str, count: int = 90) -> list:
-    """네이버 fchart API로 일별 종가 리스트 반환 (오래된 순)"""
+    """종가 리스트 반환 (오래된 순). KIS 우선, Naver fchart fallback."""
+    try:
+        from kis_fetcher import get_client as _get_kis
+        rows = _get_kis().fetch_ohlcv_daily(code, days=count)
+        if rows:
+            return [r["close"] for r in rows]
+    except Exception:
+        pass
     closes, _ = fetch_naver_ohlcv(code, count)
     return closes
 
@@ -893,11 +900,15 @@ _market_filter_cache: dict = {}
 
 
 def _market_filter_score() -> float:
-    """KOSPI MA20 필터: 하락장이면 -1.0 패널티 (파이프라인 내 1회 캐시)"""
+    """KOSPI MA20 필터: 하락장이면 -1.0 패널티 (파이프라인 내 1회 캐시).
+    Supabase sector_index_history(0001=KOSPI) 사용 — fchart Naver 의존 제거."""
     if "score" in _market_filter_cache:
         return _market_filter_cache["score"]
     try:
-        closes, _ = fetch_naver_ohlcv("KOSPI", count=30)
+        rows = sb_get("sector_index_history",
+                      "sector_code=eq.0001&select=date,close_price"
+                      "&order=date.desc&limit=25")
+        closes = [r["close_price"] for r in rows if r.get("close_price")][::-1]
         if len(closes) < 20:
             score = 0.0
         else:
@@ -1197,19 +1208,37 @@ def _composite_score(tech: float, prob: float, news: float, yt: float,
 
 
 def _collect_stock_data() -> dict:
-    """전 종목 OHLCV 수집 (파이프라인 내 한 번만 호출)
+    """전 종목 OHLCV 수집 (파이프라인 내 한 번만 호출). KIS 우선, Naver fallback.
     Returns: {종목명: (closes, volumes)}
     """
-    print("  [OHLCV 수집] 전 종목...")
+    print("  [OHLCV 수집] 전 종목 (KIS)...")
+    try:
+        from kis_fetcher import get_client as _get_kis
+        kis = _get_kis()
+        _use_kis = True
+    except Exception:
+        _use_kis = False
+
     stock_data: dict = {}
     for name, code in WATCH_STOCKS.items():
         try:
+            if _use_kis:
+                rows = kis.fetch_ohlcv_daily(code, days=260)
+                if rows:
+                    stock_data[name] = (
+                        [r["close"] for r in rows],
+                        [r["volume"] for r in rows],
+                    )
+                    continue
+            # Naver fallback
             closes, volumes = fetch_naver_ohlcv(code, count=260)
             if closes:
                 stock_data[name] = (closes, volumes)
         except Exception:
             pass
-        time.sleep(0.3)
+        # KIS 내부에서 rate-limit(0.06s) 처리, Naver fallback 시에만 sleep 필요
+        if not _use_kis:
+            time.sleep(0.3)
     print(f"  [OHLCV 수집] {len(stock_data)}/{len(WATCH_STOCKS)}종목 완료")
     return stock_data
 
@@ -1769,7 +1798,9 @@ def _run_factor_calculator():
         from factor_calculator import run as factor_run
         factor_run()
     except Exception as e:
-        print(f"  [팩터 계산 오류] {e}", file=sys.stderr)
+        import traceback
+        print(f"  [팩터 계산 오류] {e}")
+        print(traceback.format_exc())
 
 
 def _run_signal_aggregator():
@@ -1777,7 +1808,9 @@ def _run_signal_aggregator():
         from signal_aggregator import run as signal_run
         signal_run()
     except Exception as e:
-        print(f"  [신호 집계 오류] {e}", file=sys.stderr)
+        import traceback
+        print(f"  [신호 집계 오류] {e}")
+        print(traceback.format_exc())
 
 
 def main():
@@ -1821,6 +1854,13 @@ def main():
         _run_factor_calculator()
         _run_signal_aggregator()
         send_daily_report()
+        try:
+            from monthly_sniper import run as run_sniper, is_sniper_period
+            if is_sniper_period():
+                print("\n[스나이퍼] 기간 활성 → 신호 스캔 + 진입")
+                run_sniper()
+        except Exception as e:
+            print(f"  [스나이퍼 오류] {e}", file=sys.stderr)
         try:
             from monthly_agent import run_monthly_agent
             run_monthly_agent()
