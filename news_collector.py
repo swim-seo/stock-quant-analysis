@@ -72,11 +72,17 @@ def fetch_naver_news(stock_code: str, max_pages: int = 2) -> list:
                 date_fmt = f"{dt[:4]}.{dt[4:6]}.{dt[6:8]}" if len(dt) >= 8 else dt
                 office_id = item.get("officeId", "")
                 article_id = item.get("articleId", "")
+                desc = (
+                    item.get("description") or
+                    item.get("summary") or
+                    item.get("content") or ""
+                ).replace("&quot;", '"')[:200]
                 article = {
                     "title": item.get("title", "").replace("&quot;", '"'),
                     "url": f"https://n.news.naver.com/mnews/article/{office_id}/{article_id}",
                     "date": date_fmt,
                     "source": item.get("officeName", ""),
+                    "description": desc,
                 }
                 articles.append(article)
 
@@ -146,7 +152,8 @@ _NEWS_SYSTEM_PROMPT = """당신은 한국 주식 시장 전문 애널리스트�
 - trading_signal: "매수관심" | "관망" | "주의"
 - news_impact_score: 0~100 숫자 (100이 가장 강한 영향)
 - price_direction: "상승" | "중립" | "하락"
-- analyst_targets: 뉴스에서 발견된 증권사 목표주가 리스트 (없으면 빈 배열 [])
+- analyst_targets: 뉴스 제목/요약에서 발견된 증권사 목표주가 리스트 (없으면 빈 배열 [])
+  패턴 예: "XX증권 목표가 N만원 상향", "TP N원", "목표주가 N원→N원" 등
   각 항목: {"firm": "증권사명", "target_price": 숫자(원 단위 정수), "direction": "상향"|"하향"|"유지"|"신규", "rating": "BUY"|"HOLD"|"SELL"|""} """
 
 
@@ -160,10 +167,13 @@ def analyze_news_with_claude(stock_name: str, articles: list) -> dict:
     if not articles:
         return _empty
 
-    news_text = "\n".join([
-        f"- [{a['date']}] {a['title']} ({a['source']})"
-        for a in articles[:15]
-    ])
+    lines = []
+    for a in articles[:15]:
+        line = f"- [{a['date']}] {a['title']} ({a['source']})"
+        if a.get("description"):
+            line += f"\n  요약: {a['description']}"
+        lines.append(line)
+    news_text = "\n".join(lines)
 
     try:
         message = _anthropic_client.messages.create(
@@ -204,7 +214,8 @@ _BATCH_SYSTEM_PROMPT = """당신은 한국 주식 시장 전문 애널리스트�
 - trading_signal: "매수관심" | "관망" | "주의"
 - news_impact_score: 0~100 숫자
 - price_direction: "상승" | "중립" | "하락"
-- analyst_targets: 뉴스에서 발견된 증권사 목표주가 리스트 (없으면 빈 배열 [])
+- analyst_targets: 뉴스 제목/요약에서 발견된 증권사 목표주가 리스트 (없으면 빈 배열 [])
+  패턴 예: "XX증권 목표가 N만원 상향", "TP N원", "목표주가 N원→N원" 등
   각 항목: {"firm": "증권사명", "target_price": 숫자(원 단위 정수), "direction": "상향"|"하향"|"유지"|"신규", "rating": "BUY"|"HOLD"|"SELL"|""} """
 
 
@@ -225,11 +236,14 @@ def analyze_news_batch(stock_articles: list[tuple[str, list]]) -> dict[str, dict
 
     sections = []
     for stock_name, articles in stock_articles:
-        lines = "\n".join(
-            f"- [{a['date']}] {a['title']} ({a['source']})"
-            for a in articles[:10]
-        )
-        sections.append(f"[{stock_name}]\n{lines}" if lines else f"[{stock_name}]\n- 뉴스 없음")
+        item_lines = []
+        for a in articles[:10]:
+            line = f"- [{a['date']}] {a['title']} ({a['source']})"
+            if a.get("description"):
+                line += f"\n  요약: {a['description']}"
+            item_lines.append(line)
+        body = "\n".join(item_lines) if item_lines else "- 뉴스 없음"
+        sections.append(f"[{stock_name}]\n{body}")
 
     user_content = "아래 각 종목의 최근 뉴스를 분석해주세요.\n\n" + "\n\n".join(sections)
 

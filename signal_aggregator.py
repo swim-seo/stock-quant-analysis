@@ -1,14 +1,15 @@
 """
 signal_aggregator.py — 기술적 신호 + YouTube 인사이트 통합 매매 신호 계산
 
-Scoring weights (Codex review):
-  tech   40%  — MA alignment, RSI, MACD, volume
-  factor 25%  — factor_scores.composite_score
-  news   15%  — stock_news.sentiment / trading_signal
-  yt     20%  — youtube_insights (7d window), fallback=50 when no data
+2-stage model:
+  Stage 1 quality (40%): factor_scores.composite_score → tier A/B/C
+  Stage 2 timing (60%):
+    tech     50%  — MA alignment, RSI, MACD, volume
+    news     22%  — stock_news.sentiment / trading_signal / news_impact_score
+    yt       18%  — youtube_insights (7d window), fallback excluded when no data
+    analyst  10%  — analyst_targets recency×consensus×magnitude
 
-Signal agreement multiplier: 1.15x when tech and yt point same direction
-Market regime hysteresis: BEAR entry >60%, NEUTRAL re-entry <45%
+Market regime hysteresis: BEAR entry ≥3 signals, exit <2 signals
 """
 import json
 import math
@@ -245,6 +246,7 @@ def _calc_yt_score(
     mention_count = 0
     positive_count = 0
     negative_count = 0
+    neutral_count = 0
     key_signals: list[str] = []
     urgency_votes: dict[str, int] = {}
     type_votes: dict[str, int] = {}
@@ -288,6 +290,8 @@ def _calc_yt_score(
             positive_count += 1
         elif "부정" in str(sentiment):
             negative_count += 1
+        else:
+            neutral_count += 1
 
         # Extract investment_signals text
         inv_signals = row.get("investment_signals")
@@ -318,7 +322,8 @@ def _calc_yt_score(
     if mention_count == 0:
         return 50.0, 0, 0.5, [], None, None, True
 
-    total_sentiment = positive_count + negative_count
+    # 중립도 분모에 포함해야 실제 긍정 비율이 정확해짐
+    total_sentiment = positive_count + negative_count + neutral_count
     sentiment_ratio = positive_count / total_sentiment if total_sentiment > 0 else 0.5
 
     # Base score from sentiment
@@ -379,11 +384,19 @@ def _normalize_factor_score(raw: float, all_scores: list[float]) -> float:
 # ---------------------------------------------------------------------------
 
 _NEWS_SIGNAL_MAP = {
+    # Claude 실제 반환값 (news_collector 프롬프트 기준)
+    "매수관심": 78, "관망": 50, "주의": 22,
+    # 레거시 값 (구버전 데이터 호환)
     "강력매수": 90, "매수": 75, "약매수": 62,
     "중립": 50,
     "약매도": 38, "매도": 25, "강력매도": 10,
 }
-_NEWS_SENTIMENT_MAP = {"긍정": 70, "중립": 50, "부정": 30}
+_NEWS_SENTIMENT_MAP = {
+    # Claude 실제 반환값
+    "호재": 75, "중립": 50, "악재": 25,
+    # 레거시 값
+    "긍정": 70, "부정": 30,
+}
 
 
 def _load_investor_flow() -> dict[str, list[dict]]:
