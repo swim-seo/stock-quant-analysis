@@ -92,10 +92,35 @@ export async function GET(req: Request) {
 
     const hotsMap = new Map((newsToday || []).map(n => [n.stock_name, n]));
 
+    // 기준가 + 시작가 대비 수익률
+    const tickers = (signals || []).map(s => s.ticker as string).filter(Boolean);
+    const { data: priceRows } = await supabase
+      .from("stock_prices")
+      .select("ticker,trade_date,open,close")
+      .in("ticker", tickers)
+      .order("trade_date", { ascending: false })
+      .limit(tickers.length * 3);
+
+    type PriceInfo = { entry_price: number; open_price: number; open_change_pct: number | null; trade_date: string };
+    const priceMap: Record<string, PriceInfo> = {};
+    for (const pr of priceRows ?? []) {
+      const t = pr.ticker as string;
+      if (priceMap[t]) continue;
+      const open = pr.open as number | null;
+      const close = pr.close as number | null;
+      priceMap[t] = {
+        entry_price: close ?? 0,
+        open_price: open ?? 0,
+        open_change_pct: open && close ? ((close - open) / open) * 100 : null,
+        trade_date: pr.trade_date as string,
+      };
+    }
+
     const enriched = (signals || []).map(s => ({
       ...s,
       news_today: hotsMap.get(s.stock_name) ?? null,
       has_catalyst: hotsMap.has(s.stock_name),
+      ...(priceMap[s.ticker as string] ?? { entry_price: null, open_price: null, open_change_pct: null, trade_date: null }),
     }));
 
     return NextResponse.json({ summary, signals: enriched });

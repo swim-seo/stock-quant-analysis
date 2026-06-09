@@ -40,6 +40,10 @@ interface Signal {
   factor_score: number | null;
   has_catalyst: boolean;
   news_today: { sentiment: string; trading_signal: string; news_impact_score: number } | null;
+  entry_price: number | null;
+  open_price: number | null;
+  open_change_pct: number | null;
+  trade_date: string | null;
 }
 
 interface HistoryItem {
@@ -338,7 +342,22 @@ export default function SniperPage() {
                       {s.has_catalyst && <span style={{ fontSize: 11, background: "#fef2f2", color: "#c81e1e", padding: "2px 7px", borderRadius: 6, fontWeight: 600 }}>🔥 촉매</span>}
                       <span style={{ fontSize: 11, color: "#b0b8c1" }}>{s.sector}</span>
                     </div>
-                    <span style={{ fontSize: 15, fontWeight: 800, color: "#f04452" }}>{s.composite_score.toFixed(1)}</span>
+                    <div style={{ textAlign: "right" }}>
+                      <span style={{ fontSize: 15, fontWeight: 800, color: "#f04452" }}>{s.composite_score.toFixed(1)}</span>
+                      {s.entry_price ? (
+                        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", marginTop: 2 }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: "#191919" }}>{s.entry_price.toLocaleString()}원</span>
+                          {s.open_change_pct != null ? (
+                            <span style={{ fontSize: 11, fontWeight: 600,
+                              color: s.open_change_pct > 0 ? "#f04452" : s.open_change_pct < 0 ? "#3182f6" : "#8b95a1" }}>
+                              시작가대비 {s.open_change_pct > 0 ? "+" : ""}{s.open_change_pct.toFixed(2)}%
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: 11, color: "#b0b8c1" }}>시가 대기중</span>
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
                   {s.news_today && (
                     <div style={{ fontSize: 12, color: "#057a55", background: "#f0fdf4", padding: "6px 10px", borderRadius: 8, marginBottom: 8 }}>
