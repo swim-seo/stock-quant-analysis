@@ -24,6 +24,11 @@ interface TradeSignal {
   data_quality_score: number | null;
   yt_no_data: boolean;
   calculated_at: string;
+  // price fields from stock_prices
+  entry_price: number | null;
+  open_price: number | null;
+  open_change_pct: number | null;
+  trade_date: string | null;
 }
 
 const SECTORS = [
@@ -244,6 +249,7 @@ export default function SignalsPage() {
                     <SortTh col="sector" label="섹터" />
                     <SortTh col="composite_score" label="종합점수" />
                     <th style={{ padding: "10px 8px", fontSize: 12, color: "var(--text-2)", fontWeight: 500 }}>컴포넌트</th>
+                    <th style={{ padding: "10px 8px", fontSize: 12, color: "var(--text-2)", fontWeight: 500, whiteSpace: "nowrap" }}>기준가 / 시작가↔</th>
                     <SortTh col="signal_agreement" label="일치도" />
                     <SortTh col="yt_mentions" label="YT언급" />
                     <th style={{ padding: "10px 8px", fontSize: 12, color: "var(--text-2)", fontWeight: 500 }}>상세</th>
@@ -284,6 +290,27 @@ export default function SignalsPage() {
                             <ScoreBar value={row.news_score} label="뉴스" />
                           </div>
                         </td>
+                        <td style={{ padding: "10px 8px", whiteSpace: "nowrap" }}>
+                          {row.entry_price ? (
+                            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                              <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-1)" }}>
+                                {row.entry_price.toLocaleString()}원
+                              </span>
+                              {row.open_change_pct != null ? (
+                                <span style={{
+                                  fontSize: 12, fontWeight: 600,
+                                  color: row.open_change_pct > 0 ? "#e53935" : row.open_change_pct < 0 ? "#1565c0" : "#888",
+                                }}>
+                                  {row.open_change_pct > 0 ? "+" : ""}{row.open_change_pct.toFixed(2)}%
+                                </span>
+                              ) : (
+                                <span style={{ fontSize: 11, color: "#bbb" }}>시가 대기중</span>
+                              )}
+                            </div>
+                          ) : (
+                            <span style={{ fontSize: 11, color: "#bbb" }}>—</span>
+                          )}
+                        </td>
                         <td style={{ padding: "10px 8px", textAlign: "center" }}>
                           {row.signal_agreement != null ? (
                             <span style={{
@@ -306,7 +333,7 @@ export default function SignalsPage() {
 
                       {expanded === row.ticker && (
                         <tr key={`${row.ticker}-detail`}>
-                          <td colSpan={8} style={{ padding: "12px 16px", background: "#f8faff", borderBottom: "1px solid var(--border)" }}>
+                          <td colSpan={9} style={{ padding: "12px 16px", background: "#f8faff", borderBottom: "1px solid var(--border)" }}>
                             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
                               {/* Meta */}
                               <div>
