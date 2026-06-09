@@ -11,10 +11,11 @@ Signal agreement multiplier: 1.15x when tech and yt point same direction
 Market regime hysteresis: BEAR entry >60%, NEUTRAL re-entry <45%
 """
 import json
+import math
 import os
 import sys
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
 
 import numpy as np
@@ -679,8 +680,71 @@ def _calc_data_quality(
 #   BEAR: 진입 기준 강화 (Quality A만 BUY, 나머지 HOLD→SELL)
 # ---------------------------------------------------------------------------
 
-_TIMING_WEIGHTS: dict[str, float] = {"tech": 0.55, "news": 0.25, "yt": 0.20}
+_TIMING_WEIGHTS: dict[str, float] = {"tech": 0.50, "news": 0.22, "yt": 0.18, "analyst": 0.10}
 _COMPOSITE_WEIGHTS: dict[str, float] = {"quality": 0.40, "timing": 0.60}
+
+
+def _load_analyst_scores() -> dict[str, list[dict]]:
+    """analyst_targets에서 최근 90일 데이터를 종목코드별로 로드."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=90)).date().isoformat()
+    try:
+        rows = (
+            supabase.table("analyst_targets")
+            .select("stock_code,firm_name,target_price,upside_pct,direction,rating,report_date")
+            .gte("report_date", cutoff)
+            .execute()
+            .data or []
+        )
+    except Exception as e:
+        print(f"  analyst_targets 로드 실패: {e}")
+        return {}
+    result: dict[str, list[dict]] = {}
+    for r in rows:
+        code = r["stock_code"]
+        result.setdefault(code, []).append(r)
+    return result
+
+
+def _calc_analyst_score(targets: list[dict]) -> float:
+    """증권사 목표가 → 타이밍 점수 0~100.
+    recency × consensus × magnitude. 데이터 없으면 50 (중립)."""
+    if not targets:
+        return 50.0
+    today = datetime.now(timezone.utc).date()
+    valid = []
+    for t in targets:
+        try:
+            report_dt = date.fromisoformat(str(t["report_date"]))
+            days = (today - report_dt).days
+            if days <= 90:
+                valid.append({**t, "days_old": days})
+        except (ValueError, TypeError):
+            continue
+    if not valid:
+        return 50.0
+
+    most_recent = min(v["days_old"] for v in valid)
+    recency = math.exp(-most_recent / 30)
+    consensus = min(len(valid) / 3, 1.0)
+
+    upsides = [v["upside_pct"] for v in valid if v.get("upside_pct") is not None]
+    if upsides:
+        median_upside = sorted(upsides)[len(upsides) // 2]
+        magnitude = max(0.0, min(1.0, (float(median_upside) - 5) / 25))
+    else:
+        magnitude = 0.5
+
+    raw = recency * consensus * magnitude * 100
+
+    directions = [v.get("direction", "") for v in valid]
+    if directions and sum(1 for d in directions if d == "상향") / len(directions) >= 0.5:
+        raw = min(100.0, raw * 1.2)
+
+    ratings = [v.get("rating", "") for v in valid if v.get("rating")]
+    if ratings and all(r == "SELL" for r in ratings):
+        return 0.0
+
+    return round(raw, 2)
 
 
 def _quality_tier(factor_score: float | None) -> str:
@@ -699,12 +763,14 @@ def _calc_timing_score(
     news_score: float | None,
     yt_raw: float,
     yt_no_data: bool,
+    analyst_score: float | None = None,
 ) -> float:
-    """타이밍 점수: tech + news + yt (factor 제외 — stage 1에서 반영)."""
+    """타이밍 점수: tech + news + yt + analyst (factor 제외 — stage 1에서 반영)."""
     components = {
-        "tech": tech_raw,
-        "news": news_score,
-        "yt":   None if yt_no_data else yt_raw,
+        "tech":     tech_raw,
+        "news":     news_score,
+        "yt":       None if yt_no_data else yt_raw,
+        "analyst":  analyst_score,
     }
     available = {k: v for k, v in components.items() if v is not None}
     if not available:
@@ -760,10 +826,11 @@ def _weighted_composite(
     news_score: float | None,
     yt_raw: float,
     yt_no_data: bool,
+    analyst_score: float | None = None,
 ) -> float:
     """복합 점수: quality(40%) × timing(60%) 구조."""
     quality_score = factor_score if factor_score is not None else 50.0
-    timing_score  = _calc_timing_score(tech_raw, news_score, yt_raw, yt_no_data)
+    timing_score  = _calc_timing_score(tech_raw, news_score, yt_raw, yt_no_data, analyst_score)
     return (
         _COMPOSITE_WEIGHTS["quality"] * quality_score +
         _COMPOSITE_WEIGHTS["timing"]  * timing_score
@@ -804,6 +871,10 @@ def run() -> None:
     print("  investor_flow 로드...")
     investor_flow = _load_investor_flow()
     print(f"    {len(investor_flow)}개 종목 수급 데이터")
+
+    print("  analyst_targets 로드...")
+    analyst_map = _load_analyst_scores()
+    print(f"    {len(analyst_map)}개 종목 목표가 데이터")
 
     # Market regime (carry over previous state for hysteresis)
     prev_regime_row = (
@@ -853,15 +924,19 @@ def run() -> None:
         # News score
         news_score = news_map.get(code)
 
+        # Analyst score
+        analyst_targets = analyst_map.get(code, [])
+        analyst_score: float | None = _calc_analyst_score(analyst_targets) if analyst_targets else None
+
         # Data quality
         data_quality = _calc_data_quality(tech_raw, factor_score, news_score, yt_no_data, yt_mentions)
 
         # Stage 1: Quality tier (퀀트 팩터)
         q_tier = _quality_tier(factor_score)
 
-        # Stage 2: Timing score (기술적 + 감성 + 수급)
+        # Stage 2: Timing score (기술적 + 감성 + 수급 + 애널리스트)
         tech_filled = tech_raw if tech_raw is not None else 50.0
-        timing = _calc_timing_score(tech_raw, news_score, yt_raw, yt_no_data)
+        timing = _calc_timing_score(tech_raw, news_score, yt_raw, yt_no_data, analyst_score)
 
         # 외국인/기관 연속 수급 boost (±최대 18점)
         flow_days = investor_flow.get(code, [])
@@ -877,7 +952,7 @@ def run() -> None:
         signal = _two_stage_signal(q_tier, timing, market_regime, data_quality)
 
         # Composite score: quality(40%) + timing(60%) — 두 차원 모두 반영
-        composite = _weighted_composite(tech_raw, factor_score, news_score, yt_raw, yt_no_data)
+        composite = _weighted_composite(tech_raw, factor_score, news_score, yt_raw, yt_no_data, analyst_score)
         composite = round(min(100.0, max(0.0, composite)), 2)
 
         agreement = _calc_signal_agreement(tech_filled, yt_raw, yt_no_data)
@@ -902,6 +977,7 @@ def run() -> None:
             "trading_type": trading_type,
             "data_quality_score": data_quality,
             "yt_no_data": yt_no_data,
+            "analyst_score": round(analyst_score, 2) if analyst_score is not None else None,
             "calculated_at": datetime.now(timezone.utc).isoformat(),
         }
         results.append(row_data)

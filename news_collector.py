@@ -145,7 +145,9 @@ _NEWS_SYSTEM_PROMPT = """당신은 한국 주식 시장 전문 애널리스트�
 - catalysts: 주가 상승 촉매 1~3개 리스트
 - trading_signal: "매수관심" | "관망" | "주의"
 - news_impact_score: 0~100 숫자 (100이 가장 강한 영향)
-- price_direction: "상승" | "중립" | "하락" """
+- price_direction: "상승" | "중립" | "하락"
+- analyst_targets: 뉴스에서 발견된 증권사 목표주가 리스트 (없으면 빈 배열 [])
+  각 항목: {"firm": "증권사명", "target_price": 숫자(원 단위 정수), "direction": "상향"|"하향"|"유지"|"신규", "rating": "BUY"|"HOLD"|"SELL"|""} """
 
 
 def analyze_news_with_claude(stock_name: str, articles: list) -> dict:
@@ -201,7 +203,9 @@ _BATCH_SYSTEM_PROMPT = """당신은 한국 주식 시장 전문 애널리스트�
 - catalysts: 주가 상승 촉매 1~3개 리스트
 - trading_signal: "매수관심" | "관망" | "주의"
 - news_impact_score: 0~100 숫자
-- price_direction: "상승" | "중립" | "하락" """
+- price_direction: "상승" | "중립" | "하락"
+- analyst_targets: 뉴스에서 발견된 증권사 목표주가 리스트 (없으면 빈 배열 [])
+  각 항목: {"firm": "증권사명", "target_price": 숫자(원 단위 정수), "direction": "상향"|"하향"|"유지"|"신규", "rating": "BUY"|"HOLD"|"SELL"|""} """
 
 
 def _normalize_key(s: str) -> str:
@@ -257,6 +261,52 @@ def analyze_news_batch(stock_articles: list[tuple[str, list]]) -> dict[str, dict
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Supabase 저장
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def save_analyst_targets_to_supabase(
+    stock_code: str,
+    targets: list[dict],
+    current_price: int | None,
+) -> None:
+    """analyst_targets 테이블에 증권사 목표주가 upsert."""
+    if not targets or not SUPABASE_URL or not SUPABASE_KEY:
+        return
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    rows = []
+    for t in targets:
+        try:
+            tp = int(t.get("target_price") or 0)
+        except (TypeError, ValueError):
+            continue
+        if tp <= 0:
+            continue
+        upside = None
+        if current_price and current_price > 0:
+            upside = round((tp - current_price) / current_price * 100, 2)
+        rows.append({
+            "stock_code":    stock_code,
+            "firm_name":     str(t.get("firm") or "")[:50],
+            "target_price":  tp,
+            "current_price": current_price,
+            "upside_pct":    upside,
+            "direction":     str(t.get("direction") or "유지")[:10],
+            "rating":        str(t.get("rating") or "")[:10],
+            "report_date":   today,
+        })
+
+    if not rows:
+        return
+
+    url = f"{SUPABASE_URL}/rest/v1/analyst_targets?on_conflict=stock_code,firm_name,report_date"
+    body = json.dumps(rows).encode("utf-8")
+    headers = {**SB_HEADERS, "Prefer": "resolution=merge-duplicates,return=minimal"}
+    try:
+        req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+        urllib.request.urlopen(req)
+        print(f"  → 목표가 {len(rows)}건 저장")
+    except Exception as e:
+        print(f"  analyst_targets 저장 실패: {e}")
+
 
 def save_news_to_supabase(stock_code: str, stock_name: str,
                           articles: list, analysis: dict,
@@ -372,6 +422,9 @@ def collect_stock_news(stock_name: str, stock_code: str):
     # 저장
     sb_ok = save_news_to_supabase(stock_code, stock_name, articles, analysis, investor)
     print(f"  Supabase: {'OK' if sb_ok else 'SKIP'}")
+    targets = analysis.get("analyst_targets") or []
+    if targets:
+        save_analyst_targets_to_supabase(stock_code, targets, current_price=None)
 
     return {
         "stock_name": stock_name,

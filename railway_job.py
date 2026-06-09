@@ -17,7 +17,7 @@ import urllib.request
 from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
 from dotenv import load_dotenv
-from news_collector import analyze_news_batch, BATCH_SIZE
+from news_collector import analyze_news_batch, BATCH_SIZE, save_analyst_targets_to_supabase
 from kis_fetcher import get_client as get_kis_client
 
 load_dotenv(Path(__file__).parent / ".env")
@@ -289,6 +289,9 @@ def collect_news():
             short_info = f" | 공매도 {short[0]['balance_ratio']:.2f}%" if short else ""
             earn_info = f" | 영업이익 {earnings[0]['op_profit']:,}" if earnings else ""
             print(f"  {name}: {analysis.get('sentiment', '?')}{short_info}{earn_info}")
+            targets = analysis.get("analyst_targets") or []
+            if targets:
+                save_analyst_targets_to_supabase(code, targets, current_price=None)
         except Exception as e:
             print(f"  {name} 저장 실패: {e}")
 
