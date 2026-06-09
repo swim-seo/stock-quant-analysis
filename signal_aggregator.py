@@ -91,7 +91,7 @@ def _fetch_prices(ticker: str) -> pd.DataFrame | None:
             from kis_fetcher import get_client as _get_kis
             code = ticker.split(".")[0]
             rows = _get_kis().fetch_ohlcv_daily(code, days=130)
-            if rows and len(rows) >= 30:
+            if rows and len(rows) >= 100:
                 df = pd.DataFrame(rows)
                 df["date"] = pd.to_datetime(df["date"])
                 df = df.set_index("date").sort_index()
@@ -383,6 +383,85 @@ _NEWS_SIGNAL_MAP = {
     "약매도": 38, "매도": 25, "강력매도": 10,
 }
 _NEWS_SENTIMENT_MAP = {"긍정": 70, "중립": 50, "부정": 30}
+
+
+def _load_investor_flow() -> dict[str, list[dict]]:
+    """stock_news.investor_data에서 수급 일별 데이터 로드 → {stock_code: [day_data, ...]}"""
+    try:
+        resp = (
+            supabase.table("stock_news")
+            .select("stock_code,investor_data")
+            .order("collected_at", desc=True)
+            .limit(300)
+            .execute()
+        )
+        flow_map: dict[str, list] = {}
+        for row in resp.data or []:
+            code = row.get("stock_code", "")
+            if not code or code in flow_map:
+                continue
+            inv = row.get("investor_data") or []
+            if isinstance(inv, str):
+                try:
+                    inv = json.loads(inv)
+                except Exception:
+                    inv = []
+            if inv:
+                flow_map[code] = inv
+        return flow_map
+    except Exception as e:
+        print(f"  [investor_flow 로드 실패] {e}")
+        return {}
+
+
+def _investor_streak(days: list[dict], key: str) -> int:
+    """연속 순매수(양수)/순매도(음수) 일수. 오래된→최근 정렬 기준 최신에서 역산."""
+    if not days:
+        return 0
+    direction = 1 if days[0].get(key, 0) > 0 else -1
+    streak = 0
+    for d in days:
+        val = d.get(key, 0)
+        if direction > 0 and val > 0:
+            streak += 1
+        elif direction < 0 and val < 0:
+            streak += 1
+        else:
+            break
+    return streak * direction
+
+
+def _investor_timing_boost(flow_days: list[dict]) -> float:
+    """
+    외국인/기관 연속 수급 신호 → timing score 가감 (최대 ±18).
+    외국인 5일↑: ±10, 3~4일: ±5
+    기관    5일↑: ±7,  3~4일: ±3
+    외국인+기관 동시 5일↑ 같은 방향: 추가 ±5
+    """
+    if not flow_days:
+        return 0.0
+    f_streak = _investor_streak(flow_days, "foreign_net")
+    i_streak = _investor_streak(flow_days, "institution_net")
+
+    boost = 0.0
+    f_sign = 1 if f_streak > 0 else -1
+    i_sign = 1 if i_streak > 0 else -1
+
+    if abs(f_streak) >= 5:
+        boost += 10.0 * f_sign
+    elif abs(f_streak) >= 3:
+        boost += 5.0 * f_sign
+
+    if abs(i_streak) >= 5:
+        boost += 7.0 * i_sign
+    elif abs(i_streak) >= 3:
+        boost += 3.0 * i_sign
+
+    # 외국인+기관 동시 5일 이상, 같은 방향 → 추가 boost
+    if abs(f_streak) >= 5 and abs(i_streak) >= 5 and f_sign == i_sign:
+        boost += 5.0 * f_sign
+
+    return boost
 
 
 def _load_news_scores() -> dict[str, float]:
@@ -722,6 +801,10 @@ def run() -> None:
     news_map = _load_news_scores()
     print(f"    {len(news_map)}개 종목")
 
+    print("  investor_flow 로드...")
+    investor_flow = _load_investor_flow()
+    print(f"    {len(investor_flow)}개 종목 수급 데이터")
+
     # Market regime (carry over previous state for hysteresis)
     prev_regime_row = (
         supabase.table("trade_signals")
@@ -751,9 +834,8 @@ def run() -> None:
         code = ticker.split(".")[0]
         print(f"  [{i+1:3d}/{len(tickers_in_scope)}] {stock_name}", end=" ... ", flush=True)
 
-        # Tech score
+        # Tech score (KIS rate-limit은 kis_fetcher 내부에서 처리)
         tech_raw = _calc_tech_score(ticker)
-        time.sleep(0.15)  # rate-limit yfinance
 
         # YT score
         yt_raw, yt_mentions, yt_ratio, key_signals, urgency, trading_type, yt_no_data = _calc_yt_score(
@@ -777,9 +859,19 @@ def run() -> None:
         # Stage 1: Quality tier (퀀트 팩터)
         q_tier = _quality_tier(factor_score)
 
-        # Stage 2: Timing score (기술적 + 감성)
+        # Stage 2: Timing score (기술적 + 감성 + 수급)
         tech_filled = tech_raw if tech_raw is not None else 50.0
         timing = _calc_timing_score(tech_raw, news_score, yt_raw, yt_no_data)
+
+        # 외국인/기관 연속 수급 boost (±최대 18점)
+        flow_days = investor_flow.get(code, [])
+        inv_boost = _investor_timing_boost(flow_days)
+        if inv_boost != 0.0:
+            timing = min(100.0, max(0.0, timing + inv_boost))
+
+        # 연속 수급 스트릭 (로그용)
+        f_streak = _investor_streak(flow_days, "foreign_net") if flow_days else 0
+        i_streak = _investor_streak(flow_days, "institution_net") if flow_days else 0
 
         # 2-Stage signal decision
         signal = _two_stage_signal(q_tier, timing, market_regime, data_quality)
@@ -813,7 +905,12 @@ def run() -> None:
             "calculated_at": datetime.now(timezone.utc).isoformat(),
         }
         results.append(row_data)
-        print(f"{signal} ({composite:.1f}) [Q{q_tier} tech={tech_filled:.0f} timing={timing:.0f} yt={yt_raw:.0f} q={data_quality:.2f}]")
+        streak_label = ""
+        if abs(f_streak) >= 3:
+            streak_label += f" F{f_streak:+d}d"
+        if abs(i_streak) >= 3:
+            streak_label += f" I{i_streak:+d}d"
+        print(f"{signal} ({composite:.1f}) [Q{q_tier} tech={tech_filled:.0f} timing={timing:.0f} yt={yt_raw:.0f} q={data_quality:.2f}{streak_label}]")
 
     # Upsert to trade_signals
     print(f"\n  trade_signals upsert: {len(results)}개...")

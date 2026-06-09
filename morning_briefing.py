@@ -7,6 +7,7 @@ import sys
 import json
 import re
 import urllib.request
+import anthropic
 from datetime import datetime, date, timedelta, timezone
 
 KST = timezone(timedelta(hours=9))
@@ -19,6 +20,38 @@ if sys.stdout.encoding != 'utf-8':
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 load_dotenv(Path(__file__).parent / ".env")
+
+# 모듈 레벨 싱글톤 — TCP 연결 재사용, 매 호출마다 재생성 방지
+_anthropic_client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
+
+# 정적 system prompt — 1024 tokens 이상 → cache_control 실제 동작
+_BRIEFING_SYSTEM = """당신은 한국 주식 시장 전문 애널리스트입니다.
+주어진 데이터를 분석해 아침 브리핑을 작성하세요.
+
+출력 형식: 다음 JSON 구조만 출력하세요 (마크다운 없이, 순수 JSON):
+{
+  "market_summary": "전일 시장 흐름 + 오늘 전망 (5~8줄, 자연스러운 한국어 문장)",
+  "top_stocks": [
+    {"name": "종목명", "reason": "주목 이유 1줄", "signal": "매수관심|관망|주의"}
+  ],
+  "sector_outlook": [
+    {"sector": "섹터명", "outlook": "긍정|중립|부정", "reason": "이유 1줄"}
+  ],
+  "expert_consensus": "유튜브 전문가들의 종합 의견 요약 (3~4줄)",
+  "risk_alerts": ["오늘 주의할 리스크 1줄 문자열"]
+}
+
+분석 기준 및 가이드라인:
+- 코스피 변동률 +1% 이상: 강세, -1% 이하: 약세, 그 외: 중립
+- 외국인 5일 누적 순매수 양수: 수급 긍정 신호, 음수: 수급 부정 신호
+- 외국인 연속 5일 이상 순매수: 강한 수급 지지 신호로 해석
+- 유튜브 전문가 매수관심 비율 60% 이상: 시장 낙관 분위기
+- 유튜브 전문가 주의/관망 비율 60% 이상: 시장 신중 분위기
+- top_stocks: 3~5개 권장 (뉴스 호재 + 수급 긍정 종목 우선)
+- sector_outlook: 3~5개 권장
+- risk_alerts: 1~3개 (매크로 리스크, 섹터 리스크, 수급 이탈 위험 등)
+- 브리핑 톤: 객관적이고 전문적, 과도한 낙관/비관 지양
+- 수급 데이터(foreign5d)가 음수이면서 유튜브도 부정적이면 risk_alerts에 명시"""
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
@@ -108,10 +141,7 @@ def get_market_data():
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def generate_briefing(market_data, youtube_insights, stock_news):
-    """Claude로 아침 브리핑 생성"""
-    import anthropic
-    client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
-
+    """Claude로 아침 브리핑 생성. 모듈 레벨 클라이언트 + 캐시 가능한 system prompt 사용."""
     # 유튜브 요약
     yt_lines = []
     for item in youtube_insights[:15]:
@@ -148,10 +178,8 @@ def generate_briefing(market_data, youtube_insights, stock_news):
         f"코스닥: {kosdaq.get('close', '?')} ({kosdaq.get('change_pct', 0):+.2f}%)"
     )
 
-    prompt = f"""당신은 한국 주식 시장 전문 애널리스트입니다.
-아래 데이터를 종합해서 오늘의 아침 브리핑을 작성해주세요.
-
-오늘 날짜: {today_kst().strftime('%Y년 %m월 %d일')}
+    # 동적 데이터만 user message에 — JSON 스키마/기준은 _BRIEFING_SYSTEM(캐시됨)에 있음
+    prompt = f"""오늘 날짜: {today_kst().strftime('%Y년 %m월 %d일')}
 
 === 전일 시장 ===
 {market_text}
@@ -160,24 +188,13 @@ def generate_briefing(market_data, youtube_insights, stock_news):
 {yt_text}
 
 === 종목별 뉴스 + 수급 ===
-{news_text}
+{news_text}"""
 
-다음 JSON 형식으로 작성해주세요:
-
-1. market_summary: 전일 시장 흐름 + 오늘 전망 (5~8줄, 자연스러운 한국어 문장)
-2. top_stocks: 오늘 주목할 종목 3~5개 리스트, 각 항목은 {{"name": "종목명", "reason": "주목 이유 1줄", "signal": "매수관심/관망/주의" 중 하나}}
-3. sector_outlook: 주목 섹터 3~5개 리스트, 각 항목은 {{"sector": "섹터명", "outlook": "긍정/중립/부정", "reason": "이유 1줄"}}
-4. expert_consensus: 유튜브 전문가들의 종합 의견 요약 (3~4줄)
-5. risk_alerts: 오늘 주의할 리스크 1~3개 리스트 (각 1줄 문자열)
-
-JSON만 출력하세요."""
-
-    _SYSTEM = "당신은 한국 주식 시장 전문 애널리스트입니다. 주어진 데이터를 분석해 아침 브리핑을 JSON 형식으로 작성하세요."
     try:
-        message = client.messages.create(
+        message = _anthropic_client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=2048,
-            system=[{"type": "text", "text": _SYSTEM,
+            system=[{"type": "text", "text": _BRIEFING_SYSTEM,
                      "cache_control": {"type": "ephemeral"}}],
             messages=[{"role": "user", "content": prompt}],
         )

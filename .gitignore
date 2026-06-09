@@ -30,3 +30,5 @@ auth.json
 session.*
 .env.local
 .env.*.local
+
+.vercel

@@ -91,9 +91,20 @@ def fetch_naver_news(stock_code: str, max_pages: int = 2) -> list:
 
 def fetch_investor_trading(stock_code: str, days: int = 10) -> list:
     """
-    네이버 모바일 API로 외국인/기관 매매 동향 수집
-    (기존 frgn.naver HTML 스크래핑은 해외 IP에서 차단됨)
+    외국인/기관 매매 동향 수집. KIS API 우선 (Railway 해외 IP에서 Naver 차단 방지),
+    실패 시 Naver Mobile API fallback.
+    반환: [{"date": "YYYY.MM.DD", "close": int, "foreign_net": int, "institution_net": int}, ...]
     """
+    # KIS 우선
+    try:
+        from kis_fetcher import get_client as _get_kis
+        rows = _get_kis().fetch_investor_trading(stock_code, days=days)
+        if rows:
+            return rows
+    except Exception as e:
+        print(f"  [KIS 수급 실패 {stock_code}] {e}")
+
+    # Naver Mobile API fallback
     headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://m.stock.naver.com"}
     url = f"https://m.stock.naver.com/api/stock/{stock_code}/investorTradingTrends?timeframe=days&count={days}"
     try:
@@ -105,16 +116,15 @@ def fetch_investor_trading(stock_code: str, days: int = 10) -> list:
         return []
 
     results = []
-    # 응답 구조: {"tradingTrendList": [{"localDate": "20260509", "closePrice": ..., "foreignNetBuySellVolume": ..., "organNetBuySellVolume": ...}]}
     trend_list = data if isinstance(data, list) else data.get("tradingTrendList", [])
     for item in trend_list[:days]:
         raw_date = str(item.get("localDate", ""))
         if len(raw_date) == 8:
-            date = f"{raw_date[:4]}.{raw_date[4:6]}.{raw_date[6:]}"
+            date_str = f"{raw_date[:4]}.{raw_date[4:6]}.{raw_date[6:]}"
         else:
-            date = raw_date
+            date_str = raw_date
         results.append({
-            "date": date,
+            "date": date_str,
             "close": item.get("closePrice", 0),
             "foreign_net": item.get("foreignNetBuySellVolume", 0),
             "institution_net": item.get("organNetBuySellVolume", 0),

@@ -133,8 +133,10 @@ def is_sniper_period(today: date | None = None) -> bool:
 def get_period_label(today: date | None = None) -> str:
     d = today or datetime.now(KST).date()
     if d.day >= PERIOD_START_DAY:
-        return f"{d.year}-{d.month:02d} 스나이퍼 ({d.month}월25일~{(d.month%12)+1}월10일)"
-    return f"{d.year}-{d.month:02d} 스나이퍼 (전달25일~{d.month}월10일)"
+        next_month = d.month % 12 + 1
+        return f"{d.year}-{d.month:02d} 스나이퍼 ({d.month}월25일~{next_month}월10일)"
+    prev_month = d.month - 1 if d.month > 1 else 12
+    return f"{d.year}-{d.month:02d} 스나이퍼 ({prev_month}월25일~{d.month}월10일)"
 
 
 # ── 신호 스캔 ──────────────────────────────────────────────────────────────────
@@ -356,7 +358,17 @@ def get_period_pnl(period_label: str) -> dict:
 
 
 def _get_current_price(stock_code: str) -> float | None:
-    """네이버 모바일 API로 현재가 조회."""
+    """KIS API로 현재가 조회. 실패 시 Naver Mobile API fallback."""
+    try:
+        from kis_fetcher import get_client as _get_kis
+        result = _get_kis().fetch_current_price(stock_code)
+        price = result.get("close", 0)
+        if price and float(price) > 0:
+            return float(price)
+    except Exception as e:
+        print(f"  [KIS 현재가 실패 {stock_code}] {e}")
+
+    # Naver Mobile API fallback
     try:
         url = f"https://m.stock.naver.com/api/stock/{stock_code}/basic"
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
