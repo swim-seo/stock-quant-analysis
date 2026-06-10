@@ -1017,25 +1017,51 @@ def run() -> None:
 
 
 def _update_prediction_log(results: list[dict]) -> None:
-    today = datetime.now(timezone.utc).date().isoformat()
+    """Upsert today's 0-100 signal scores into prediction_log.
+
+    Bug fixes vs original:
+    - Uses KST date (was UTC → always 1 day off during morning run)
+    - Creates rows for stocks not yet in prediction_log (was silently skipped)
+    - Batch upsert: 3-4 DB calls instead of 156 individual queries
+    """
+    KST = timezone(timedelta(hours=9))
+    today = datetime.now(KST).date().isoformat()
+
+    # Single query to get all existing tickers for today
+    try:
+        existing = (
+            supabase.table("prediction_log")
+            .select("ticker")
+            .eq("date", today)
+            .execute()
+        )
+        existing_tickers = {row["ticker"] for row in (existing.data or [])}
+    except Exception:
+        existing_tickers = set()
+
+    upsert_rows = []
     for r in results:
+        row: dict = {
+            "date": today,
+            "ticker": r["ticker"],
+            "tech_score": r.get("tech_score"),
+            "yt_score": r.get("yt_score"),
+            "news_score": r.get("news_score"),
+            "composite_score": r.get("composite_score"),
+        }
+        if r["ticker"] not in existing_tickers:
+            # New row: set prediction fields from signal_aggregator signal
+            row["predicted_up"] = r.get("signal") == "BUY"
+            row["probability"] = round((r.get("composite_score") or 50.0) / 100.0, 4)
+        upsert_rows.append(row)
+
+    # Batch upsert (156 rows → 3-4 DB calls)
+    for i in range(0, len(upsert_rows), 50):
+        batch = upsert_rows[i : i + 50]
         try:
-            existing = (
-                supabase.table("prediction_log")
-                .select("id")
-                .eq("date", today)
-                .eq("ticker", r["ticker"])
-                .limit(1)
-                .execute()
-            )
-            if not existing.data:
-                continue
-            supabase.table("prediction_log").update({
-                "tech_score": r.get("tech_score"),
-                "yt_score": r.get("yt_score"),
-                "news_score": r.get("news_score"),
-                "composite_score": r.get("composite_score"),
-            }).eq("date", today).eq("ticker", r["ticker"]).execute()
+            supabase.table("prediction_log").upsert(
+                batch, on_conflict="date,ticker"
+            ).execute()
         except Exception:
             pass
 

@@ -1262,6 +1262,14 @@ def save_predictions(stock_data: dict | None = None):
 
     sector_momentum = _compute_sector_momentum(stock_data, yt_rows)
 
+    # 시장 대비 수익률 기준: 종목군 전체의 중앙값 수익률 계산 (어제 → 오늘 기준)
+    # sector_index_history에 KOSPI 데이터 없을 경우 peer-median으로 대체
+    peer_returns: list[float] = []
+    for _, (c, _) in stock_data.items():
+        if len(c) >= 2 and c[-2] > 0:
+            peer_returns.append((c[-1] - c[-2]) / c[-2])
+    peer_median = sorted(peer_returns)[len(peer_returns) // 2] if peer_returns else 0.0
+
     for name, code in WATCH_STOCKS.items():
         ticker_sym = _ticker_sym(code)
         if name not in stock_data:
@@ -1295,19 +1303,20 @@ def save_predictions(stock_data: dict | None = None):
                 "composite_score": composite,
             }, on_conflict="date,ticker")
 
-            # 어제 예측의 actual_up + correct 업데이트
+            # 어제 예측의 actual_up + correct 업데이트 (시장 대비 상대 수익률 기준)
             yesterday_rows = sb_get("prediction_log",
                 f"date=eq.{yesterday}&ticker=eq.{ticker_sym}&select=predicted_up")
-            if yesterday_rows:
-                actual_up = closes[-1] > closes[-2] if len(closes) >= 2 else None
-                if actual_up is not None:
-                    sb_patch("prediction_log",
-                        {"date": yesterday, "ticker": ticker_sym},
-                        {
-                            "actual_up": actual_up,
-                            "correct": yesterday_rows[0]["predicted_up"] == actual_up,
-                        }
-                    )
+            if yesterday_rows and len(closes) >= 2 and closes[-2] > 0:
+                stock_ret = (closes[-1] - closes[-2]) / closes[-2]
+                # 종목이 동종목군 중앙값보다 높으면 actual_up=True (시장 대비 알파)
+                actual_up = stock_ret > peer_median
+                sb_patch("prediction_log",
+                    {"date": yesterday, "ticker": ticker_sym},
+                    {
+                        "actual_up": actual_up,
+                        "correct": yesterday_rows[0]["predicted_up"] == actual_up,
+                    }
+                )
 
         except Exception as e:
             print(f"  {name} 예측 실패: {e}")
