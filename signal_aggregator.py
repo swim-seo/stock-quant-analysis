@@ -1039,21 +1039,21 @@ def _update_prediction_log(results: list[dict]) -> None:
     except Exception:
         existing_tickers = set()
 
+    # Build upsert rows — always include predicted_up/probability so the
+    # ON CONFLICT update is complete (avoids partial-upsert ambiguity)
     upsert_rows = []
     for r in results:
-        row: dict = {
+        composite = r.get("composite_score") or 0.0
+        upsert_rows.append({
             "date": today,
             "ticker": r["ticker"],
+            "predicted_up": r.get("signal") == "BUY",
+            "probability": round(composite / 100.0, 4),
             "tech_score": r.get("tech_score"),
             "yt_score": r.get("yt_score"),
             "news_score": r.get("news_score"),
-            "composite_score": r.get("composite_score"),
-        }
-        if r["ticker"] not in existing_tickers:
-            # New row: set prediction fields from signal_aggregator signal
-            row["predicted_up"] = r.get("signal") == "BUY"
-            row["probability"] = round((r.get("composite_score") or 50.0) / 100.0, 4)
-        upsert_rows.append(row)
+            "composite_score": composite,
+        })
 
     # Batch upsert (156 rows → 3-4 DB calls)
     for i in range(0, len(upsert_rows), 50):
