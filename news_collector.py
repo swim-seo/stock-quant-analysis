@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import anthropic
 from dotenv import load_dotenv
+from stock_list import ALL_STOCKS
 
 if sys.stdout.encoding != 'utf-8':
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -356,53 +357,7 @@ def save_news_to_supabase(stock_code: str, stock_name: str,
 # 메인 실행
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-WATCH_STOCKS = {
-    # 반도체
-    "삼성전자": "005930",
-    "SK하이닉스": "000660",
-    "한미반도체": "042700",
-    "리노공업": "058470",
-    "DB하이텍": "000990",
-    # 2차전지/에너지
-    "LG에너지솔루션": "373220",
-    "삼성SDI": "006400",
-    "에코프로비엠": "247540",
-    # 바이오
-    "삼성바이오로직스": "207940",
-    "셀트리온": "068270",
-    "유한양행": "000100",
-    "HLB": "028300",
-    # 자동차
-    "현대차": "005380",
-    "기아": "000270",
-    # IT/플랫폼
-    "NAVER": "035420",
-    "카카오": "035720",
-    "카카오뱅크": "323410",
-    "크래프톤": "259960",
-    # 금융
-    "KB금융": "105560",
-    "신한지주": "055550",
-    "메리츠금융지주": "138040",
-    # 소재/산업재
-    "LG전자": "066570",
-    "삼성물산": "028260",
-    "아모레퍼시픽": "090430",
-    "CJ제일제당": "097950",
-    # 조선
-    "HD한국조선해양": "009540",
-    "삼성중공업": "010140",
-    "현대미포조선": "010620",
-    # 방산
-    "한화에어로스페이스": "012450",
-    "LIG넥스원": "079550",
-    # 원자력
-    "두산에너빌리티": "034020",
-    # 건설
-    "현대건설": "000720",
-    # 우주항공
-    "인텔리안테크": "189300",
-}
+WATCH_STOCKS = ALL_STOCKS
 
 
 def collect_stock_news(stock_name: str, stock_code: str):

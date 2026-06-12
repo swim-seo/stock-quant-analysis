@@ -19,6 +19,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from news_collector import analyze_news_batch, BATCH_SIZE, save_analyst_targets_to_supabase
 from kis_fetcher import get_client as get_kis_client
+from stock_list import ALL_STOCKS, SECTOR_MAP
 
 load_dotenv(Path(__file__).parent / ".env")
 
@@ -68,61 +69,6 @@ def sb_post(table, data, on_conflict=None):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # STEP 1: 뉴스 수집
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-WATCH_STOCKS = {
-    # 반도체
-    "삼성전자": "005930", "SK하이닉스": "000660", "한미반도체": "042700",
-    "리노공업": "058470", "DB하이텍": "000990",
-    # 2차전지/에너지
-    "LG에너지솔루션": "373220", "삼성SDI": "006400", "에코프로비엠": "247540",
-    # 바이오
-    "삼성바이오로직스": "207940", "셀트리온": "068270",
-    "유한양행": "000100", "HLB": "028300",
-    # 자동차
-    "현대차": "005380", "기아": "000270",
-    # IT/플랫폼
-    "NAVER": "035420", "카카오": "035720",
-    "카카오뱅크": "323410", "크래프톤": "259960",
-    # 금융
-    "KB금융": "105560", "신한지주": "055550", "메리츠금융지주": "138040",
-    # 소재/산업재
-    "LG전자": "066570", "삼성물산": "028260",
-    "아모레퍼시픽": "090430", "CJ제일제당": "097950",
-    # 조선
-    "HD한국조선해양": "009540", "삼성중공업": "010140", "현대미포조선": "010620",
-    # 방산
-    "한화에어로스페이스": "012450", "LIG넥스원": "079550",
-    # 원자력
-    "두산에너빌리티": "034020",
-    # 건설
-    "현대건설": "000720",
-    # 우주항공
-    "인텔리안테크": "189300",
-    # 로봇
-    "HD현대": "267250", "레인보우로보틱스": "277810", "로보스타": "090360",
-    "두산로보틱스": "454910", "에스에프에이": "056190", "로보티즈": "108490",
-    "휴림로봇": "090710",
-}
-
-SECTOR_MAP = {
-    "삼성전자": "반도체", "SK하이닉스": "반도체", "한미반도체": "반도체",
-    "리노공업": "반도체", "DB하이텍": "반도체",
-    "LG에너지솔루션": "2차전지", "삼성SDI": "2차전지", "에코프로비엠": "2차전지",
-    "삼성바이오로직스": "바이오", "셀트리온": "바이오", "유한양행": "바이오", "HLB": "바이오",
-    "현대차": "자동차", "기아": "자동차",
-    "NAVER": "IT플랫폼", "카카오": "IT플랫폼", "카카오뱅크": "IT플랫폼", "크래프톤": "IT플랫폼",
-    "KB금융": "금융", "신한지주": "금융", "메리츠금융지주": "금융",
-    "LG전자": "산업재", "삼성물산": "산업재", "아모레퍼시픽": "산업재", "CJ제일제당": "산업재",
-    "HD한국조선해양": "조선", "삼성중공업": "조선", "현대미포조선": "조선",
-    "한화에어로스페이스": "방산", "LIG넥스원": "방산",
-    "두산에너빌리티": "원자력",
-    "현대건설": "건설",
-    "인텔리안테크": "우주항공",
-    "HD현대": "로봇", "레인보우로보틱스": "로봇", "로보스타": "로봇",
-    "두산로보틱스": "로봇", "에스에프에이": "로봇", "로보티즈": "로봇",
-    "휴림로봇": "로봇",
-}
-
 
 def fetch_naver_news(stock_code, max_pages=2):
     """네이버 모바일 API로 뉴스 수집"""
@@ -240,7 +186,7 @@ def collect_news():
 
     # Phase 1: 모든 종목 데이터 수집 (Claude 호출 없음)
     collected: list[dict] = []
-    for name, code in WATCH_STOCKS.items():
+    for name, code in ALL_STOCKS.items():
         print(f"  {name} 수집...", end=" ", flush=True)
         try:
             articles = fetch_naver_news(code)
@@ -554,8 +500,8 @@ def collect_stock_prices(days: int = 5) -> None:
         print(f"  KIS 클라이언트 오류: {e}")
         return
 
-    # WATCH_STOCKS 기준 수집
-    for name, code in WATCH_STOCKS.items():
+    # ALL_STOCKS 기준 수집
+    for name, code in ALL_STOCKS.items():
         ticker = _ticker_sym(code)
         try:
             rows = kis.fetch_ohlcv_daily(code, days=days)
@@ -1223,7 +1169,7 @@ def _collect_stock_data() -> dict:
         _use_kis = False
 
     stock_data: dict = {}
-    for name, code in WATCH_STOCKS.items():
+    for name, code in ALL_STOCKS.items():
         try:
             if _use_kis:
                 rows = kis.fetch_ohlcv_daily(code, days=260)
@@ -1242,7 +1188,7 @@ def _collect_stock_data() -> dict:
         # KIS 내부에서 rate-limit(0.06s) 처리, Naver fallback 시에만 sleep 필요
         if not _use_kis:
             time.sleep(0.3)
-    print(f"  [OHLCV 수집] {len(stock_data)}/{len(WATCH_STOCKS)}종목 완료")
+    print(f"  [OHLCV 수집] {len(stock_data)}/{len(ALL_STOCKS)}종목 완료")
     return stock_data
 
 
@@ -1270,7 +1216,7 @@ def save_predictions(stock_data: dict | None = None):
             peer_returns.append((c[-1] - c[-2]) / c[-2])
     peer_median = sorted(peer_returns)[len(peer_returns) // 2] if peer_returns else 0.0
 
-    for name, code in WATCH_STOCKS.items():
+    for name, code in ALL_STOCKS.items():
         ticker_sym = _ticker_sym(code)
         if name not in stock_data:
             continue
@@ -1339,7 +1285,7 @@ def save_portfolio_signals(stock_data: dict | None = None):
 
     sector_momentum = _compute_sector_momentum(stock_data, yt_rows)
 
-    for name, code in WATCH_STOCKS.items():
+    for name, code in ALL_STOCKS.items():
         ticker_sym = _ticker_sym(code)
         if name not in stock_data:
             continue
