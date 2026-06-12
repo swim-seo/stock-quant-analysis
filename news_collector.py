@@ -196,7 +196,7 @@ def analyze_news_with_claude(stock_name: str, articles: list) -> dict:
     return {**_empty, "summary": "분석 실패"}
 
 
-BATCH_SIZE = 5
+BATCH_SIZE = 8
 
 _ANALYSIS_EMPTY: dict = {
     "summary": "분석 불가", "sentiment": "중립", "key_points": [],
