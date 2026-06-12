@@ -909,9 +909,9 @@ def _market_filter_score() -> float:
         return _market_filter_cache["score"]
     try:
         rows = sb_get("sector_index_history",
-                      "sector_code=eq.0001&select=date,close_price"
-                      "&order=date.desc&limit=25")
-        closes = [r["close_price"] for r in rows if r.get("close_price")][::-1]
+                      "sector_code=eq.0001&select=trade_date,close_index"
+                      "&order=trade_date.desc&limit=25")
+        closes = [r["close_index"] for r in rows if r.get("close_index")][::-1]
         if len(closes) < 20:
             score = 0.0
         else:

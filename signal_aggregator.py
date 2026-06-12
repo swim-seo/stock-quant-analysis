@@ -573,13 +573,13 @@ def _calc_market_regime(current_regime: str) -> str:
     try:
         kospi_rows = (
             supabase.table("sector_index_history")
-            .select("date,close_price")
+            .select("trade_date,close_index")
             .eq("sector_code", "0001")
-            .order("date", desc=True)
+            .order("trade_date", desc=True)
             .limit(25)
             .execute()
         )
-        closes = [r["close_price"] for r in (kospi_rows.data or []) if r.get("close_price")][::-1]
+        closes = [r["close_index"] for r in (kospi_rows.data or []) if r.get("close_index")][::-1]
         if len(closes) >= 20:
             ma20 = sum(closes[-20:]) / 20
             if closes[-1] < ma20:
