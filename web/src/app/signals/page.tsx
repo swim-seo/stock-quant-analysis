@@ -24,11 +24,13 @@ interface TradeSignal {
   data_quality_score: number | null;
   yt_no_data: boolean;
   calculated_at: string;
-  // price fields from stock_prices
+  // price fields from stock_prices / factor_scores fallback
   entry_price: number | null;
   open_price: number | null;
   open_change_pct: number | null;
   trade_date: string | null;
+  // sniper match: BUY signal + active sniper position
+  sniper_match: boolean;
 }
 
 const SECTORS = [
@@ -51,6 +53,19 @@ function signalBadge(signal: string) {
       borderRadius: 6, letterSpacing: 0.5,
     }}>
       {signal}
+    </span>
+  );
+}
+
+function sniperBadge() {
+  return (
+    <span style={{
+      background: "linear-gradient(90deg, #ff6b35, #f7c59f)",
+      color: "#fff",
+      fontWeight: 800, fontSize: 11, padding: "2px 8px",
+      borderRadius: 6, letterSpacing: 0.5, whiteSpace: "nowrap",
+    }}>
+      🎯 스나이퍼
     </span>
   );
 }
@@ -271,7 +286,10 @@ export default function SignalsPage() {
                           style={{ padding: "10px 8px", fontWeight: 700, fontSize: 14, whiteSpace: "nowrap" }}
                           onClick={(e) => { e.stopPropagation(); router.push(`/stock?ticker=${encodeURIComponent(row.ticker)}`); }}
                         >
-                          {row.stock_name}
+                          <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                            {row.stock_name}
+                            {row.sniper_match && sniperBadge()}
+                          </div>
                         </td>
                         <td style={{ padding: "10px 8px", fontSize: 12, color: "#888", whiteSpace: "nowrap" }}>{row.sector}</td>
                         <td style={{ padding: "10px 8px", textAlign: "center" }}>

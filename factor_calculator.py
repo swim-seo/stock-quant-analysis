@@ -349,6 +349,7 @@ def run():
                 "ticker":               ticker,
                 "stock_name":           name,
                 "sector":               sector,
+                "close_price":          float(prices.iloc[-1]),
                 "momentum_3m":          m3,
                 "momentum_6m":          m6,
                 "momentum_12m":         m12,

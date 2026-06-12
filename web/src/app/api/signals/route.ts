@@ -93,6 +93,29 @@ export async function GET(req: NextRequest) {
     };
   }
 
+  // Fallback: factor_scores.close_price for tickers not in stock_prices
+  const missingTickers = tickers.filter((t) => !priceMap[t]);
+  if (missingTickers.length > 0) {
+    const { data: fsRows } = await supabase
+      .from("factor_scores")
+      .select("ticker,close_price")
+      .in("ticker", missingTickers);
+    for (const fs of fsRows ?? []) {
+      const t = fs.ticker as string;
+      const cp = fs.close_price as number | null;
+      if (cp && !priceMap[t]) {
+        priceMap[t] = { entry_price: cp, open_price: 0, open_change_pct: null, trade_date: "" };
+      }
+    }
+  }
+
+  // Load active sniper positions for sniper_match badge
+  const { data: sniperRows } = await supabase
+    .from("sniper_positions")
+    .select("ticker")
+    .eq("status", "active");
+  const sniperSet = new Set((sniperRows ?? []).map((s: Record<string, unknown>) => s.ticker as string));
+
   const enriched = rows.map((r: Record<string, unknown>) => {
     const ticker = (r.ticker as string) ?? "";
     const code = ticker.split(".")[0];
@@ -100,6 +123,7 @@ export async function GET(req: NextRequest) {
       ...r,
       ...(flowMap[code] ?? { foreign_streak: 0, inst_streak: 0 }),
       ...(priceMap[ticker] ?? { entry_price: null, open_price: null, open_change_pct: null, trade_date: null }),
+      sniper_match: r.signal === "BUY" && sniperSet.has(ticker),
     };
   });
 
