@@ -33,6 +33,9 @@ def today_kst() -> date:
 def now_kst() -> datetime:
     return datetime.now(KST)
 
+def is_weekend() -> bool:
+    return now_kst().isoweekday() >= 6  # 6=토, 7=일
+
 # Railway 환경변수
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_KEY"]
@@ -1823,37 +1826,46 @@ def main():
         save_portfolio_signals(stock_data)
 
     elif mode == "morning":
-        collect_news()
-        collect_youtube(collect_time="morning")
-        generate_briefing()
-        collect_stock_prices(days=5)   # KIS 최근 5거래일 가격 저장
-        collect_sector_index()
-        stock_data = _collect_stock_data()
-        save_predictions(stock_data)
-        save_portfolio_signals(stock_data)
-        update_portfolio_returns()
-        _run_theme_scanner()
-        _run_factor_calculator()
-        _run_signal_aggregator()
-        send_daily_report()
-        try:
-            from monthly_sniper import run as run_sniper, is_sniper_period
-            if is_sniper_period():
-                print("\n[스나이퍼] 기간 활성 → 신호 스캔 + 진입")
-                run_sniper()
-        except Exception as e:
-            print(f"  [스나이퍼 오류] {e}", file=sys.stderr)
-        try:
-            from monthly_agent import run_monthly_agent
-            run_monthly_agent()
-        except Exception as e:
-            print(f"  [월급에이전트 오류] {e}", file=sys.stderr)
+        if is_weekend():
+            # 주말 경량화: YouTube만 수집 (주간 정리·다음주 전망 영상 확보)
+            print("  [주말 경량화] YouTube 수집만 실행 (뉴스·팩터·신호 스킵)")
+            collect_youtube(collect_time="morning")
+        else:
+            collect_news()
+            collect_youtube(collect_time="morning")
+            generate_briefing()
+            collect_stock_prices(days=5)   # KIS 최근 5거래일 가격 저장
+            collect_sector_index()
+            stock_data = _collect_stock_data()
+            save_predictions(stock_data)
+            save_portfolio_signals(stock_data)
+            update_portfolio_returns()
+            _run_theme_scanner()
+            _run_factor_calculator()
+            _run_signal_aggregator()
+            send_daily_report()
+            try:
+                from monthly_sniper import run as run_sniper, is_sniper_period
+                if is_sniper_period():
+                    print("\n[스나이퍼] 기간 활성 → 신호 스캔 + 진입")
+                    run_sniper()
+            except Exception as e:
+                print(f"  [스나이퍼 오류] {e}", file=sys.stderr)
+            try:
+                from monthly_agent import run_monthly_agent
+                run_monthly_agent()
+            except Exception as e:
+                print(f"  [월급에이전트 오류] {e}", file=sys.stderr)
 
     elif mode == "afternoon":
-        collect_news()
-        collect_youtube(collect_time="afternoon")
-        generate_briefing()
-        update_portfolio_returns()
+        if is_weekend():
+            print("  [주말 경량화] YouTube 수집만 실행 (뉴스 스킵)")
+            collect_youtube(collect_time="afternoon")
+        else:
+            collect_news()
+            collect_youtube(collect_time="afternoon")
+            generate_briefing()
+            update_portfolio_returns()
 
     else:
         collect_news()
