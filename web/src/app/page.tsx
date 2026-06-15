@@ -69,6 +69,9 @@ export default async function Home() {
             <Link href="/briefing" style={{ padding: "7px 14px", borderRadius: 8, background: "var(--blue)", color: "#fff", fontSize: 13, fontWeight: 700, textDecoration: "none", whiteSpace: "nowrap" }}>
               오늘의 브리핑
             </Link>
+            <Link href="/chat" style={{ padding: "7px 14px", borderRadius: 8, background: "linear-gradient(135deg, #6c47ff, #a78bfa)", color: "#fff", fontSize: 13, fontWeight: 700, textDecoration: "none", whiteSpace: "nowrap" }}>
+              💬 AI 상담
+            </Link>
             <SearchBar />
           </nav>
         </div>
