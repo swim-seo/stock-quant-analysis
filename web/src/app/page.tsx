@@ -54,11 +54,11 @@ export default async function Home() {
           </div>
           {/* 우: 네비게이션 */}
           <nav style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <Link href="/sniper" style={{ padding: "7px 14px", borderRadius: 8, background: "linear-gradient(135deg, #f04452, #f5a623)", color: "#fff", fontSize: 13, fontWeight: 700, textDecoration: "none", whiteSpace: "nowrap" }}>
+            <Link href="/signals?tab=sniper" style={{ padding: "7px 14px", borderRadius: 8, background: "linear-gradient(135deg, #f04452, #f5a623)", color: "#fff", fontSize: 13, fontWeight: 700, textDecoration: "none", whiteSpace: "nowrap" }}>
               ⚡ 스나이퍼
             </Link>
             <Link href="/signals" style={{ padding: "7px 14px", borderRadius: 8, background: "#fff0f0", color: "#f04452", fontSize: 13, fontWeight: 700, textDecoration: "none", whiteSpace: "nowrap" }}>
-              매매 신호
+              📡 신호 센터
             </Link>
             <Link href="/screener" style={{ padding: "7px 14px", borderRadius: 8, background: "#e8f3ff", color: "var(--blue)", fontSize: 13, fontWeight: 700, textDecoration: "none", whiteSpace: "nowrap" }}>
               퀀트 스크리너
