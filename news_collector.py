@@ -77,7 +77,7 @@ def fetch_naver_news(stock_code: str, max_pages: int = 2) -> list:
                     item.get("description") or
                     item.get("summary") or
                     item.get("content") or ""
-                ).replace("&quot;", '"')[:200]
+                ).replace("&quot;", '"')[:80]
                 article = {
                     "title": item.get("title", "").replace("&quot;", '"'),
                     "url": f"https://n.news.naver.com/mnews/article/{office_id}/{article_id}",
@@ -238,7 +238,7 @@ def analyze_news_batch(stock_articles: list[tuple[str, list]]) -> dict[str, dict
     sections = []
     for stock_name, articles in stock_articles:
         item_lines = []
-        for a in articles[:10]:
+        for a in articles[:5]:
             line = f"- [{a['date']}] {a['title']} ({a['source']})"
             if a.get("description"):
                 line += f"\n  요약: {a['description']}"

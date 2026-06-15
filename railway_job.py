@@ -206,11 +206,14 @@ def collect_news():
             print(f"실패: {e}")
         time.sleep(0.5)
 
-    # Phase 2: BATCH_SIZE 단위로 Claude 배치 분석
-    stock_articles = [(d["name"], d["articles"]) for d in collected]
-    analyses: dict[str, dict] = {}
-    for i in range(0, len(stock_articles), BATCH_SIZE):
-        batch = stock_articles[i : i + BATCH_SIZE]
+    # Phase 2: BATCH_SIZE 단위로 Claude 배치 분석 (뉴스 없는 종목 스킵)
+    from news_collector import _ANALYSIS_EMPTY as _NEWS_EMPTY
+    has_news    = [(d["name"], d["articles"]) for d in collected if d["articles"]]
+    no_news     = [d["name"] for d in collected if not d["articles"]]
+    analyses: dict[str, dict] = {name: {**_NEWS_EMPTY} for name in no_news}
+    print(f"  뉴스 있음: {len(has_news)}종목 / 뉴스 없음(스킵): {len(no_news)}종목")
+    for i in range(0, len(has_news), BATCH_SIZE):
+        batch = has_news[i : i + BATCH_SIZE]
         names = [n for n, _ in batch]
         print(f"  Claude 배치 분석 [{i+1}~{i+len(batch)}] {names}...", flush=True)
         batch_result = analyze_news_batch(batch)
