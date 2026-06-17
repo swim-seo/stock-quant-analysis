@@ -110,7 +110,8 @@ ${context}`;
             controller.enqueue(encoder.encode(chunk.delta.text));
           }
         }
-      } catch {
+      } catch (err) {
+        console.error("[api/chat] stream error:", err);
         controller.enqueue(encoder.encode("오류가 발생했습니다. 잠시 후 다시 시도해주세요."));
       } finally {
         controller.close();
