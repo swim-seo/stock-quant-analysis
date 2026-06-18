@@ -5,8 +5,12 @@ factor_calculator.py — 퀀트 팩터 계산 → Supabase factor_scores 저장
 팩터 구성:
   샤프모멘텀 (45%): (3M*0.5+6M*0.3+12M*0.2) / vol_60d  z-score
   상대강도   (20%): 3M 수익률 - KOSPI 3M 수익률 z-score
-  수급       (15%): 외국인+기관 5d/20d 가중합 z-score
-  가치       (20%): 섹터중립 PBR 역수 z-score (pykrx)
+  수급       (25%): 외국인+기관 5d/20d 가중합 z-score  ← 15%에서 상향
+  가치       (10%): 섹터중립 PBR 역수 z-score (pykrx)  ← 20%에서 하향
+
+과열 필터: momentum_3m > 40% AND relative_strength_3m > 20% 종목은
+  composite_score를 64.9 이하로 cap → Quality A 등급 진입 차단
+Z-score Winsorize: clip(-2.5, 2.5) 적용 → 이상치 왜곡 방지
 """
 import os
 import sys
@@ -180,7 +184,8 @@ def detect_speculative(prices: pd.Series, vol_annual: float | None) -> tuple[boo
 
 def zscore(s: pd.Series) -> pd.Series:
     std = s.std()
-    return (s - s.mean()) / std if std > 0 else pd.Series(0.0, index=s.index)
+    result = (s - s.mean()) / std if std > 0 else pd.Series(0.0, index=s.index)
+    return result.clip(-2.5, 2.5)
 
 
 def sector_neutral_zscore(df: pd.DataFrame, col: str, sector_col: str = "sector") -> pd.Series:
@@ -328,23 +333,36 @@ def run():
         df["z_value"] = 0.0
         print("  가치 팩터 미적용 (PBR 데이터 없음)")
 
-    # 가중치: 샤프모멘텀(45%) + 상대강도(20%) + 수급(15%) + 가치(20%)
-    # pykrx 없을 시 가치 가중치를 모멘텀에 흡수 → 55%+25%+20%
+    # 가중치: 샤프모멘텀(45%) + 상대강도(20%) + 수급(25%) + 가치(10%)
+    # 수급 상향(25%): 외국인 대량매수 시 대형주 자연 포착
+    # 가치 하향(10%): PBR 역수가 고PBR 성장 대형주를 구조적으로 제외하는 편향 완화
+    # pykrx 없을 시 가치(0.10)를 모멘텀(+0.05)·수급(+0.05)에 흡수
     if has_pbr:
         raw = (
             df["z_momentum"] * 0.45 +
             df["z_rs"]       * 0.20 +
-            df["z_flow"]     * 0.15 +
-            df["z_value"]    * 0.20
+            df["z_flow"]     * 0.25 +
+            df["z_value"]    * 0.10
         )
     else:
         raw = (
-            df["z_momentum"] * 0.55 +
-            df["z_rs"]       * 0.25 +
-            df["z_flow"]     * 0.20
+            df["z_momentum"] * 0.50 +
+            df["z_rs"]       * 0.20 +
+            df["z_flow"]     * 0.30
         )
     # P5: Rank-based percentile (robust to outliers vs min-max)
     df["composite_score"] = (raw.rank(pct=True) * 100).round(1)
+
+    # 과열 필터: 3M 모멘텀 > 40% AND 상대강도 > 20% 종목은 Quality A(≥65) 진입 차단
+    # 이미 급등한 소형 모멘텀주가 BUY 리스트 상위를 독점하는 구조적 편향 방지
+    overheat_mask = (
+        (df["momentum_3m"].fillna(0) > 0.40) &
+        (df["relative_strength_3m"].fillna(0) > 0.20)
+    )
+    df.loc[overheat_mask, "composite_score"] = df.loc[overheat_mask, "composite_score"].clip(upper=64.9)
+    if overheat_mask.sum() > 0:
+        print(f"  과열 필터 적용: {overheat_mask.sum()}개 종목 A등급 상한 (64.9) 적용")
+
     if skip_count > 0:
         print(f"\n  ⚠️  데이터 부족으로 스킵된 종목: {skip_count}개")
     if len(raw_rows) < 10:
