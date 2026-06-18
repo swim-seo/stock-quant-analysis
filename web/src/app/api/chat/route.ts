@@ -111,7 +111,8 @@ ${context}`;
           }
         }
       } catch (err) {
-        console.error("[api/chat] stream error:", err);
+        const e = err as { status?: number; message?: string; error?: unknown };
+        console.error("[api/chat] stream error — status:", e?.status, "message:", e?.message, "detail:", JSON.stringify(e?.error ?? ""));
         controller.enqueue(encoder.encode("오류가 발생했습니다. 잠시 후 다시 시도해주세요."));
       } finally {
         controller.close();
