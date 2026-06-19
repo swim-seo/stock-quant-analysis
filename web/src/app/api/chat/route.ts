@@ -68,6 +68,11 @@ ${newsLines.join("\n")}`;
 }
 
 export async function POST(req: NextRequest) {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    console.error("[chat] ANTHROPIC_API_KEY is not set");
+    return new Response("ANTHROPIC_API_KEY missing", { status: 500 });
+  }
+
   const { message, history = [] } = await req.json();
 
   const context = await buildContext();
@@ -112,7 +117,7 @@ ${context}`;
         }
       } catch (err) {
         const e = err as { status?: number; message?: string; error?: unknown };
-        console.error("[api/chat] stream error — status:", e?.status, "message:", e?.message, "detail:", JSON.stringify(e?.error ?? ""));
+        console.error(`[chat] ERR ${e?.status} ${JSON.stringify(e?.error ?? e?.message ?? err)}`);
         controller.enqueue(encoder.encode("오류가 발생했습니다. 잠시 후 다시 시도해주세요."));
       } finally {
         controller.close();
