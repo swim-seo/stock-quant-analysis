@@ -95,15 +95,30 @@ async function buildStockContext(message: string, lastTicker: string | null): Pr
   const orFilter = searchWords.slice(0, 6).map((w) => `stock_name.ilike.%${w}%`).join(",");
 
   // trade_signals 단일 조회로 사전계산 점수 전부 획득 (Gemini 제안)
-  const { data: stocks } = await supabase
+  const { data: signalStocks } = await supabase
     .from("trade_signals")
     .select("ticker,stock_name,sector,signal,composite_score,factor_score,news_score,yt_score,tech_score,key_yt_signals,urgency,market_regime,calculated_at")
     .or(orFilter)
     .order("composite_score", { ascending: false })
     .limit(2);
 
-  if (!stocks?.length) return { text: "", detectedName: null };
+  // trade_signals에 없으면 factor_scores로 fallback (signal_aggregator 실패 시 대비)
+  if (!signalStocks?.length) {
+    const { data: factorStocks } = await supabase
+      .from("factor_scores")
+      .select("ticker,stock_name,composite_score,momentum_score,flow_score,value_score")
+      .or(orFilter)
+      .order("composite_score", { ascending: false })
+      .limit(2);
+    if (!factorStocks?.length) return { text: "", detectedName: null };
+    // factor_scores만 있는 경우: 간략 형식으로 반환
+    const factorOnly = factorStocks.map((f) =>
+      `\n━━━ ${f.stock_name}(${f.ticker}) — 팩터 데이터만 있음 (신호 미집계) ━━━\n팩터점수: ${f.composite_score} | 모멘텀: ${f.momentum_score?.toFixed(1)} | 수급: ${f.flow_score?.toFixed(1)} | 가치: ${f.value_score?.toFixed(1)}\n매매신호·뉴스·유튜브·목표가 데이터 없음 — 파이프라인 재실행 필요`
+    ).join("\n");
+    return { text: factorOnly, detectedName: factorStocks[0].stock_name };
+  }
 
+  const stocks = signalStocks;
   const sections: string[] = [];
 
   for (const st of stocks) {
