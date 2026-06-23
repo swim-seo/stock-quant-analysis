@@ -84,11 +84,15 @@ SELL: ${sells.slice(0, 5).map((s) => `${s.stock_name}(${s.composite_score}점)`)
 YouTube: ${ytLines.join(" | ")}`;
 }
 
-async function buildStockContext(message: string): Promise<string> {
+// Codex+Gemini 권고: lastTicker = 이전 대화에서 감지된 종목명, 팔로업 질문에 fallback으로 사용
+async function buildStockContext(message: string, lastTicker: string | null): Promise<{ text: string; detectedName: string | null }> {
   const words = message.replace(/[^가-힣\w\s]/g, " ").split(/\s+/).filter((w) => w.length >= 2 && !STOP_WORDS.has(w));
-  if (!words.length) return "";
 
-  const orFilter = words.slice(0, 6).map((w) => `stock_name.ilike.%${w}%`).join(",");
+  // 메시지에 종목 단어 없으면 이전 종목(lastTicker) fallback
+  const searchWords = words.length > 0 ? words : (lastTicker ? [lastTicker] : []);
+  if (!searchWords.length) return { text: "", detectedName: null };
+
+  const orFilter = searchWords.slice(0, 6).map((w) => `stock_name.ilike.%${w}%`).join(",");
 
   // trade_signals 단일 조회로 사전계산 점수 전부 획득 (Gemini 제안)
   const { data: stocks } = await supabase
@@ -98,7 +102,7 @@ async function buildStockContext(message: string): Promise<string> {
     .order("composite_score", { ascending: false })
     .limit(2);
 
-  if (!stocks?.length) return "";
+  if (!stocks?.length) return { text: "", detectedName: null };
 
   const sections: string[] = [];
 
@@ -174,7 +178,7 @@ ${ytSection}
 ${targetSection}`);
   }
 
-  return sections.join("\n");
+  return { text: sections.join("\n"), detectedName: stocks[0].stock_name };
 }
 
 export async function POST(req: NextRequest) {
@@ -186,13 +190,17 @@ export async function POST(req: NextRequest) {
     return new Response("서버 설정 오류", { status: 500 });
   }
 
-  const { message, history = [] } = await req.json();
+  const { message, history = [], lastTicker = null } = await req.json();
   if (!message) return new Response("message required", { status: 400 });
 
   let context = "";
   let stockContext = "";
+  let detectedName: string | null = null;
   try {
-    [context, stockContext] = await Promise.all([buildContext(), buildStockContext(message)]);
+    const [ctx, stockResult] = await Promise.all([buildContext(), buildStockContext(message, lastTicker)]);
+    context = ctx;
+    stockContext = stockResult.text;
+    detectedName = stockResult.detectedName;
   } catch (e) {
     console.error("[chat] context error:", e);
   }
@@ -257,5 +265,8 @@ ${context}${stockContext ? `\n${stockContext}` : ""}`;
     },
   });
 
-  return new Response(readableStream, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
+  // X-Detected-Ticker: 클라이언트가 lastTicker로 저장해 팔로업 질문에 재사용
+  const headers: Record<string, string> = { "Content-Type": "text/plain; charset=utf-8" };
+  if (detectedName) headers["X-Detected-Ticker"] = encodeURIComponent(detectedName);
+  return new Response(readableStream, { headers });
 }

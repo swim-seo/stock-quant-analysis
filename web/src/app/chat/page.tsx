@@ -38,6 +38,9 @@ export default function ChatPage() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  // Codex+Gemini 권고: 마지막 감지 종목을 메모리에 보관 — DB/Redis 불필요, 탭 생명주기와 일치
+  const lastTickerRef = useRef<string | null>(null);
+  const [lastTickerDisplay, setLastTickerDisplay] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -108,8 +111,16 @@ export default function ChatPage() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text.trim(), history }),
+        body: JSON.stringify({ message: text.trim(), history, lastTicker: lastTickerRef.current }),
       });
+
+      // 서버가 감지한 종목을 헤더로 수신 — 다음 팔로업 질문에 재사용
+      const detected = res.headers.get("X-Detected-Ticker");
+      if (detected) {
+        const name = decodeURIComponent(detected);
+        lastTickerRef.current = name;
+        setLastTickerDisplay(name);
+      }
 
       const reader = res.body?.getReader();
       const decoder = new TextDecoder();
@@ -229,6 +240,21 @@ export default function ChatPage() {
         ))}
         <div ref={bottomRef} />
       </div>
+
+      {/* 현재 종목 컨텍스트 배지 */}
+      {lastTickerDisplay && (
+        <div style={{ background: "#f0f7ff", borderTop: "1px solid #d0e4ff", padding: "6px 24px", display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 12, color: "#0066cc" }}>
+            💬 현재 종목 컨텍스트: <strong>{lastTickerDisplay}</strong>
+          </span>
+          <button
+            onClick={() => { lastTickerRef.current = null; setLastTickerDisplay(null); }}
+            style={{ fontSize: 11, color: "#999", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+          >
+            ✕ 초기화
+          </button>
+        </div>
+      )}
 
       {/* Input */}
       <div style={{
