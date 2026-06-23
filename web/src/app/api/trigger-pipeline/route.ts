@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 const TRIGGER_URL = process.env.PIPELINE_TRIGGER_URL?.replace(/\/$/, "");
 const TRIGGER_SECRET = process.env.PIPELINE_TRIGGER_SECRET ?? "";
 
-const VALID_MODES = new Set(["morning", "afternoon", "all"]);
+const VALID_MODES = new Set(["morning", "afternoon", "all", "prices"]);
 const ALLOWED_HOSTS = new Set([
   "web-beryl-eight-90.vercel.app",
   "localhost",

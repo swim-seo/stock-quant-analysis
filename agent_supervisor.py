@@ -198,6 +198,12 @@ if __name__ == "__main__":
         run_step("브리핑 생성",           rj.generate_briefing)
         run_step("수익률 업데이트",       rj.update_portfolio_returns)
 
+    elif mode == "prices":
+        # 주가+팩터+신호만 재계산 — Claude 토큰 없음, KIS API only
+        run_step("주가 DB 저장",   lambda: rj.collect_stock_prices(days=5))
+        run_step("팩터 계산",      rj._run_factor_calculator)
+        run_step("신호 집계",      rj._run_signal_aggregator)
+
     elif mode == "backfill":
         if not rj._DATE_OVERRIDE:
             print("  backfill 모드는 --date YYYY-MM-DD 필요")

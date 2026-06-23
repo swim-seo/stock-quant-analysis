@@ -154,8 +154,8 @@ class Handler(BaseHTTPRequestHandler):
             data = {}
 
         mode = data.get("mode", "morning")
-        if mode not in ("morning", "afternoon", "all"):
-            self._send_json(400, {"error": f"mode는 morning/afternoon/all 중 하나"})
+        if mode not in ("morning", "afternoon", "all", "prices"):
+            self._send_json(400, {"error": f"mode는 morning/afternoon/all/prices 중 하나"})
             return
 
         if _status["running"]:
