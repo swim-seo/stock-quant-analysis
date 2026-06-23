@@ -1777,6 +1777,17 @@ def _run_signal_aggregator():
         print(traceback.format_exc())
 
 
+def _run_signal_performance_tracker():
+    try:
+        from signal_performance_tracker import run as run_perf
+        print("\n[신호 성과] 5일/10일 수익률 업데이트...")
+        run_perf()
+    except Exception as e:
+        import traceback
+        print(f"  [신호 성과 오류] {e}", file=sys.stderr)
+        print(traceback.format_exc(), file=sys.stderr)
+
+
 def _run_sniper():
     try:
         from monthly_sniper import run as run_sniper, is_sniper_period

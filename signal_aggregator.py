@@ -848,6 +848,59 @@ def _calc_timing_score(
     return sum(_TIMING_WEIGHTS[k] * v for k, v in available.items()) / total_w
 
 
+def _calc_trade_type(
+    quality_tier: str,
+    timing_score: float,
+    execution_signal: str,
+    market_regime: str,
+) -> str:
+    """Classify signal into actionable trade type."""
+    if execution_signal in ("BLOCKED", "WATCH", "HOLD", "REDUCE"):
+        return "WATCH"
+    if (
+        quality_tier == "A"
+        and timing_score >= 75
+        and execution_signal == "BUY_OK"
+        and market_regime not in ("BEAR", "STRONG_BEAR")
+    ):
+        return "SNIPER"
+    if execution_signal in ("BUY_OK", "BUY_SMALL"):
+        if market_regime in ("BULL", "STRONG_BULL"):
+            return "SWING"
+        return "LONG_TERM"
+    return "WATCH"
+
+
+def _calc_data_freshness(
+    tech_raw: float | None,
+    factor_score: float | None,
+    news_score: float | None,
+    yt_no_data: bool,
+    analyst_score: float | None,
+) -> tuple[float, list[str]]:
+    """Calculate data freshness score (0–100) and list stale components."""
+    stale: list[str] = []
+    score = 100.0
+
+    if tech_raw is None:
+        stale.append("주가/기술적지표")
+        score -= 25
+    if factor_score is None:
+        stale.append("팩터점수")
+        score -= 25
+    if news_score is None:
+        stale.append("최근뉴스(3일이상)")
+        score -= 20
+    if yt_no_data:
+        stale.append("유튜브언급없음(7일)")
+        score -= 15
+    if analyst_score is None:
+        stale.append("증권사목표가(90일이상)")
+        score -= 15
+
+    return round(max(0.0, score), 2), stale
+
+
 def _calc_position_params(
     execution_signal: str,
     market_risk_level: str,
@@ -1076,6 +1129,14 @@ def run() -> None:
             execution_signal, market_risk.level, composite
         )
 
+        # Trade type classification
+        trade_type = _calc_trade_type(q_tier, timing, execution_signal, market_regime)
+
+        # Data freshness
+        freshness_score, stale_components = _calc_data_freshness(
+            tech_raw, factor_score, news_score, yt_no_data, analyst_score if analyst_targets else None
+        )
+
         row_data = {
             "ticker": ticker,
             "stock_name": stock_name,
@@ -1090,6 +1151,9 @@ def run() -> None:
             "take_profit_pct": tp_pct if tp_pct > 0 else None,
             "stop_loss_pct": sl_pct if sl_pct > 0 else None,
             "max_holding_days": max_days if max_days > 0 else None,
+            "trade_type": trade_type,
+            "data_freshness_score": freshness_score,
+            "stale_components": stale_components,
             "composite_score": composite,
             "signal_version": SIGNAL_VERSION,
             "tech_score": round(tech_raw, 2) if tech_raw is not None else None,
@@ -1125,6 +1189,9 @@ def run() -> None:
 
     # Also update prediction_log with latest composite/tech/yt/news scores
     _update_prediction_log(results)
+
+    # Write today's signals to signal_performance (entry only; returns filled later)
+    _write_signal_performance(results)
 
     buy_count = sum(1 for r in results if r["signal"] == "BUY")
     sell_count = sum(1 for r in results if r["signal"] == "SELL")
@@ -1179,6 +1246,56 @@ def _update_prediction_log(results: list[dict]) -> None:
             ).execute()
         except Exception:
             pass
+
+
+def _write_signal_performance(results: list[dict]) -> None:
+    """Insert today's signals into signal_performance with entry_price.
+    Returns (close_5d, close_10d, returns) are filled later by signal_performance_tracker.py.
+    """
+    from datetime import timezone as _tz
+    KST = timezone(timedelta(hours=9))
+    today = datetime.now(KST).date().isoformat()
+
+    # Load latest stock prices for entry_price
+    tickers = [r["ticker"] for r in results]
+    price_rows = supabase.table("stock_prices").select("ticker,close").in_("ticker", tickers).order("trade_date", desc=True).limit(len(tickers) * 3).execute()
+    price_map: dict[str, float] = {}
+    for pr in price_rows.data or []:
+        t = pr["ticker"]
+        if t not in price_map and pr.get("close"):
+            price_map[t] = float(pr["close"])
+
+    perf_rows = []
+    for r in results:
+        if r.get("signal") not in ("BUY", "SELL"):
+            continue
+        entry = price_map.get(r["ticker"])
+        perf_rows.append({
+            "signal_date":     today,
+            "ticker":          r["ticker"],
+            "stock_name":      r.get("stock_name"),
+            "signal":          r.get("signal"),
+            "execution_signal": r.get("execution_signal"),
+            "market_risk_level": r.get("market_risk_level"),
+            "composite_score": r.get("composite_score"),
+            "entry_price":     int(entry) if entry else None,
+            "take_profit_pct": r.get("take_profit_pct"),
+            "stop_loss_pct":   r.get("stop_loss_pct"),
+        })
+
+    if not perf_rows:
+        return
+
+    for i in range(0, len(perf_rows), 50):
+        batch = perf_rows[i : i + 50]
+        try:
+            supabase.table("signal_performance").upsert(
+                batch, on_conflict="signal_date,ticker"
+            ).execute()
+        except Exception as e:
+            print(f"  [signal_performance 저장 실패] {e}")
+
+    print(f"  signal_performance 저장: {len(perf_rows)}건")
 
 
 if __name__ == "__main__":

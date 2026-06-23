@@ -39,6 +39,9 @@ interface TradeSignal {
   take_profit_pct: number | null;
   stop_loss_pct: number | null;
   max_holding_days: number | null;
+  trade_type: "SNIPER" | "SWING" | "LONG_TERM" | "WATCH" | null;
+  data_freshness_score: number | null;
+  stale_components: string[] | null;
 }
 
 interface SniperSummary {
@@ -142,6 +145,22 @@ function sniperBadge() {
   return (
     <span style={{ background: "linear-gradient(90deg, #ff6b35, #f7c59f)", color: "#fff", fontWeight: 800, fontSize: 11, padding: "2px 8px", borderRadius: 6, letterSpacing: 0.5, whiteSpace: "nowrap" }}>
       🎯 스나이퍼
+    </span>
+  );
+}
+
+function tradeTypeBadge(type: string | null) {
+  if (!type || type === "WATCH") return null;
+  const map: Record<string, { label: string; bg: string; color: string }> = {
+    SNIPER:    { label: "⚡ 스나이퍼",  bg: "#fef2f2", color: "#c81e1e" },
+    SWING:     { label: "🔄 스윙",      bg: "#eff6ff", color: "#1d4ed8" },
+    LONG_TERM: { label: "🏦 장기",      bg: "#f0fdf4", color: "#166534" },
+  };
+  const m = map[type];
+  if (!m) return null;
+  return (
+    <span style={{ background: m.bg, color: m.color, fontWeight: 700, fontSize: 10, padding: "1px 6px", borderRadius: 4, whiteSpace: "nowrap" }}>
+      {m.label}
     </span>
   );
 }
@@ -374,6 +393,15 @@ export default function SignalsPage() {
 
   const buyCount = rows.filter(r => r.signal === "BUY").length;
 
+  // Sector concentration: count BUY_OK per sector
+  const sectorBuyOk = useMemo(() => {
+    const counts: Record<string, number> = {};
+    rows.filter(r => r.execution_signal === "BUY_OK").forEach(r => {
+      counts[r.sector] = (counts[r.sector] ?? 0) + 1;
+    });
+    return Object.entries(counts).filter(([, n]) => n >= 3).sort((a, b) => b[1] - a[1]);
+  }, [rows]);
+
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <main style={{ minHeight: "100vh", background: "var(--bg)" }}>
@@ -439,6 +467,11 @@ export default function SignalsPage() {
                 <span style={{ fontSize: 12, color: "#999" }}>YouTube 전문가 합의 기반 시장 국면</span>
               </div>
               {riskLevelBadge(marketRiskLevel, marketRiskScore, marketRiskReasons)}
+              {sectorBuyOk.length > 0 && (
+                <div style={{ background: "#fff8e6", border: "1px solid #f5a623", borderLeft: "3px solid #f5a623", borderRadius: 8, padding: "8px 14px", fontSize: 12, color: "#92400e" }}>
+                  ⚠️ 섹터 쏠림 주의: {sectorBuyOk.map(([s, n]) => `${s} BUY_OK ${n}개`).join(" · ")} — 한 섹터에 집중 매수 위험
+                </div>
+              )}
             </div>
 
             {/* Filters */}
@@ -507,7 +540,10 @@ export default function SignalsPage() {
                               onClick={e => { e.stopPropagation(); router.push(`/stock?ticker=${encodeURIComponent(row.ticker)}`); }}>
                               <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                                 {row.stock_name}
-                                {row.sniper_match && sniperBadge()}
+                                <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                                  {row.sniper_match && sniperBadge()}
+                                  {tradeTypeBadge(row.trade_type)}
+                                </div>
                               </div>
                             </td>
                             <td style={{ padding: "10px 8px", fontSize: 12, color: "#888", whiteSpace: "nowrap" }}>{row.sector}</td>
@@ -592,6 +628,14 @@ export default function SignalsPage() {
                                       {row.trading_type && <span style={{ fontSize: 12, background: "#f0f0f0", color: "#555", padding: "2px 8px", borderRadius: 5, fontWeight: 600 }}>{row.trading_type}</span>}
                                       {row.yt_sentiment_ratio != null && <span style={{ fontSize: 12, color: "#888" }}>YT 긍정 {Math.round(row.yt_sentiment_ratio * 100)}%</span>}
                                       {row.data_quality_score != null && <span style={{ fontSize: 12, color: "#bbb" }}>데이터품질 {Math.round(row.data_quality_score * 100)}%</span>}
+                                      {row.data_freshness_score != null && (
+                                        <span style={{ fontSize: 12, color: row.data_freshness_score >= 80 ? "#00b493" : row.data_freshness_score >= 50 ? "#f5a623" : "#f04452" }}>
+                                          신선도 {row.data_freshness_score}점
+                                        </span>
+                                      )}
+                                      {row.stale_components && row.stale_components.length > 0 && (
+                                        <span style={{ fontSize: 11, color: "#f04452" }}>⚠️ {row.stale_components.join(", ")}</span>
+                                      )}
                                     </div>
                                   </div>
                                   <div>

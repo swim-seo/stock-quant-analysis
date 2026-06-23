@@ -188,6 +188,7 @@ if __name__ == "__main__":
         run_step("테마 스캐너",           rj._run_theme_scanner)
         run_step("팩터 계산",             rj._run_factor_calculator)
         run_step("신호 집계",             rj._run_signal_aggregator)
+        run_step("신호 성과 추적",        rj._run_signal_performance_tracker)
         run_step("일일 리포트",           rj.send_daily_report)
         run_step("스나이퍼",              rj._run_sniper)
         run_step("월간 에이전트",         rj._run_monthly_agent)
@@ -203,6 +204,7 @@ if __name__ == "__main__":
         run_step("주가 DB 저장",   lambda: rj.collect_stock_prices(days=5))
         run_step("팩터 계산",      rj._run_factor_calculator)
         run_step("신호 집계",      rj._run_signal_aggregator)
+        run_step("신호 성과 추적", rj._run_signal_performance_tracker)
 
     elif mode == "backfill":
         if not rj._DATE_OVERRIDE:
