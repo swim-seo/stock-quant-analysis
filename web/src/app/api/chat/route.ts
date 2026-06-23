@@ -135,7 +135,7 @@ async function buildMarketNewsContext(): Promise<string> {
 
 async function buildContext(): Promise<string> {
   const [signalsRes, ytRes, newsRes] = await Promise.all([
-    supabase.from("trade_signals").select("ticker,stock_name,sector,signal,composite_score,market_regime,calculated_at").order("composite_score", { ascending: false }).limit(50),
+    supabase.from("trade_signals").select("ticker,stock_name,sector,signal,execution_signal,composite_score,market_regime,market_risk_level,market_risk_score,market_risk_reasons,calculated_at").order("composite_score", { ascending: false }).limit(50),
     supabase.from("youtube_insights").select("upload_date,channel,key_stocks,investment_signals,market_sentiment").order("processed_at", { ascending: false }).limit(6),
     supabase.from("stock_news").select("stock_name,sentiment,trading_signal,news_impact_score").order("news_impact_score", { ascending: false }).limit(15),
   ]);
@@ -145,9 +145,18 @@ async function buildContext(): Promise<string> {
   const holds = signals.filter((s) => s.signal === "HOLD");
   const sells = signals.filter((s) => s.signal === "SELL");
   const regime = signals[0]?.market_regime ?? "NEUTRAL";
+  const riskLevel = signals[0]?.market_risk_level ?? null;
+  const riskScore = signals[0]?.market_risk_score ?? null;
+  const riskReasons: string[] = Array.isArray(signals[0]?.market_risk_reasons) ? signals[0].market_risk_reasons : [];
   const calcAt = signals[0]?.calculated_at
     ? new Date(signals[0].calculated_at).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })
     : "미확인";
+
+  // BUY 중 실행 신호 분류
+  const buyOk    = buys.filter((s) => s.execution_signal === "BUY_OK");
+  const buySmall = buys.filter((s) => s.execution_signal === "BUY_SMALL");
+  const watch    = buys.filter((s) => s.execution_signal === "WATCH");
+  const blocked  = buys.filter((s) => s.execution_signal === "BLOCKED");
 
   const ytLines = (ytRes.data ?? []).map((y) => {
     const ks: string[] = y.key_stocks ?? [];
@@ -155,8 +164,15 @@ async function buildContext(): Promise<string> {
     return `- [${y.upload_date}] ${y.channel}: ${ks.slice(0, 5).join(", ")} / ${y.market_sentiment} / ${sig.slice(0, 2).join(" | ")}`;
   });
 
+  const riskLine = riskLevel
+    ? `시장위험도: ${riskLevel} (${riskScore}/100)${riskReasons.length ? " — " + riskReasons.slice(0, 3).join(" / ") : ""}`
+    : "";
+
   return `[시스템 데이터 — ${calcAt} / 시장국면: ${regime}]
-BUY ${buys.length}개: ${buys.map((b) => `${b.stock_name}(${b.composite_score}점)`).join(", ")}
+${riskLine}
+BUY ${buys.length}개 (BUY_OK ${buyOk.length}개 / BUY_SMALL ${buySmall.length}개 / WATCH ${watch.length}개 / BLOCKED ${blocked.length}개)
+  BUY_OK: ${buyOk.slice(0, 5).map((b) => `${b.stock_name}(${b.composite_score}점)`).join(", ") || "없음"}
+  BUY_SMALL: ${buySmall.slice(0, 5).map((b) => `${b.stock_name}(${b.composite_score}점)`).join(", ") || "없음"}
 HOLD 상위: ${holds.slice(0, 8).map((s) => `${s.stock_name}(${s.composite_score}점)`).join(", ")}
 SELL: ${sells.slice(0, 5).map((s) => `${s.stock_name}(${s.composite_score}점)`).join(", ")}
 뉴스 임팩트: ${(newsRes.data ?? []).map((n) => `${n.stock_name}(${n.sentiment}/${n.news_impact_score}점)`).join(", ")}
@@ -176,7 +192,7 @@ async function buildStockContext(message: string, lastTicker: string | null): Pr
   // trade_signals 단일 조회로 사전계산 점수 전부 획득 (Gemini 제안)
   const { data: signalStocks } = await supabase
     .from("trade_signals")
-    .select("ticker,stock_name,sector,signal,composite_score,factor_score,news_score,yt_score,tech_score,key_yt_signals,urgency,market_regime,calculated_at")
+    .select("ticker,stock_name,sector,signal,execution_signal,execution_reason,composite_score,factor_score,news_score,yt_score,tech_score,key_yt_signals,urgency,market_regime,market_risk_level,market_risk_score,market_risk_reasons,suggested_position_pct,take_profit_pct,stop_loss_pct,max_holding_days,calculated_at")
     .or(orFilter)
     .order("composite_score", { ascending: false })
     .limit(2);
@@ -271,10 +287,24 @@ async function buildStockContext(message: string, lastTicker: string | null): Pr
     const ytSignals = Array.isArray(st.key_yt_signals) ? st.key_yt_signals.slice(0, 2).join(" / ") : (st.key_yt_signals ?? "");
     const sectorPeers = (sectorRes.data ?? []).map((p) => `${p.stock_name} ${p.signal}(${p.composite_score}점)`).join(", ");
 
+    const execLine = st.execution_signal
+      ? `실행신호: ${st.execution_signal}${st.execution_reason ? ` (${st.execution_reason})` : ""}`
+      : "";
+    const riskReasonsList: string[] = Array.isArray(st.market_risk_reasons) ? st.market_risk_reasons : [];
+    const riskLine = st.market_risk_level
+      ? `시장위험도: ${st.market_risk_level} (${st.market_risk_score}/100)${riskReasonsList.length ? " — " + riskReasonsList.slice(0, 3).join(" / ") : ""}`
+      : "";
+    const posLine = st.suggested_position_pct
+      ? `권장비중: ${st.suggested_position_pct}% | 익절: +${st.take_profit_pct}% | 손절: -${st.stop_loss_pct}% | 최대보유: ${st.max_holding_days}거래일`
+      : "";
+
     sections.push(`
 --- ${st.stock_name}(${st.ticker}) | 섹터: ${st.sector} ---
 AI판단: ${label} | 근거: ${reason}
 신호: ${st.signal} | 종합: ${st.composite_score}점 | 시장: ${st.market_regime}
+${execLine}
+${riskLine}
+${posLine}
 팩터: ${st.factor_score ?? "없음"}점 | 뉴스감성: ${st.news_score ?? "없음"}점 | 유튜브감성: ${st.yt_score ?? "없음"}점 | 기술: ${st.tech_score ?? "없음"}점${st.urgency ? ` | 긴급: ${st.urgency}` : ""}
 주가: ${priceSection}
 뉴스: ${newsSection}
@@ -329,15 +359,30 @@ export async function POST(req: NextRequest) {
 - 날짜·출처 포함: "KB증권이 6월 15일에 목표가 280,000원으로 하향" 이런 식으로
 - 마지막엔 짧게 "⚠️ 최종 결정은 본인 판단 하에."
 
+**신호 해석 규칙 (가장 중요)**
+- signal(BUY/HOLD/SELL)은 종목 자체 퀀트 점수다. "이 종목이 구조적으로 좋은가"를 나타냄
+- execution_signal은 오늘 실제 실행 가능 여부다. 이게 실전 행동 기준임
+- BUY라도 execution_signal이 WATCH이면 "관망 권장"으로, BLOCKED이면 "신규매수 금지"로 답해야 함
+- BUY를 그냥 "사도 돼요"처럼 말하면 절대 안 됨. 반드시 execution_signal과 같이 해석할 것
+- 시장위험도(market_risk_level)가 HIGH 또는 EXTREME이면 BUY 종목을 "후보" 또는 "관찰 대상"으로만 설명
+- execution_signal이 없는 경우(데이터 없음)엔 솔직하게 "오늘 시장 위험도 판단 데이터가 없어요"라고 말하기
+
+**투자 목적별 답변 방식**
+- 사용자가 "단기", "용돈벌이", "10% 먹고 빠지기" 같은 말 쓰면:
+  → suggested_position_pct(권장비중), take_profit_pct(익절%), stop_loss_pct(손절%), max_holding_days(최대보유일) 반드시 같이 언급
+  → 예: "비중은 전체 10%, 목표는 +10% 익절, -6% 되면 손절, 10거래일 넘기지 말기"
+- 사용자가 "장기", "적립" 같은 말 쓰면:
+  → 하루 변동보다 실적/섹터/장기 모멘텀 중심으로 설명. 손절 기준보다 구조적 강점 강조
+- 투자 목적이 불명확하면 "단기 트레이딩이에요 아니면 장기 적립이에요?" 하나만 물어봐
+
 **시장 전반 질문 대처 (급락/급등/왜 떨어졌어 등)**
+- 시장위험도 데이터가 있으면 먼저 그걸 기반으로 설명 (SOX, 나스닥, 환율, 외국인 수급 요인)
 - "최신 종목뉴스" 섹션에 오늘 수집된 뉴스가 있으면 → 거기서 공통 원인을 찾아 설명
-  예: "오늘 수집된 뉴스 보면 반도체 섹터 전반에 미국 수출규제 뉴스가 떴고, 삼성·SK하이닉스 모두 악재로 분류됐어요. 이게 시장 전체를 끌어내린 것 같아요."
 - 뉴스가 오늘 날짜가 아니면 솔직하게 "지금 제가 가진 최신 뉴스는 XX일 기준이라서..." 라고 말하기
 - 유튜브 인사이트에 시장 심리(bearish/bullish)가 있으면 함께 언급
 
 **데이터 없을 때 대처**
 - 특정 종목 데이터가 없으면 → 같은 섹터 관련종목 데이터를 보고 섹터 흐름으로 추론해서 말하기
-  예: "현대차 직접 데이터는 없는데, 같은 자동차 섹터 기아가 BUY 75점이고 현대모비스가 HOLD 58점인 걸 보면 섹터 전반은 괜찮은 편이에요. 현대차도..."
 - 추론할 때는 "추정컨대", "섹터 흐름으로 보면" 같이 불확실성 표시
 
 **모르는 정보는 물어보기**
@@ -347,7 +392,6 @@ export async function POST(req: NextRequest) {
 
 **관련 종목 함께 언급**
 - 종목 분석할 때 같은 섹터 관련종목이 있으면 자연스럽게 비교해주기
-  예: "현대차랑 같은 자동차 섹터에서 기아는 지금 BUY 신호고 현대모비스는 HOLD인데, 비교해보면..."
 
 ${context}${stockContext ? `\n\n${stockContext}` : ""}${marketContext ? `\n\n${marketContext}` : ""}${tavilyContext ? `\n\n${tavilyContext}` : ""}`;
 
