@@ -7,13 +7,22 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
+const STOP_WORDS = new Set([
+  "지금", "오늘", "어때", "어떻게", "하지", "사면", "팔면", "봐줘", "알려줘",
+  "뭐야", "맞아", "있어", "없어", "왜요", "근데", "그리고", "그래서", "이거",
+  "저거", "그거", "나는", "내가", "주식", "종목", "투자", "분석", "추천",
+  "매수", "매도", "신호", "점수", "시장", "상황", "현재", "최근", "어디",
+  "뭔가", "뭐지", "좋아", "나쁘", "비싸", "싸다", "올라", "내려", "했어",
+  "했는", "인데", "것은", "것이", "하면", "하고", "해줘", "해봐",
+]);
+
 async function buildContext(): Promise<string> {
   const [signalsRes, ytRes, newsRes] = await Promise.all([
     supabase
       .from("trade_signals")
       .select("ticker,stock_name,sector,signal,composite_score,market_regime,calculated_at")
       .order("composite_score", { ascending: false })
-      .limit(40),
+      .limit(50),
     supabase
       .from("youtube_insights")
       .select("upload_date,channel,key_stocks,investment_signals,market_sentiment")
@@ -23,11 +32,13 @@ async function buildContext(): Promise<string> {
       .from("stock_news")
       .select("stock_name,sentiment,trading_signal,news_impact_score")
       .order("news_impact_score", { ascending: false })
-      .limit(10),
+      .limit(15),
   ]);
 
   const signals = signalsRes.data ?? [];
   const buys = signals.filter((s) => s.signal === "BUY");
+  const holds = signals.filter((s) => s.signal === "HOLD");
+  const sells = signals.filter((s) => s.signal === "SELL");
   const regime = signals[0]?.market_regime ?? "NEUTRAL";
   const calcAt = signals[0]?.calculated_at
     ? new Date(signals[0].calculated_at).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })
@@ -46,21 +57,102 @@ async function buildContext(): Promise<string> {
   return `[현재 시스템 데이터 — ${calcAt} 기준]
 시장국면: ${regime}
 
-[BUY 신호 종목 ${buys.length}개]
+[BUY 신호 ${buys.length}개]
 ${buys.map((b) => `- ${b.stock_name}(${b.ticker}) | ${b.sector} | 점수:${b.composite_score}`).join("\n")}
 
-[HOLD/SELL 상위]
-${signals
-  .filter((s) => s.signal !== "BUY")
-  .slice(0, 5)
-  .map((s) => `- ${s.stock_name}: ${s.signal} | 점수:${s.composite_score}`)
-  .join("\n")}
+[HOLD 상위 10개]
+${holds.slice(0, 10).map((s) => `- ${s.stock_name}: HOLD | 점수:${s.composite_score}`).join("\n")}
+
+[SELL 종목]
+${sells.slice(0, 5).map((s) => `- ${s.stock_name}: SELL | 점수:${s.composite_score}`).join("\n")}
 
 [YouTube 최신 인사이트]
 ${ytLines.join("\n")}
 
-[뉴스 임팩트 TOP10]
+[뉴스 임팩트 TOP15]
 ${newsLines.join("\n")}`;
+}
+
+async function buildStockContext(message: string): Promise<string> {
+  const words = message
+    .replace(/[^가-힣\w\s]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length >= 2 && !STOP_WORDS.has(w));
+
+  if (!words.length) return "";
+
+  const orFilter = words
+    .slice(0, 6)
+    .map((w) => `stock_name.ilike.%${w}%`)
+    .join(",");
+
+  const { data: factors } = await supabase
+    .from("factor_scores")
+    .select("ticker,stock_name,composite_score,momentum_score,flow_score,value_score,close_price,calculated_at")
+    .or(orFilter)
+    .limit(3);
+
+  if (!factors?.length) return "";
+
+  const sections: string[] = [];
+
+  for (const f of factors) {
+    const [sigRes, newsRes, pricesRes] = await Promise.all([
+      supabase
+        .from("trade_signals")
+        .select("signal,composite_score,market_regime")
+        .eq("ticker", f.ticker)
+        .limit(1),
+      supabase
+        .from("stock_news")
+        .select("sentiment,trading_signal,news_impact_score")
+        .ilike("stock_name", `%${f.stock_name}%`)
+        .order("news_impact_score", { ascending: false })
+        .limit(3),
+      supabase
+        .from("stock_prices")
+        .select("trade_date,close_price,volume")
+        .eq("ticker", f.ticker)
+        .order("trade_date", { ascending: false })
+        .limit(7),
+    ]);
+
+    const sig = sigRes.data?.[0];
+    const prices = pricesRes.data ?? [];
+    const newsItems = newsRes.data ?? [];
+
+    const priceTrend =
+      prices.length >= 2
+        ? (() => {
+            const latest = prices[0].close_price;
+            const oldest = prices[prices.length - 1].close_price;
+            const pct = (((latest - oldest) / oldest) * 100).toFixed(1);
+            const sign = Number(pct) >= 0 ? "+" : "";
+            return `${prices.length}일간 ${oldest?.toLocaleString()}원→${latest?.toLocaleString()}원 (${sign}${pct}%)`;
+          })()
+        : prices.length === 1
+        ? `현재가 ${prices[0].close_price?.toLocaleString()}원`
+        : "주가 데이터 없음";
+
+    const priceRows = prices
+      .map((p) => `  ${p.trade_date}: ${p.close_price?.toLocaleString()}원`)
+      .join("\n");
+
+    const newsText = newsItems.length
+      ? newsItems.map((n) => `${n.sentiment}/${n.trading_signal}(${n.news_impact_score}점)`).join(" | ")
+      : "없음";
+
+    sections.push(
+      `\n[${f.stock_name}(${f.ticker}) 종목 상세분석]
+매매신호: ${sig?.signal ?? "미집계"} | 종합점수: ${f.composite_score ?? sig?.composite_score ?? "-"}
+팩터 — 모멘텀:${f.momentum_score?.toFixed(1) ?? "-"} | 수급:${f.flow_score?.toFixed(1) ?? "-"} | 가치:${f.value_score?.toFixed(1) ?? "-"}
+주가추이: ${priceTrend}
+${priceRows ? `일별 종가:\n${priceRows}` : ""}
+뉴스: ${newsText}`
+    );
+  }
+
+  return sections.join("\n");
 }
 
 export async function POST(req: NextRequest) {
@@ -78,23 +170,29 @@ export async function POST(req: NextRequest) {
   }
 
   let context = "";
+  let stockContext = "";
   try {
-    context = await buildContext();
+    [context, stockContext] = await Promise.all([
+      buildContext(),
+      buildStockContext(message),
+    ]);
   } catch (e) {
-    console.error("[chat] buildContext error:", e);
+    console.error("[chat] context error:", e);
   }
 
   const systemPrompt = `당신은 한국 주식 AI 대시보드의 투자 어시스턴트입니다.
-아래 실시간 데이터를 기반으로 사용자 질문에 답변하세요.
+아래 실시간 데이터(매매신호·주가추이·뉴스·유튜브)를 기반으로 구체적인 투자 판단을 제공하세요.
 
-규칙:
-- 한국어로 답변
-- 300자 이내로 간결하게
-- 구체적인 종목명·가격·점수를 언급할 것
-- 매수/매도 판단 근거를 데이터에서 찾을 것
-- 투자 최종 결정은 사용자 본인 책임임을 한 줄로 부기
+[응답 원칙]
+- 한국어 답변
+- 일반 질문: 400자 이내 / 특정 종목 분석: 700자 이내
+- 데이터 근거 필수 — 점수·가격·날짜를 직접 언급
+- 종목 상세 데이터가 있으면: 주가 추이·낙폭·팩터 점수를 분석해 손절/홀딩/매수 판단 근거 제시
+- 팩터 해석: 모멘텀(추세강도) 양수=상승, 수급(기관·외국인 순매수) 양수=강세, 가치(저PBR) 양수=저평가
+- 종합점수 기준: 65+ BUY / 40-65 HOLD / 40미만 SELL
+- 마지막 줄: "⚠️ 최종 투자 결정은 본인 판단과 책임 하에 진행하세요."
 
-${context}`;
+${context}${stockContext ? `\n${stockContext}` : ""}`;
 
   const anthropic = new Anthropic({ apiKey });
   const encoder = new TextEncoder();
@@ -104,7 +202,7 @@ ${context}`;
       try {
         const stream = await anthropic.messages.create({
           model: "claude-sonnet-4-6",
-          max_tokens: 800,
+          max_tokens: 1500,
           stream: true,
           system: systemPrompt,
           messages: [
