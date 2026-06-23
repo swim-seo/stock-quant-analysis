@@ -102,7 +102,7 @@ async function buildStockContext(message: string, lastTicker: string | null): Pr
     .order("composite_score", { ascending: false })
     .limit(2);
 
-  // trade_signals에 없으면 factor_scores로 fallback (signal_aggregator 실패 시 대비)
+  // trade_signals에 없으면 factor_scores로 fallback + 뉴스/목표가는 별도 조회
   if (!signalStocks?.length) {
     const { data: factorStocks } = await supabase
       .from("factor_scores")
@@ -111,11 +111,28 @@ async function buildStockContext(message: string, lastTicker: string | null): Pr
       .order("composite_score", { ascending: false })
       .limit(2);
     if (!factorStocks?.length) return { text: "", detectedName: null };
-    // factor_scores만 있는 경우: 간략 형식으로 반환
-    const factorOnly = factorStocks.map((f) =>
-      `\n━━━ ${f.stock_name}(${f.ticker}) — 팩터 데이터만 있음 (신호 미집계) ━━━\n팩터점수: ${f.composite_score} | 모멘텀: ${f.momentum_score?.toFixed(1)} | 수급: ${f.flow_score?.toFixed(1)} | 가치: ${f.value_score?.toFixed(1)}\n매매신호·뉴스·유튜브·목표가 데이터 없음 — 파이프라인 재실행 필요`
-    ).join("\n");
-    return { text: factorOnly, detectedName: factorStocks[0].stock_name };
+
+    const fallbackSections = await Promise.all(factorStocks.map(async (f) => {
+      const [pricesRes, newsRes, targetsRes] = await Promise.all([
+        supabase.from("stock_prices").select("trade_date,close_price").eq("ticker", f.ticker).order("trade_date", { ascending: false }).limit(7),
+        supabase.from("stock_news").select("collected_at,articles,analysis,sentiment").ilike("stock_name", `%${f.stock_name}%`).order("collected_at", { ascending: false }).limit(1),
+        supabase.from("analyst_targets").select("firm_name,target_price,upside_pct,direction,report_date").eq("stock_code", f.ticker).order("report_date", { ascending: false }).limit(5),
+      ]);
+      const prices = pricesRes.data ?? [];
+      const pricePct = prices.length >= 2 ? ((prices[0].close_price - prices[prices.length - 1].close_price) / prices[prices.length - 1].close_price) * 100 : null;
+      const priceStr = prices.length >= 2
+        ? `${prices[prices.length - 1].close_price?.toLocaleString()}원→${prices[0].close_price?.toLocaleString()}원 (${pricePct! >= 0 ? "+" : ""}${pricePct?.toFixed(1)}%)`
+        : "없음";
+      const newsRow = newsRes.data?.[0];
+      const newsAnalysis: { summary?: string } = parseJson(newsRow?.analysis) ?? {};
+      const newsStr = newsAnalysis.summary ?? "없음";
+      const targets = targetsRes.data ?? [];
+      const targetStr = targets.length
+        ? targets.map((t) => `[${t.report_date}] ${t.firm_name} ${t.target_price?.toLocaleString()}원 (${t.upside_pct && t.upside_pct > 0 ? "+" : ""}${t.upside_pct?.toFixed(1)}%) ${t.direction ?? ""}`).join(", ")
+        : "없음";
+      return `--- ${f.stock_name}(${f.ticker}) — 팩터만 집계됨 (매매신호 미집계) ---\n팩터: ${f.composite_score}점 | 모멘텀: ${f.momentum_score?.toFixed(1)} | 수급: ${f.flow_score?.toFixed(1)} | 가치: ${f.value_score?.toFixed(1)}\n주가: ${priceStr}\n뉴스요약: ${newsStr}\n증권사목표가: ${targetStr}`;
+    }));
+    return { text: fallbackSections.join("\n"), detectedName: factorStocks[0].stock_name };
   }
 
   const stocks = signalStocks;
