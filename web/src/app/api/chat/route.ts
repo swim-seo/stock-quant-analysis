@@ -64,7 +64,9 @@ ${newsLines.join("\n")}`;
 }
 
 export async function POST(req: NextRequest) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  // charCode 65279 = U+FEFF (BOM) — appears when pasting API keys into Vercel env vars on Windows
+  const rawKey = process.env.ANTHROPIC_API_KEY ?? "";
+  const apiKey = (rawKey.charCodeAt(0) === 65279 ? rawKey.slice(1) : rawKey).trim();
   if (!apiKey) {
     console.error("[chat] ANTHROPIC_API_KEY not set");
     return new Response("서버 설정 오류", { status: 500 });
@@ -124,9 +126,8 @@ ${context}`;
         }
       } catch (err) {
         const e = err as Error & { status?: number };
-        const detail = `[디버그] status=${e?.status} | ${e?.message}`;
-        console.error(`[chat-err] ${detail}`);
-        controller.enqueue(encoder.encode(detail));
+        console.error(`[chat-err] status=${e?.status} | ${e?.message}`);
+        controller.enqueue(encoder.encode("오류가 발생했습니다. 잠시 후 다시 시도해주세요."));
       } finally {
         controller.close();
       }
