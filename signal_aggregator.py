@@ -1338,11 +1338,11 @@ def _fetch_prev_execution_signals() -> dict[str, str]:
 
 def _send_buy_ok_alert(transitions: list[dict]) -> None:
     """Send Gmail alert when stocks transition to BUY_OK or BUY_SMALL."""
-    gmail_user = os.environ.get("GMAIL_USER", "")
+    gmail_user = os.environ.get("GMAIL_SENDER", "")
     gmail_pw   = os.environ.get("GMAIL_APP_PASSWORD", "")
-    to_email   = os.environ.get("REPORT_EMAIL", "")
+    to_email   = os.environ.get("REPORT_EMAIL", gmail_user)
     if not all([gmail_user, gmail_pw, to_email]):
-        print("  [BUY_OK 알림] 이메일 설정 없음 — GMAIL_USER/GMAIL_APP_PASSWORD/REPORT_EMAIL 필요")
+        print("  [BUY_OK 알림] 이메일 설정 없음 — GMAIL_SENDER/GMAIL_APP_PASSWORD/REPORT_EMAIL 필요")
         return
 
     KST = timezone(timedelta(hours=9))

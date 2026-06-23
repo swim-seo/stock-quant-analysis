@@ -56,9 +56,9 @@ def _sb_save_alert(step, error_log, diagnosis):
 
 # ── 이메일 알림 ─────────────────────────────────────────────────
 def _send_alert_email(step, diagnosis):
-    gmail_user = os.environ.get("GMAIL_USER", "")
+    gmail_user = os.environ.get("GMAIL_SENDER", "")
     gmail_pw   = os.environ.get("GMAIL_APP_PASSWORD", "")
-    to_email   = os.environ.get("REPORT_EMAIL", "")
+    to_email   = os.environ.get("REPORT_EMAIL", gmail_user)
     if not all([gmail_user, gmail_pw, to_email]):
         return
 
