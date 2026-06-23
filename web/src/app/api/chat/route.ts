@@ -124,8 +124,9 @@ ${context}`;
         }
       } catch (err) {
         const e = err as Error & { status?: number };
-        console.error(`[chat-err] status=${e?.status} msg=${e?.message}`);
-        controller.enqueue(encoder.encode("오류가 발생했습니다. 잠시 후 다시 시도해주세요."));
+        const detail = `[디버그] status=${e?.status} | ${e?.message}`;
+        console.error(`[chat-err] ${detail}`);
+        controller.enqueue(encoder.encode(detail));
       } finally {
         controller.close();
       }
