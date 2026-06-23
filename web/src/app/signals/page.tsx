@@ -35,6 +35,10 @@ interface TradeSignal {
   market_risk_level: string | null;
   market_risk_score: number | null;
   market_risk_reasons: string[] | null;
+  suggested_position_pct: number | null;
+  take_profit_pct: number | null;
+  stop_loss_pct: number | null;
+  max_holding_days: number | null;
 }
 
 interface SniperSummary {
@@ -554,6 +558,30 @@ export default function SignalsPage() {
                                 {row.execution_reason && (
                                   <div style={{ marginBottom: 10, padding: "8px 12px", background: "#fff", borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12, color: "#444" }}>
                                     <span style={{ fontWeight: 700, marginRight: 6 }}>실행 판단:</span>{row.execution_reason}
+                                  </div>
+                                )}
+                                {(row.take_profit_pct || row.stop_loss_pct) && (
+                                  <div style={{ marginBottom: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                    {row.suggested_position_pct && (
+                                      <div style={{ padding: "6px 12px", background: "#f0f4ff", borderRadius: 8, fontSize: 12, color: "#3182f6", fontWeight: 600 }}>
+                                        💰 비중 {row.suggested_position_pct}%
+                                      </div>
+                                    )}
+                                    {row.take_profit_pct && row.entry_price && (
+                                      <div style={{ padding: "6px 12px", background: "#e6f9f2", borderRadius: 8, fontSize: 12, color: "#00b493", fontWeight: 600 }}>
+                                        ✅ 익절 +{row.take_profit_pct}% ({Math.round(row.entry_price * (1 + row.take_profit_pct / 100)).toLocaleString()}원)
+                                      </div>
+                                    )}
+                                    {row.stop_loss_pct && row.entry_price && (
+                                      <div style={{ padding: "6px 12px", background: "#fff0f0", borderRadius: 8, fontSize: 12, color: "#f04452", fontWeight: 600 }}>
+                                        🛑 손절 -{row.stop_loss_pct}% ({Math.round(row.entry_price * (1 - row.stop_loss_pct / 100)).toLocaleString()}원)
+                                      </div>
+                                    )}
+                                    {row.max_holding_days && (
+                                      <div style={{ padding: "6px 12px", background: "#f5f5f5", borderRadius: 8, fontSize: 12, color: "#666" }}>
+                                        ⏰ 최대 {row.max_holding_days}거래일
+                                      </div>
+                                    )}
                                   </div>
                                 )}
                                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>

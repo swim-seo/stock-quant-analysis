@@ -848,6 +848,48 @@ def _calc_timing_score(
     return sum(_TIMING_WEIGHTS[k] * v for k, v in available.items()) / total_w
 
 
+def _calc_position_params(
+    execution_signal: str,
+    market_risk_level: str,
+    composite_score: float,
+) -> tuple[float, float, float, int]:
+    """Calculate position sizing and risk parameters.
+
+    Returns: (suggested_position_pct, take_profit_pct, stop_loss_pct, max_holding_days)
+
+    Position sizing: BUY_OK=25%, BUY_SMALL=10%, others=0
+    Take profit: fixed +10% target (user strategy: "10% eat and exit")
+    Stop loss: tight in high-risk markets
+    Max holding: 10 days default; shorter in high-risk; longer for very strong signals
+    """
+    if execution_signal not in ("BUY_OK", "BUY_SMALL"):
+        return 0.0, 0.0, 0.0, 0
+
+    position_pct = 25.0 if execution_signal == "BUY_OK" else 10.0
+
+    # Take profit stays at 10% regardless of market — that's the user's target
+    take_profit_pct = 10.0
+
+    # Stop loss: tighter when market is riskier (risk/reward asymmetry)
+    stop_loss_map = {
+        "LOW":     6.0,   # risk 6% to make 10% → 1:1.67 RR
+        "MEDIUM":  6.0,
+        "HIGH":    5.0,   # tighter stop in volatile market
+        "EXTREME": 4.0,
+    }
+    stop_loss_pct = stop_loss_map.get(market_risk_level, 6.0)
+
+    # Max holding: default 10 days; shorten in high risk; extend for very strong signals
+    if market_risk_level in ("HIGH", "EXTREME"):
+        max_days = 7
+    elif composite_score >= 78:
+        max_days = 15
+    else:
+        max_days = 10
+
+    return position_pct, take_profit_pct, stop_loss_pct, max_days
+
+
 def _two_stage_signal(
     quality_tier: str,
     timing_score: float,
@@ -1029,6 +1071,11 @@ def run() -> None:
         # Execution filter: 종목 신호 + 시장 위험도 → 오늘 실제 행동 신호
         execution_signal, execution_reason = apply_execution_filter(signal, market_risk.level)
 
+        # Position sizing & risk management
+        pos_pct, tp_pct, sl_pct, max_days = _calc_position_params(
+            execution_signal, market_risk.level, composite
+        )
+
         row_data = {
             "ticker": ticker,
             "stock_name": stock_name,
@@ -1039,6 +1086,10 @@ def run() -> None:
             "market_risk_level": market_risk.level,
             "market_risk_score": market_risk.score,
             "market_risk_reasons": market_risk.reasons,
+            "suggested_position_pct": pos_pct if pos_pct > 0 else None,
+            "take_profit_pct": tp_pct if tp_pct > 0 else None,
+            "stop_loss_pct": sl_pct if sl_pct > 0 else None,
+            "max_holding_days": max_days if max_days > 0 else None,
             "composite_score": composite,
             "signal_version": SIGNAL_VERSION,
             "tech_score": round(tech_raw, 2) if tech_raw is not None else None,
