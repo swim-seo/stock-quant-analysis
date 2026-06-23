@@ -26,6 +26,10 @@ interface Briefing {
   investor_flow: string | Record<string, { foreign_5d: number; institution_5d: number }>;
   latest_insight_at: string | null;
   generated_at: string | null;
+  market_risk_level: string | null;
+  market_risk_score: number | null;
+  market_risk_reasons: string[] | null;
+  action_guide: string | Record<string, string> | null;
 }
 
 function parse<T>(val: string | T): T {
@@ -94,6 +98,15 @@ export default function BriefingPage() {
   const sectorOutlook = parse<SectorOutlook[]>(briefing.sector_outlook);
   const riskAlerts = parse<string[]>(briefing.risk_alerts);
   const investorFlow = parse<Record<string, { foreign_5d: number; institution_5d: number }>>(briefing.investor_flow);
+  const actionGuide = parse<Record<string, string>>(briefing.action_guide ?? {});
+
+  const riskMeta: Record<string, { label: string; bg: string; color: string; border: string; execLabel: string }> = {
+    LOW:     { label: "✅ 시장 위험 낮음",    bg: "#e6f9f2", color: "#00b493", border: "#00b493", execLabel: "BUY_OK — 정상 매수 가능" },
+    MEDIUM:  { label: "⚠️ 시장 위험 보통",   bg: "#fff8e6", color: "#d97706", border: "#f5a623", execLabel: "BUY_SMALL — 소액/분할 매수만" },
+    HIGH:    { label: "🔴 시장 위험 높음",   bg: "#fff0f0", color: "#f04452", border: "#f04452", execLabel: "WATCH — 신규 매수 보류" },
+    EXTREME: { label: "⛔ 시장 위험 매우 높음", bg: "#fff0f0", color: "#c0392b", border: "#c0392b", execLabel: "BLOCKED — 신규 매수 금지" },
+  };
+  const rm = briefing.market_risk_level ? riskMeta[briefing.market_risk_level] : null;
 
   return (
     <main style={{ minHeight: "100vh", background: "var(--bg)" }}>
@@ -131,6 +144,41 @@ export default function BriefingPage() {
             )}
           </div>
         </div>
+
+        {/* 시장 위험도 카드 */}
+        {rm && (
+          <div style={{ background: rm.bg, borderRadius: 16, padding: "18px 24px", border: `1.5px solid ${rm.border}40`, borderLeft: `4px solid ${rm.border}` }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+              <span style={{ fontSize: 16, fontWeight: 800, color: rm.color }}>{rm.label}</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: rm.color, background: `${rm.border}18`, padding: "3px 10px", borderRadius: 6 }}>
+                  {rm.execLabel}
+                </span>
+                <span style={{ fontSize: 13, color: rm.color, opacity: 0.7 }}>
+                  위험점수 {briefing.market_risk_score?.toFixed(0)}/100
+                </span>
+              </div>
+            </div>
+            {Array.isArray(briefing.market_risk_reasons) && briefing.market_risk_reasons.length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {briefing.market_risk_reasons.map((r: string, i: number) => (
+                  <span key={i} style={{ fontSize: 12, color: rm.color, background: `${rm.border}12`, padding: "3px 10px", borderRadius: 6 }}>
+                    {r}
+                  </span>
+                ))}
+              </div>
+            )}
+            {actionGuide && Object.keys(actionGuide).length > 0 && (
+              <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {Object.entries(actionGuide).map(([k, v]) => (
+                  <div key={k} style={{ background: "#fff", borderRadius: 8, padding: "6px 12px", fontSize: 12, color: "#333", border: "1px solid #e5e7eb" }}>
+                    <span style={{ fontWeight: 700, marginRight: 4 }}>{k}:</span>{v}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* 시장 요약 */}
         <div style={{ background: "#fff", borderRadius: 16, padding: "20px 24px", boxShadow: "var(--shadow)" }}>

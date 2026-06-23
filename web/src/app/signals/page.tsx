@@ -30,6 +30,11 @@ interface TradeSignal {
   open_change_pct: number | null;
   trade_date: string | null;
   sniper_match: boolean;
+  execution_signal: string | null;
+  execution_reason: string | null;
+  market_risk_level: string | null;
+  market_risk_score: number | null;
+  market_risk_reasons: string[] | null;
 }
 
 interface SniperSummary {
@@ -137,6 +142,45 @@ function sniperBadge() {
   );
 }
 
+function executionBadge(signal: string | null) {
+  if (!signal) return null;
+  const map: Record<string, { label: string; bg: string; color: string }> = {
+    BUY_OK:    { label: "✅ BUY OK",   bg: "#e6f9f2", color: "#00b493" },
+    BUY_SMALL: { label: "⚠️ 소액매수",  bg: "#fff8e6", color: "#d97706" },
+    WATCH:     { label: "👁 대기",      bg: "#eff6ff", color: "#3182f6" },
+    BLOCKED:   { label: "⛔ 금지",      bg: "#fff0f0", color: "#f04452" },
+    HOLD:      { label: "HOLD",        bg: "#f5f5f5", color: "#888" },
+    REDUCE:    { label: "📉 축소",      bg: "#fff0f0", color: "#f04452" },
+  };
+  const m = map[signal] ?? { label: signal, bg: "#f5f5f5", color: "#888" };
+  return (
+    <span style={{ background: m.bg, color: m.color, fontWeight: 700, fontSize: 11, padding: "2px 8px", borderRadius: 6, whiteSpace: "nowrap" }}>
+      {m.label}
+    </span>
+  );
+}
+
+function riskLevelBadge(level: string | null, score: number | null, reasons: string[] | null) {
+  if (!level) return null;
+  const map: Record<string, { label: string; bg: string; color: string; border: string }> = {
+    LOW:     { label: "✅ 시장위험 낮음",    bg: "#e6f9f2", color: "#00b493", border: "#00b493" },
+    MEDIUM:  { label: "⚠️ 시장위험 보통",   bg: "#fff8e6", color: "#d97706", border: "#f5a623" },
+    HIGH:    { label: "🔴 시장위험 높음",   bg: "#fff0f0", color: "#f04452", border: "#f04452" },
+    EXTREME: { label: "⛔ 시장위험 매우높음", bg: "#fff0f0", color: "#c0392b", border: "#c0392b" },
+  };
+  const m = map[level] ?? { label: level, bg: "#f5f5f5", color: "#888", border: "#ccc" };
+  return (
+    <div style={{ background: m.bg, border: `1px solid ${m.border}20`, borderLeft: `3px solid ${m.border}`, borderRadius: 8, padding: "8px 14px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+      <span style={{ color: m.color, fontWeight: 800, fontSize: 13, whiteSpace: "nowrap" }}>
+        {m.label} ({score?.toFixed(0)}/100)
+      </span>
+      {(reasons ?? []).slice(0, 3).map((r, i) => (
+        <span key={i} style={{ fontSize: 11, color: m.color, opacity: 0.8 }}>· {r}</span>
+      ))}
+    </div>
+  );
+}
+
 function regimeBadge(regime: string) {
   const map: Record<string, { label: string; bg: string; color: string }> = {
     BULL:    { label: "BULL 상승", bg: "#e6f9f2", color: "#00b493" },
@@ -228,6 +272,9 @@ export default function SignalsPage() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [marketRegime, setMarketRegime] = useState("NEUTRAL");
   const [calculatedAt, setCalculatedAt] = useState("");
+  const [marketRiskLevel, setMarketRiskLevel] = useState<string | null>(null);
+  const [marketRiskScore, setMarketRiskScore] = useState<number | null>(null);
+  const [marketRiskReasons, setMarketRiskReasons] = useState<string[] | null>(null);
 
   // ── Sniper state ───────────────────────────────────────────────────────────
   const [sniperTab, setSniperTab] = useState<"positions" | "signals" | "history" | "daily">("positions");
@@ -254,12 +301,19 @@ export default function SignalsPage() {
     fetch(`/api/signals?${params}`)
       .then(r => r.json())
       .then(d => {
-        setRows(d.signals ?? []);
+        const signals = d.signals ?? [];
+        setRows(signals);
         setMarketRegime(d.market_regime ?? "NEUTRAL");
         if (d.calculated_at) {
           setCalculatedAt(new Date(d.calculated_at).toLocaleString("ko-KR", {
             timeZone: "Asia/Seoul", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit",
           }));
+        }
+        const first = signals[0] as TradeSignal | undefined;
+        if (first?.market_risk_level) {
+          setMarketRiskLevel(first.market_risk_level);
+          setMarketRiskScore(first.market_risk_score ?? null);
+          setMarketRiskReasons(first.market_risk_reasons ?? null);
         }
       })
       .finally(() => setLoading(false));
@@ -375,9 +429,12 @@ export default function SignalsPage() {
            ══════════════════════════════════════════════════════════════════ */}
         {mainTab === "signals" && (
           <>
-            <div style={{ marginBottom: 20, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-              {regimeBadge(marketRegime)}
-              <span style={{ fontSize: 12, color: "#999" }}>YouTube 전문가 합의 기반 시장 국면</span>
+            <div style={{ marginBottom: 20, display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                {regimeBadge(marketRegime)}
+                <span style={{ fontSize: 12, color: "#999" }}>YouTube 전문가 합의 기반 시장 국면</span>
+              </div>
+              {riskLevelBadge(marketRiskLevel, marketRiskScore, marketRiskReasons)}
             </div>
 
             {/* Filters */}
@@ -423,6 +480,7 @@ export default function SignalsPage() {
                     <thead>
                       <tr style={{ borderBottom: "1px solid var(--border)" }}>
                         <SortTh col="signal" label="신호" />
+                        <th style={{ padding: "10px 8px", fontSize: 12, color: "var(--text-2)", fontWeight: 500, whiteSpace: "nowrap" }}>실행신호</th>
                         <SortTh col="stock_name" label="종목" />
                         <SortTh col="sector" label="섹터" />
                         <SortTh col="composite_score" label="종합점수" />
@@ -440,6 +498,7 @@ export default function SignalsPage() {
                             onClick={() => setExpanded(expanded === row.ticker ? null : row.ticker)}
                             style={{ cursor: "pointer", borderBottom: "1px solid var(--border)", background: expanded === row.ticker ? "#f8faff" : "transparent" }}>
                             <td style={{ padding: "10px 8px" }}>{signalBadge(row.signal)}</td>
+                            <td style={{ padding: "10px 8px" }}>{executionBadge(row.execution_signal)}</td>
                             <td style={{ padding: "10px 8px", fontWeight: 700, fontSize: 14, whiteSpace: "nowrap" }}
                               onClick={e => { e.stopPropagation(); router.push(`/stock?ticker=${encodeURIComponent(row.ticker)}`); }}>
                               <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
@@ -491,7 +550,12 @@ export default function SignalsPage() {
                           </tr>
                           {expanded === row.ticker && (
                             <tr key={`${row.ticker}-detail`}>
-                              <td colSpan={9} style={{ padding: "12px 16px", background: "#f8faff", borderBottom: "1px solid var(--border)" }}>
+                              <td colSpan={10} style={{ padding: "12px 16px", background: "#f8faff", borderBottom: "1px solid var(--border)" }}>
+                                {row.execution_reason && (
+                                  <div style={{ marginBottom: 10, padding: "8px 12px", background: "#fff", borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12, color: "#444" }}>
+                                    <span style={{ fontWeight: 700, marginRight: 6 }}>실행 판단:</span>{row.execution_reason}
+                                  </div>
+                                )}
                                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
                                   <div>
                                     <p style={{ margin: "0 0 6px", fontSize: 12, fontWeight: 700, color: "var(--text-2)" }}>신호 메타</p>
