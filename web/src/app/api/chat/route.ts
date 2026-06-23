@@ -2,8 +2,6 @@ import { NextRequest } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@supabase/supabase-js";
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -37,9 +35,7 @@ async function buildContext(): Promise<string> {
 
   const ytLines = (ytRes.data ?? []).map((y) => {
     const ks: string[] = y.key_stocks ?? [];
-    const sig: string[] = Array.isArray(y.investment_signals)
-      ? y.investment_signals
-      : [];
+    const sig: string[] = Array.isArray(y.investment_signals) ? y.investment_signals : [];
     return `- [${y.upload_date}] ${y.channel}: 언급종목 ${ks.slice(0, 5).join(", ")} / 감성: ${y.market_sentiment}\n  신호: ${sig.slice(0, 2).join(" | ")}`;
   });
 
@@ -68,14 +64,23 @@ ${newsLines.join("\n")}`;
 }
 
 export async function POST(req: NextRequest) {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    console.error("[chat] ANTHROPIC_API_KEY is not set");
-    return new Response("ANTHROPIC_API_KEY missing", { status: 500 });
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    console.error("[chat] ANTHROPIC_API_KEY not set");
+    return new Response("서버 설정 오류", { status: 500 });
   }
 
   const { message, history = [] } = await req.json();
+  if (!message) {
+    return new Response("message required", { status: 400 });
+  }
 
-  const context = await buildContext();
+  let context = "";
+  try {
+    context = await buildContext();
+  } catch (e) {
+    console.error("[chat] buildContext error:", e);
+  }
 
   const systemPrompt = `당신은 한국 주식 AI 대시보드의 투자 어시스턴트입니다.
 아래 실시간 데이터를 기반으로 사용자 질문에 답변하세요.
@@ -89,14 +94,16 @@ export async function POST(req: NextRequest) {
 
 ${context}`;
 
+  const anthropic = new Anthropic({ apiKey });
   const encoder = new TextEncoder();
 
-  const stream = new ReadableStream({
+  const readableStream = new ReadableStream({
     async start(controller) {
       try {
-        const response = anthropic.messages.stream({
+        const stream = await anthropic.messages.create({
           model: "claude-sonnet-4-6",
           max_tokens: 800,
+          stream: true,
           system: systemPrompt,
           messages: [
             ...history.map((h: { role: string; content: string }) => ({
@@ -107,17 +114,17 @@ ${context}`;
           ],
         });
 
-        for await (const chunk of response) {
+        for await (const event of stream) {
           if (
-            chunk.type === "content_block_delta" &&
-            chunk.delta.type === "text_delta"
+            event.type === "content_block_delta" &&
+            event.delta.type === "text_delta"
           ) {
-            controller.enqueue(encoder.encode(chunk.delta.text));
+            controller.enqueue(encoder.encode(event.delta.text));
           }
         }
       } catch (err) {
-        const e = err as { status?: number; message?: string; error?: unknown };
-        console.error(`[chat] ERR ${e?.status} ${JSON.stringify(e?.error ?? e?.message ?? err)}`);
+        const e = err as Error & { status?: number };
+        console.error(`[chat-err] status=${e?.status} msg=${e?.message}`);
         controller.enqueue(encoder.encode("오류가 발생했습니다. 잠시 후 다시 시도해주세요."));
       } finally {
         controller.close();
@@ -125,7 +132,7 @@ ${context}`;
     },
   });
 
-  return new Response(stream, {
+  return new Response(readableStream, {
     headers: { "Content-Type": "text/plain; charset=utf-8" },
   });
 }
