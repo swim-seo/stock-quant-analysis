@@ -54,6 +54,41 @@ function parseJson<T>(val: unknown): T | null {
   try { return JSON.parse(val as string) as T; } catch { return null; }
 }
 
+async function buildMarketNewsContext(): Promise<string> {
+  const [newsRes, ytRes] = await Promise.all([
+    supabase
+      .from("stock_news")
+      .select("stock_name,collected_at,analysis,sentiment")
+      .order("collected_at", { ascending: false })
+      .limit(20),
+    supabase
+      .from("youtube_insights")
+      .select("upload_date,channel,market_sentiment,key_stocks,investment_signals")
+      .order("processed_at", { ascending: false })
+      .limit(10),
+  ]);
+
+  const newsLines = (newsRes.data ?? []).map((r) => {
+    const analysis: { summary?: string } = parseJson(r.analysis) ?? {};
+    const summary = (analysis.summary ?? r.sentiment ?? "").slice(0, 120);
+    return `  [${r.collected_at?.slice(0, 10) ?? "날짜미상"}] ${r.stock_name}: ${summary}`;
+  });
+
+  const ytLines = (ytRes.data ?? []).map((r) => {
+    const sigs: string[] = Array.isArray(r.investment_signals) ? r.investment_signals.slice(0, 2) : [];
+    const stocks: string[] = Array.isArray(r.key_stocks) ? r.key_stocks.slice(0, 5) : [];
+    return `  [${r.upload_date}] ${r.channel} (${r.market_sentiment})${stocks.length ? ": " + stocks.join(", ") : ""}${sigs.length ? " / " + sigs.join(" | ") : ""}`;
+  });
+
+  return [
+    "=== 최신 종목뉴스 (수집일순 최근 20건) ===",
+    newsLines.join("\n"),
+    "",
+    "=== 유튜브 시장인사이트 (최근 10건) ===",
+    ytLines.join("\n"),
+  ].join("\n");
+}
+
 async function buildContext(): Promise<string> {
   const [signalsRes, ytRes, newsRes] = await Promise.all([
     supabase.from("trade_signals").select("ticker,stock_name,sector,signal,composite_score,market_regime,calculated_at").order("composite_score", { ascending: false }).limit(50),
@@ -221,12 +256,18 @@ export async function POST(req: NextRequest) {
 
   let context = "";
   let stockContext = "";
+  let marketContext = "";
   let detectedName: string | null = null;
   try {
     const [ctx, stockResult] = await Promise.all([buildContext(), buildStockContext(message, lastTicker)]);
     context = ctx;
     stockContext = stockResult.text;
     detectedName = stockResult.detectedName;
+    // When no specific stock is detected, fetch recent market-wide news so Claude
+    // can explain macro events (market crashes, sector drops, etc.)
+    if (!stockResult.text) {
+      marketContext = await buildMarketNewsContext();
+    }
   } catch (e) {
     console.error("[chat] context error:", e);
   }
@@ -239,6 +280,12 @@ export async function POST(req: NextRequest) {
 - 수치는 반드시 구체적으로: "약세"가 아니라 "팩터 38점으로 40 미만 약세구간"
 - 날짜·출처 포함: "KB증권이 6월 15일에 목표가 280,000원으로 하향" 이런 식으로
 - 마지막엔 짧게 "⚠️ 최종 결정은 본인 판단 하에."
+
+**시장 전반 질문 대처 (급락/급등/왜 떨어졌어 등)**
+- "최신 종목뉴스" 섹션에 오늘 수집된 뉴스가 있으면 → 거기서 공통 원인을 찾아 설명
+  예: "오늘 수집된 뉴스 보면 반도체 섹터 전반에 미국 수출규제 뉴스가 떴고, 삼성·SK하이닉스 모두 악재로 분류됐어요. 이게 시장 전체를 끌어내린 것 같아요."
+- 뉴스가 오늘 날짜가 아니면 솔직하게 "지금 제가 가진 최신 뉴스는 XX일 기준이라서..." 라고 말하기
+- 유튜브 인사이트에 시장 심리(bearish/bullish)가 있으면 함께 언급
 
 **데이터 없을 때 대처**
 - 특정 종목 데이터가 없으면 → 같은 섹터 관련종목 데이터를 보고 섹터 흐름으로 추론해서 말하기
@@ -254,7 +301,7 @@ export async function POST(req: NextRequest) {
 - 종목 분석할 때 같은 섹터 관련종목이 있으면 자연스럽게 비교해주기
   예: "현대차랑 같은 자동차 섹터에서 기아는 지금 BUY 신호고 현대모비스는 HOLD인데, 비교해보면..."
 
-${context}${stockContext ? `\n\n${stockContext}` : ""}`;
+${context}${stockContext ? `\n\n${stockContext}` : ""}${marketContext ? `\n\n${marketContext}` : ""}`;
 
   const anthropic = new Anthropic({ apiKey });
   const encoder   = new TextEncoder();
