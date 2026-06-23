@@ -206,9 +206,11 @@ function riskLevelBadge(level: string | null, score: number | null, reasons: str
 
 function regimeBadge(regime: string) {
   const map: Record<string, { label: string; bg: string; color: string }> = {
-    BULL:    { label: "BULL 상승", bg: "#e6f9f2", color: "#00b493" },
-    BEAR:    { label: "BEAR 하락", bg: "#fff0f0", color: "#f04452" },
-    NEUTRAL: { label: "NEUTRAL 중립", bg: "#f5f5f5", color: "#888" },
+    STRONG_BULL: { label: "STRONG BULL ▲▲", bg: "#d1fae5", color: "#065f46" },
+    BULL:        { label: "BULL 상승 ▲",     bg: "#e6f9f2", color: "#00b493" },
+    NEUTRAL:     { label: "NEUTRAL 중립",    bg: "#f5f5f5", color: "#888" },
+    BEAR:        { label: "BEAR 하락 ▼",     bg: "#fff0f0", color: "#f04452" },
+    STRONG_BEAR: { label: "STRONG BEAR ▼▼", bg: "#fee2e2", color: "#991b1b" },
   };
   const m = map[regime] ?? map.NEUTRAL;
   return (
@@ -590,61 +592,101 @@ export default function SignalsPage() {
                           </tr>
                           {expanded === row.ticker && (
                             <tr key={`${row.ticker}-detail`}>
-                              <td colSpan={10} style={{ padding: "12px 16px", background: "#f8faff", borderBottom: "1px solid var(--border)" }}>
+                              <td colSpan={10} style={{ padding: "14px 18px", background: "#f8faff", borderBottom: "1px solid var(--border)" }}>
+                                {/* 실행 판단 */}
                                 {row.execution_reason && (
-                                  <div style={{ marginBottom: 10, padding: "8px 12px", background: "#fff", borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12, color: "#444" }}>
-                                    <span style={{ fontWeight: 700, marginRight: 6 }}>실행 판단:</span>{row.execution_reason}
+                                  <div style={{ marginBottom: 12, padding: "9px 14px", background: "#fff", borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12, color: "#444", display: "flex", gap: 8, alignItems: "flex-start" }}>
+                                    <span style={{ fontWeight: 700, color: "#555", whiteSpace: "nowrap" }}>실행 판단</span>
+                                    <span>{row.execution_reason}</span>
                                   </div>
                                 )}
+
+                                {/* 포지션 설정 */}
                                 {(row.take_profit_pct || row.stop_loss_pct) && (
-                                  <div style={{ marginBottom: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                  <div style={{ marginBottom: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                                     {row.suggested_position_pct && (
-                                      <div style={{ padding: "6px 12px", background: "#f0f4ff", borderRadius: 8, fontSize: 12, color: "#3182f6", fontWeight: 600 }}>
+                                      <div style={{ padding: "6px 14px", background: "#eff6ff", borderRadius: 8, fontSize: 12, color: "#1d4ed8", fontWeight: 700, border: "1px solid #bfdbfe" }}>
                                         💰 비중 {row.suggested_position_pct}%
                                       </div>
                                     )}
                                     {row.take_profit_pct && row.entry_price && (
-                                      <div style={{ padding: "6px 12px", background: "#e6f9f2", borderRadius: 8, fontSize: 12, color: "#00b493", fontWeight: 600 }}>
-                                        ✅ 익절 +{row.take_profit_pct}% ({Math.round(row.entry_price * (1 + row.take_profit_pct / 100)).toLocaleString()}원)
+                                      <div style={{ padding: "6px 14px", background: "#f0fdf4", borderRadius: 8, fontSize: 12, color: "#15803d", fontWeight: 700, border: "1px solid #bbf7d0" }}>
+                                        ↑ 익절 +{row.take_profit_pct}%&nbsp;
+                                        <span style={{ fontWeight: 400, opacity: 0.8 }}>({Math.round(row.entry_price * (1 + row.take_profit_pct / 100)).toLocaleString()}원)</span>
                                       </div>
                                     )}
                                     {row.stop_loss_pct && row.entry_price && (
-                                      <div style={{ padding: "6px 12px", background: "#fff0f0", borderRadius: 8, fontSize: 12, color: "#f04452", fontWeight: 600 }}>
-                                        🛑 손절 -{row.stop_loss_pct}% ({Math.round(row.entry_price * (1 - row.stop_loss_pct / 100)).toLocaleString()}원)
+                                      <div style={{ padding: "6px 14px", background: "#fef2f2", borderRadius: 8, fontSize: 12, color: "#b91c1c", fontWeight: 700, border: "1px solid #fecaca" }}>
+                                        ↓ 손절 -{row.stop_loss_pct}%&nbsp;
+                                        <span style={{ fontWeight: 400, opacity: 0.8 }}>({Math.round(row.entry_price * (1 - row.stop_loss_pct / 100)).toLocaleString()}원)</span>
                                       </div>
                                     )}
                                     {row.max_holding_days && (
-                                      <div style={{ padding: "6px 12px", background: "#f5f5f5", borderRadius: 8, fontSize: 12, color: "#666" }}>
-                                        ⏰ 최대 {row.max_holding_days}거래일
+                                      <div style={{ padding: "6px 14px", background: "#f5f5f5", borderRadius: 8, fontSize: 12, color: "#555", border: "1px solid #e5e5e5" }}>
+                                        ⏰ 최대 {row.max_holding_days}일
                                       </div>
                                     )}
                                   </div>
                                 )}
+
                                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                                  {/* 신호 분석 */}
                                   <div>
-                                    <p style={{ margin: "0 0 6px", fontSize: 12, fontWeight: 700, color: "var(--text-2)" }}>신호 메타</p>
-                                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                                      {row.urgency && <span style={{ fontSize: 12, background: "#e8f3ff", color: "var(--blue)", padding: "2px 8px", borderRadius: 5, fontWeight: 600 }}>{row.urgency}</span>}
-                                      {row.trading_type && <span style={{ fontSize: 12, background: "#f0f0f0", color: "#555", padding: "2px 8px", borderRadius: 5, fontWeight: 600 }}>{row.trading_type}</span>}
-                                      {row.yt_sentiment_ratio != null && <span style={{ fontSize: 12, color: "#888" }}>YT 긍정 {Math.round(row.yt_sentiment_ratio * 100)}%</span>}
-                                      {row.data_quality_score != null && <span style={{ fontSize: 12, color: "#bbb" }}>데이터품질 {Math.round(row.data_quality_score * 100)}%</span>}
-                                      {row.data_freshness_score != null && (
-                                        <span style={{ fontSize: 12, color: row.data_freshness_score >= 80 ? "#00b493" : row.data_freshness_score >= 50 ? "#f5a623" : "#f04452" }}>
-                                          신선도 {row.data_freshness_score}점
+                                    <p style={{ margin: "0 0 8px", fontSize: 11, fontWeight: 700, color: "#aaa", letterSpacing: 1, textTransform: "uppercase" }}>신호 분석</p>
+                                    {/* trade_type + urgency */}
+                                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                                      {row.trade_type && row.trade_type !== "WATCH" && tradeTypeBadge(row.trade_type)}
+                                      {row.urgency && (
+                                        <span style={{ fontSize: 12, background: "#eff6ff", color: "#1d4ed8", padding: "3px 8px", borderRadius: 5, fontWeight: 600 }}>
+                                          🕐 {row.urgency}
                                         </span>
                                       )}
-                                      {row.stale_components && row.stale_components.length > 0 && (
-                                        <span style={{ fontSize: 11, color: "#f04452" }}>⚠️ {row.stale_components.join(", ")}</span>
+                                      {row.trading_type && (
+                                        <span style={{ fontSize: 12, background: "#f3f4f6", color: "#4b5563", padding: "3px 8px", borderRadius: 5, fontWeight: 500 }}>
+                                          {row.trading_type}
+                                        </span>
                                       )}
                                     </div>
+                                    {/* 통계 */}
+                                    <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: 12, color: "#6b7280", marginBottom: 8 }}>
+                                      {row.yt_sentiment_ratio != null && (
+                                        <span>📺 YT 긍정 <b style={{ color: "#374151" }}>{Math.round(row.yt_sentiment_ratio * 100)}%</b></span>
+                                      )}
+                                      {row.data_freshness_score != null && (
+                                        <span>
+                                          신선도{" "}
+                                          <b style={{ color: row.data_freshness_score >= 80 ? "#15803d" : row.data_freshness_score >= 50 ? "#b45309" : "#b91c1c" }}>
+                                            {row.data_freshness_score}점
+                                          </b>
+                                        </span>
+                                      )}
+                                    </div>
+                                    {/* 데이터 누락 경고 */}
+                                    {row.stale_components && row.stale_components.length > 0 && (
+                                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                                        {row.stale_components.map((c, i) => (
+                                          <span key={i} style={{ fontSize: 11, background: "#fef9c3", color: "#854d0e", padding: "2px 7px", borderRadius: 4, border: "1px solid #fde68a" }}>
+                                            ⚠ {c}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
                                   </div>
+
+                                  {/* YouTube 전문가 */}
                                   <div>
-                                    <p style={{ margin: "0 0 6px", fontSize: 12, fontWeight: 700, color: "var(--text-2)" }}>YouTube 전문가 언급</p>
+                                    <p style={{ margin: "0 0 8px", fontSize: 11, fontWeight: 700, color: "#aaa", letterSpacing: 1, textTransform: "uppercase" }}>YouTube 전문가 언급</p>
                                     {row.key_yt_signals && row.key_yt_signals.length > 0 ? (
-                                      <ul style={{ margin: 0, paddingLeft: 16 }}>
-                                        {row.key_yt_signals.map((sig, i) => <li key={i} style={{ fontSize: 12, color: "#555", marginBottom: 3 }}>{sig}</li>)}
+                                      <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 4 }}>
+                                        {row.key_yt_signals.map((sig, i) => (
+                                          <li key={i} style={{ fontSize: 12, color: "#374151", padding: "5px 10px", background: "#fff", borderRadius: 6, border: "1px solid #e5e7eb" }}>
+                                            {sig}
+                                          </li>
+                                        ))}
                                       </ul>
-                                    ) : <span style={{ fontSize: 12, color: "#bbb" }}>최근 7일 유튜브 언급 없음</span>}
+                                    ) : (
+                                      <span style={{ fontSize: 12, color: "#9ca3af" }}>최근 7일 유튜브 언급 없음</span>
+                                    )}
                                   </div>
                                 </div>
                               </td>
