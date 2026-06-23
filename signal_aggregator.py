@@ -16,9 +16,12 @@ Market regime hysteresis: BEAR entry ≥3 signals, exit <2 signals
 import json
 import math
 import os
+import smtplib
 import sys
 import time
 from datetime import datetime, date, timedelta, timezone
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from pathlib import Path
 from market_risk_filter import (
     get_global_market_snapshot,
@@ -1182,12 +1185,36 @@ def run() -> None:
             streak_label += f" I{i_streak:+d}d"
         print(f"{signal}→{execution_signal} ({composite:.1f}) [risk={market_risk.level} Q{q_tier} tech={tech_filled:.0f} timing={timing:.0f} yt={yt_raw:.0f} q={data_quality:.2f}{streak_label}]")
 
+    # Snapshot previous execution signals before overwriting (for transition alert)
+    prev_signals = _fetch_prev_execution_signals()
+
     # Upsert to trade_signals
     print(f"\n  trade_signals upsert: {len(results)}개...")
     batch_size = 50
     for i in range(0, len(results), batch_size):
         batch = results[i : i + batch_size]
         supabase.table("trade_signals").upsert(batch, on_conflict="ticker").execute()
+
+    # Detect BUY_OK / BUY_SMALL transitions and send email alert
+    buy_ok_signals = {"BUY_OK", "BUY_SMALL"}
+    transitions = [
+        {
+            "stock_name":       r["stock_name"],
+            "sector":           r.get("sector", "기타"),
+            "old_signal":       prev_signals.get(r["ticker"], "") or None,
+            "new_signal":       r["execution_signal"],
+            "market_risk_level": r.get("market_risk_level", ""),
+            "position_pct":     r.get("suggested_position_pct") or 0,
+            "take_profit_pct":  r.get("take_profit_pct") or 0,
+            "stop_loss_pct":    r.get("stop_loss_pct") or 0,
+        }
+        for r in results
+        if r.get("execution_signal") in buy_ok_signals
+        and prev_signals.get(r["ticker"], "") not in buy_ok_signals
+    ]
+    if transitions:
+        print(f"\n  BUY_OK/BUY_SMALL 신규 전환: {len(transitions)}개 → 이메일 발송 중...")
+        _send_buy_ok_alert(transitions)
 
     # Also update prediction_log with latest composite/tech/yt/news scores
     _update_prediction_log(results)
@@ -1298,6 +1325,82 @@ def _write_signal_performance(results: list[dict]) -> None:
             print(f"  [signal_performance 저장 실패] {e}")
 
     print(f"  signal_performance 저장: {len(perf_rows)}건")
+
+
+def _fetch_prev_execution_signals() -> dict[str, str]:
+    """Fetch current execution_signal for all tickers before upserting (for transition detection)."""
+    try:
+        rows = supabase.table("trade_signals").select("ticker,execution_signal").execute()
+        return {r["ticker"]: r.get("execution_signal") or "" for r in (rows.data or [])}
+    except Exception:
+        return {}
+
+
+def _send_buy_ok_alert(transitions: list[dict]) -> None:
+    """Send Gmail alert when stocks transition to BUY_OK or BUY_SMALL."""
+    gmail_user = os.environ.get("GMAIL_USER", "")
+    gmail_pw   = os.environ.get("GMAIL_APP_PASSWORD", "")
+    to_email   = os.environ.get("REPORT_EMAIL", "")
+    if not all([gmail_user, gmail_pw, to_email]):
+        print("  [BUY_OK 알림] 이메일 설정 없음 — GMAIL_USER/GMAIL_APP_PASSWORD/REPORT_EMAIL 필요")
+        return
+
+    KST = timezone(timedelta(hours=9))
+    now_str = datetime.now(KST).strftime("%Y-%m-%d %H:%M")
+
+    rows_html = ""
+    for t in transitions:
+        badge_color = "#28a745" if t["new_signal"] == "BUY_OK" else "#ffc107"
+        old_label   = t["old_signal"] or "없음"
+        rows_html += (
+            f"<tr>"
+            f"<td style='padding:8px 12px;border-bottom:1px solid #eee'><b>{t['stock_name']}</b></td>"
+            f"<td style='padding:8px 12px;border-bottom:1px solid #eee'>{t['sector']}</td>"
+            f"<td style='padding:8px 12px;border-bottom:1px solid #eee;color:#888'>"
+            f"{old_label} → <span style='color:{badge_color};font-weight:bold'>{t['new_signal']}</span></td>"
+            f"<td style='padding:8px 12px;border-bottom:1px solid #eee'>{t['market_risk_level']}</td>"
+            f"<td style='padding:8px 12px;border-bottom:1px solid #eee'>{t['position_pct']}%</td>"
+            f"<td style='padding:8px 12px;border-bottom:1px solid #eee'>"
+            f"+{t['take_profit_pct']}% / -{t['stop_loss_pct']}%</td>"
+            f"</tr>"
+        )
+
+    html = f"""<html><body style="font-family:sans-serif;max-width:700px;margin:auto;padding:24px">
+  <div style="background:#d4edda;border:1px solid #28a745;border-radius:10px;padding:20px">
+    <h2 style="color:#155724;margin:0 0 12px">&#x1F7E2; 매수 가능 신호 전환 알림</h2>
+    <p style="color:#155724"><b>{len(transitions)}개 종목</b>이 BUY_OK/BUY_SMALL로 전환됨 | {now_str}</p>
+    <hr style="border:none;border-top:1px solid #28a745;margin:16px 0">
+    <table style="width:100%;border-collapse:collapse;font-size:14px">
+      <thead>
+        <tr style="background:#f8f9fa">
+          <th style="padding:8px 12px;text-align:left;border-bottom:2px solid #dee2e6">종목</th>
+          <th style="padding:8px 12px;text-align:left;border-bottom:2px solid #dee2e6">섹터</th>
+          <th style="padding:8px 12px;text-align:left;border-bottom:2px solid #dee2e6">신호 변화</th>
+          <th style="padding:8px 12px;text-align:left;border-bottom:2px solid #dee2e6">시장위험</th>
+          <th style="padding:8px 12px;text-align:left;border-bottom:2px solid #dee2e6">포지션</th>
+          <th style="padding:8px 12px;text-align:left;border-bottom:2px solid #dee2e6">익절/손절</th>
+        </tr>
+      </thead>
+      <tbody>{rows_html}</tbody>
+    </table>
+    <p style="font-size:12px;color:#666;margin-top:16px">
+      ※ 실행 신호 전환 알림입니다. 시장 위험도 확인 후 진입 결정하세요.</p>
+  </div>
+</body></html>"""
+
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = f"[주식AI] BUY_OK 전환 {len(transitions)}개 — {now_str}"
+        msg["From"]    = gmail_user
+        msg["To"]      = to_email
+        msg.attach(MIMEText(html, "html", "utf-8"))
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.starttls()
+            server.login(gmail_user, gmail_pw)
+            server.sendmail(gmail_user, to_email, msg.as_string())
+        print(f"  [BUY_OK 알림] 이메일 발송 → {to_email} ({len(transitions)}개 종목)")
+    except Exception as e:
+        print(f"  [BUY_OK 알림] 이메일 발송 실패: {e}")
 
 
 if __name__ == "__main__":
