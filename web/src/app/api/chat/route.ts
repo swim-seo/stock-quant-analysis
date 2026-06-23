@@ -94,7 +94,7 @@ ${context}`;
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        const response = await anthropic.messages.stream({
+        const response = anthropic.messages.stream({
           model: "claude-sonnet-4-6",
           max_tokens: 800,
           system: systemPrompt,
