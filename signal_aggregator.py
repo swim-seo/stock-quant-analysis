@@ -18,6 +18,12 @@ import sys
 import time
 from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
+from market_risk_filter import (
+    get_global_market_snapshot,
+    calc_market_risk,
+    apply_execution_filter,
+    risk_summary_text,
+)
 
 import numpy as np
 import pandas as pd
@@ -950,6 +956,12 @@ def run() -> None:
     regime_dampener = 0.80 if market_regime == "BEAR" else 1.0
     print(f"  시장 국면: {market_regime} (dampener={regime_dampener})")
 
+    # Market execution risk filter (계산 1회, 전 종목 공유)
+    print("  market_risk 계산...")
+    market_snapshot = get_global_market_snapshot()
+    market_risk = calc_market_risk(market_snapshot)
+    print(f"  시장 위험도: {risk_summary_text(market_risk)}")
+
     # Process each ticker that has factor data (scope limiter)
     tickers_in_scope: list[tuple[str, str, str]] = []
     for row in (supabase.table("ticker_aliases").select("ticker,stock_name,sector").execute().data or []):
@@ -1014,11 +1026,19 @@ def run() -> None:
 
         agreement = _calc_signal_agreement(tech_filled, yt_raw, yt_no_data)
 
+        # Execution filter: 종목 신호 + 시장 위험도 → 오늘 실제 행동 신호
+        execution_signal, execution_reason = apply_execution_filter(signal, market_risk.level)
+
         row_data = {
             "ticker": ticker,
             "stock_name": stock_name,
             "sector": sector,
             "signal": signal,
+            "execution_signal": execution_signal,
+            "execution_reason": execution_reason,
+            "market_risk_level": market_risk.level,
+            "market_risk_score": market_risk.score,
+            "market_risk_reasons": market_risk.reasons,
             "composite_score": composite,
             "signal_version": SIGNAL_VERSION,
             "tech_score": round(tech_raw, 2) if tech_raw is not None else None,
@@ -1043,7 +1063,7 @@ def run() -> None:
             streak_label += f" F{f_streak:+d}d"
         if abs(i_streak) >= 3:
             streak_label += f" I{i_streak:+d}d"
-        print(f"{signal} ({composite:.1f}) [Q{q_tier} tech={tech_filled:.0f} timing={timing:.0f} yt={yt_raw:.0f} q={data_quality:.2f}{streak_label}]")
+        print(f"{signal}→{execution_signal} ({composite:.1f}) [risk={market_risk.level} Q{q_tier} tech={tech_filled:.0f} timing={timing:.0f} yt={yt_raw:.0f} q={data_quality:.2f}{streak_label}]")
 
     # Upsert to trade_signals
     print(f"\n  trade_signals upsert: {len(results)}개...")

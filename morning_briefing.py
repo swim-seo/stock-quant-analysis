@@ -9,6 +9,12 @@ import re
 import urllib.request
 import anthropic
 from datetime import datetime, date, timedelta, timezone
+from market_risk_filter import (
+    get_global_market_snapshot,
+    calc_market_risk,
+    risk_summary_text,
+    MarketRisk,
+)
 
 KST = timezone(timedelta(hours=9))
 def today_kst() -> date: return datetime.now(KST).date()
@@ -31,6 +37,7 @@ _BRIEFING_SYSTEM = """당신은 한국 주식 시장 전문 애널리스트입�
 출력 형식: 다음 JSON 구조만 출력하세요 (마크다운 없이, 순수 JSON):
 {
   "market_summary": "전일 시장 흐름 + 오늘 전망 (5~8줄, 자연스러운 한국어 문장)",
+  "market_risk_level": "LOW|MEDIUM|HIGH|EXTREME",
   "top_stocks": [
     {"name": "종목명", "reason": "주목 이유 1줄", "signal": "매수관심|관망|주의"}
   ],
@@ -38,7 +45,12 @@ _BRIEFING_SYSTEM = """당신은 한국 주식 시장 전문 애널리스트입�
     {"sector": "섹터명", "outlook": "긍정|중립|부정", "reason": "이유 1줄"}
   ],
   "expert_consensus": "유튜브 전문가들의 종합 의견 요약 (3~4줄)",
-  "risk_alerts": ["오늘 주의할 리스크 1줄 문자열"]
+  "risk_alerts": ["오늘 주의할 리스크 1줄 문자열"],
+  "action_guide": {
+    "buy": "추가매수가능|소액분할|관망|신규매수금지",
+    "hold": "유지|관망|비중점검",
+    "sell": "축소검토|유지"
+  }
 }
 
 분석 기준 및 가이드라인:
@@ -51,7 +63,13 @@ _BRIEFING_SYSTEM = """당신은 한국 주식 시장 전문 애널리스트입�
 - sector_outlook: 3~5개 권장
 - risk_alerts: 1~3개 (매크로 리스크, 섹터 리스크, 수급 이탈 위험 등)
 - 브리핑 톤: 객관적이고 전문적, 과도한 낙관/비관 지양
-- 수급 데이터(foreign5d)가 음수이면서 유튜브도 부정적이면 risk_alerts에 명시"""
+- 수급 데이터(foreign5d)가 음수이면서 유튜브도 부정적이면 risk_alerts에 명시
+
+market_risk_level 판단 기준 (장전 시장 위험도 데이터 기반):
+- LOW: BUY 신호 실행 가능. top_stocks에서 매수관심 종목 제시
+- MEDIUM: 소액/분할만 권장. top_stocks은 "관심종목" 수준으로만 제시
+- HIGH: 신규매수 보류. top_stocks을 "후보 등록"으로만 표현, risk_alerts 강화
+- EXTREME: 신규매수 금지. top_stocks 생략하거나 "관찰 후보"로만 표현, 리스크 관리 중심"""
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
@@ -96,13 +114,19 @@ def get_recent_news(limit=10):
 
 
 def get_top_trade_signals(limit: int = 5) -> list[dict]:
-    """trade_signals 테이블에서 BUY 신호 TOP N 조회"""
+    """BUY 신호 중 실행 가능한 종목 우선 조회 (BUY_OK → BUY_SMALL → WATCH 순)."""
     rows = sb_get(
         "trade_signals",
-        f"select=ticker,stock_name,sector,composite_score,signal_agreement,yt_score,tech_score"
-        f"&signal=eq.BUY&order=composite_score.desc&limit={limit}"
+        f"select=ticker,stock_name,sector,signal,execution_signal,execution_reason,"
+        f"market_risk_level,composite_score,signal_agreement,yt_score,tech_score"
+        f"&signal=eq.BUY&order=composite_score.desc&limit={limit * 3}"
     )
-    return rows if isinstance(rows, list) else []
+    if not isinstance(rows, list):
+        return []
+    # execution_signal 우선순위 정렬: BUY_OK > BUY_SMALL > WATCH > BLOCKED
+    priority = {"BUY_OK": 0, "BUY_SMALL": 1, "WATCH": 2, "BLOCKED": 3}
+    rows.sort(key=lambda r: (priority.get(r.get("execution_signal", "WATCH"), 9), -(r.get("composite_score") or 0)))
+    return rows[:limit]
 
 
 def get_market_data():
@@ -140,7 +164,7 @@ def get_market_data():
 # Claude 브리핑 생성
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-def generate_briefing(market_data, youtube_insights, stock_news):
+def generate_briefing(market_data, youtube_insights, stock_news, market_risk: MarketRisk | None = None):
     """Claude로 아침 브리핑 생성. 모듈 레벨 클라이언트 + 캐시 가능한 system prompt 사용."""
     # 유튜브 요약
     yt_lines = []
@@ -178,11 +202,23 @@ def generate_briefing(market_data, youtube_insights, stock_news):
         f"코스닥: {kosdaq.get('close', '?')} ({kosdaq.get('change_pct', 0):+.2f}%)"
     )
 
+    # 장전 시장 위험도
+    if market_risk:
+        risk_text = (
+            f"위험도: {market_risk.level} ({market_risk.score:.0f}/100)\n"
+            f"사유: {' / '.join(market_risk.reasons)}"
+        )
+    else:
+        risk_text = "위험도 데이터 없음"
+
     # 동적 데이터만 user message에 — JSON 스키마/기준은 _BRIEFING_SYSTEM(캐시됨)에 있음
     prompt = f"""오늘 날짜: {today_kst().strftime('%Y년 %m월 %d일')}
 
 === 전일 시장 ===
 {market_text}
+
+=== 장전 시장 위험도 (SOX/나스닥/환율 기반) ===
+{risk_text}
 
 === 유튜브 전문가 의견 (최근) ===
 {yt_text}
@@ -207,10 +243,12 @@ def generate_briefing(market_data, youtube_insights, stock_news):
 
     return {
         "market_summary": "브리핑 생성 실패",
+        "market_risk_level": market_risk.level if market_risk else None,
         "top_stocks": [],
         "sector_outlook": [],
         "expert_consensus": "",
         "risk_alerts": [],
+        "action_guide": {},
     }
 
 
@@ -230,6 +268,11 @@ def main():
     kospi = market_data.get("kospi", {})
     print(f"  코스피: {kospi.get('close', '?')} ({kospi.get('change_pct', 0):+.2f}%)")
 
+    print("\n[1-1] 장전 시장 위험도 계산...")
+    market_snapshot = get_global_market_snapshot()
+    market_risk = calc_market_risk(market_snapshot)
+    print(f"  → {risk_summary_text(market_risk)}")
+
     print("\n[2] 유튜브 인사이트 로드...")
     youtube = get_recent_youtube_insights(20)
     print(f"  → {len(youtube)}개 인사이트")
@@ -240,11 +283,11 @@ def main():
 
     print("\n[4] 매매 신호 TOP5 로드...")
     top_signals = get_top_trade_signals(5)
-    print(f"  → BUY 신호 {len(top_signals)}개")
+    print(f"  → BUY 신호 {len(top_signals)}개 (execution_signal 필터 적용)")
 
     # 2. Claude 브리핑 생성
     print("\n[5] Claude 브리핑 생성 중...")
-    briefing = generate_briefing(market_data, youtube, news)
+    briefing = generate_briefing(market_data, youtube, news, market_risk)
 
     print(f"\n=== 시장 요약 ===")
     print(briefing.get("market_summary", ""))
@@ -291,6 +334,10 @@ def main():
         row = {
             "briefing_date": today,
             "market_summary": briefing.get("market_summary", ""),
+            "market_risk_level": market_risk.level,
+            "market_risk_score": market_risk.score,
+            "market_risk_reasons": json.dumps(market_risk.reasons, ensure_ascii=False),
+            "action_guide": json.dumps(briefing.get("action_guide", {}), ensure_ascii=False),
             "top_stocks": json.dumps(briefing.get("top_stocks", []), ensure_ascii=False),
             "sector_outlook": json.dumps(briefing.get("sector_outlook", []), ensure_ascii=False),
             "expert_consensus": briefing.get("expert_consensus", ""),
@@ -299,6 +346,7 @@ def main():
             "investor_flow": json.dumps(investor_flow, ensure_ascii=False),
             "raw_data": json.dumps({
                 "market": market_data,
+                "market_risk_raw": market_risk.raw,
                 "youtube_count": len(youtube),
                 "news_count": len(news),
                 "generated_at": now_kst().isoformat(),
