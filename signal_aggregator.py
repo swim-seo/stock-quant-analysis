@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 signal_aggregator.py — 기술적 신호 + YouTube 인사이트 통합 매매 신호 계산
 
