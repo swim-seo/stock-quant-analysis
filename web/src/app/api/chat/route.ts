@@ -2,6 +2,50 @@ import { NextRequest } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@supabase/supabase-js";
 
+const TAVILY_API_KEY = process.env.TAVILY_API_KEY ?? "";
+
+const MACRO_KEYWORDS = [
+  "코스피", "코스닥", "시장", "급락", "급등", "떨어졌", "올랐", "왜 빠", "왜 올",
+  "서킷브레이커", "사이드카", "외국인", "기관", "환율", "달러", "연준", "금리",
+  "인플레", "경기", "반도체 시장", "전체", "전종목", "지수", "매크로",
+];
+
+function isMacroQuestion(message: string): boolean {
+  return MACRO_KEYWORDS.some((kw) => message.includes(kw));
+}
+
+async function searchTavilyNews(query: string): Promise<string> {
+  if (!TAVILY_API_KEY) return "";
+  try {
+    const res = await fetch("https://api.tavily.com/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        api_key: TAVILY_API_KEY,
+        query: `${query} 한국 주식 코스피`,
+        search_depth: "basic",
+        max_results: 6,
+        include_answer: true,
+        include_domains: ["reuters.com", "yna.co.kr", "mk.co.kr", "hankyung.com", "chosun.com", "news.naver.com"],
+      }),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return "";
+    const data = await res.json();
+
+    const lines: string[] = [];
+    if (data.answer) lines.push(`요약: ${data.answer}`);
+    for (const r of data.results ?? []) {
+      const date = r.published_date ? r.published_date.slice(0, 10) : "날짜미상";
+      lines.push(`  [${date}] ${r.title} (${r.url?.split("/")[2] ?? "출처미상"})`);
+      if (r.content) lines.push(`    ${r.content.slice(0, 200)}`);
+    }
+    return lines.length ? `=== 실시간 웹 검색 결과 ===\n${lines.join("\n")}` : "";
+  } catch {
+    return "";
+  }
+}
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -257,16 +301,20 @@ export async function POST(req: NextRequest) {
   let context = "";
   let stockContext = "";
   let marketContext = "";
+  let tavilyContext = "";
   let detectedName: string | null = null;
   try {
     const [ctx, stockResult] = await Promise.all([buildContext(), buildStockContext(message, lastTicker)]);
     context = ctx;
     stockContext = stockResult.text;
     detectedName = stockResult.detectedName;
-    // When no specific stock is detected, fetch recent market-wide news so Claude
-    // can explain macro events (market crashes, sector drops, etc.)
-    if (!stockResult.text) {
-      marketContext = await buildMarketNewsContext();
+
+    const needsMarketCtx = !stockResult.text || isMacroQuestion(message);
+    if (needsMarketCtx) {
+      [marketContext, tavilyContext] = await Promise.all([
+        buildMarketNewsContext(),
+        searchTavilyNews(message),
+      ]);
     }
   } catch (e) {
     console.error("[chat] context error:", e);
@@ -301,7 +349,7 @@ export async function POST(req: NextRequest) {
 - 종목 분석할 때 같은 섹터 관련종목이 있으면 자연스럽게 비교해주기
   예: "현대차랑 같은 자동차 섹터에서 기아는 지금 BUY 신호고 현대모비스는 HOLD인데, 비교해보면..."
 
-${context}${stockContext ? `\n\n${stockContext}` : ""}${marketContext ? `\n\n${marketContext}` : ""}`;
+${context}${stockContext ? `\n\n${stockContext}` : ""}${marketContext ? `\n\n${marketContext}` : ""}${tavilyContext ? `\n\n${tavilyContext}` : ""}`;
 
   const anthropic = new Anthropic({ apiKey });
   const encoder   = new TextEncoder();
