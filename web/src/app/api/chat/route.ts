@@ -119,15 +119,20 @@ async function buildStockContext(message: string, lastTicker: string | null): Pr
   }
 
   const stocks = signalStocks;
+  const mainSector = stocks[0]?.sector;
+  const mainTickers = stocks.map((s) => s.ticker);
+
   const sections: string[] = [];
 
   for (const st of stocks) {
-    // 병렬 조회: 주가추이 + 뉴스기사 + 유튜브언급 + 증권사목표가
-    const [pricesRes, newsRes, ytRes, targetsRes] = await Promise.all([
+    // 병렬 조회: 주가추이 + 뉴스기사 + 유튜브언급 + 증권사목표가 + 같은 섹터 관련 종목
+    const [pricesRes, newsRes, ytRes, targetsRes, sectorRes] = await Promise.all([
       supabase.from("stock_prices").select("trade_date,close_price").eq("ticker", st.ticker).order("trade_date", { ascending: false }).limit(10),
       supabase.from("stock_news").select("collected_at,articles,analysis,sentiment").ilike("stock_name", `%${st.stock_name}%`).order("collected_at", { ascending: false }).limit(1),
       supabase.from("youtube_insights").select("upload_date,channel,market_sentiment,investment_signals,key_stocks_sentiment").contains("key_stocks", [st.stock_name]).order("processed_at", { ascending: false }).limit(5),
       supabase.from("analyst_targets").select("firm_name,target_price,upside_pct,direction,rating,report_date").eq("stock_code", st.ticker).order("report_date", { ascending: false }).limit(5),
+      // 같은 섹터 관련 종목 — 데이터 없을 때 Claude가 섹터 흐름으로 추론할 수 있도록
+      mainSector ? supabase.from("trade_signals").select("stock_name,signal,composite_score,factor_score,news_score").eq("sector", mainSector).not("ticker", "in", `(${mainTickers.map((t) => `"${t}"`).join(",")})`).order("composite_score", { ascending: false }).limit(4) : Promise.resolve({ data: [] }),
     ]);
 
     // 가격 추이
@@ -166,18 +171,20 @@ async function buildStockContext(message: string, lastTicker: string | null): Pr
       : "증권사 목표가 없음";
 
     // Codex 종합판단
-    const { label, reason, S } = computeVerdict({ factorScore: st.factor_score, newsScore: st.news_score, ytScore: st.yt_score, pricePct });
-    const ytSignals = Array.isArray(st.key_yt_signals) ? st.key_yt_signals.slice(0, 2).join(" / ") : (st.key_yt_signals ?? "-");
+    const { label, reason } = computeVerdict({ factorScore: st.factor_score, newsScore: st.news_score, ytScore: st.yt_score, pricePct });
+    const ytSignals = Array.isArray(st.key_yt_signals) ? st.key_yt_signals.slice(0, 2).join(" / ") : (st.key_yt_signals ?? "");
+    const sectorPeers = (sectorRes.data ?? []).map((p) => `${p.stock_name} ${p.signal}(${p.composite_score}점)`).join(", ");
 
     sections.push(`
---- ${st.stock_name}(${st.ticker}) 종목 데이터 ---
-AI판단: ${label} / 근거: ${reason}
-신호: ${st.signal} | 종합점수: ${st.composite_score} | 시장국면: ${st.market_regime}
-팩터: ${st.factor_score ?? "-"} | 뉴스감성: ${st.news_score ?? "-"} | 유튜브감성: ${st.yt_score ?? "-"} | 기술: ${st.tech_score ?? "-"}${st.urgency ? ` | 긴급도: ${st.urgency}` : ""}
-${priceSection}
+--- ${st.stock_name}(${st.ticker}) | 섹터: ${st.sector} ---
+AI판단: ${label} | 근거: ${reason}
+신호: ${st.signal} | 종합: ${st.composite_score}점 | 시장: ${st.market_regime}
+팩터: ${st.factor_score ?? "없음"}점 | 뉴스감성: ${st.news_score ?? "없음"}점 | 유튜브감성: ${st.yt_score ?? "없음"}점 | 기술: ${st.tech_score ?? "없음"}점${st.urgency ? ` | 긴급: ${st.urgency}` : ""}
+주가: ${priceSection}
 뉴스: ${newsSection}
-유튜브: ${ytSection}${ytSignals !== "-" ? ` / 핵심: ${ytSignals}` : ""}
-증권사목표가: ${targetSection}`);
+유튜브: ${ytSection}${ytSignals ? ` / 핵심신호: ${ytSignals}` : ""}
+증권사목표가: ${targetSection}
+같은섹터관련종목: ${sectorPeers || "없음"}`);
   }
 
   return { text: sections.join("\n"), detectedName: stocks[0].stock_name };
@@ -207,30 +214,30 @@ export async function POST(req: NextRequest) {
     console.error("[chat] context error:", e);
   }
 
-  const systemPrompt = `당신은 주식을 정말 잘 아는 친구입니다. 딱딱한 보고서 형식 말고, 실제로 대화하듯 자연스럽게 얘기해주세요.
+  const systemPrompt = `당신은 주식 투자 경험이 풍부한 현명한 친구입니다. 아래 데이터를 기반으로 자유롭게, 진짜 대화처럼 얘기해주세요.
 
-[대화 스타일]
-- 한국어로, 친구한테 말하듯 편하게
-- 질문 성격에 맞게 답변 길이와 형식을 자유롭게 결정
-  · 간단한 질문("팔아야 해?") → 2~3문장으로 핵심만
-  · 종합 분석 요청("전체 분석해줘") → 필요한 항목만 자연스럽게 설명
-  · 대화형 후속질문("왜?", "얼마나?") → 짧게 바로 답
-- 절대 항상 6개 섹션 보고서 형태로 쓰지 말 것. 상황에 맞게 유연하게
+**대화 방식**
+- 보고서 섹션 형식 금지. 자연스러운 문장으로
+- 짧은 질문엔 짧게, 분석 요청엔 길게 — 상황 보고 판단
+- 수치는 반드시 구체적으로: "약세"가 아니라 "팩터 38점으로 40 미만 약세구간"
+- 날짜·출처 포함: "KB증권이 6월 15일에 목표가 280,000원으로 하향" 이런 식으로
+- 마지막엔 짧게 "⚠️ 최종 결정은 본인 판단 하에."
 
-[데이터 활용 원칙]
-- 데이터가 있으면: 수치·날짜·출처를 자연스럽게 문장 안에 녹여서 말하기
-  좋은 예: "KB증권이 6/15에 목표가 280,000원으로 하향했고, 유튜브에서도 관세 리스크 언급이 많아서..."
-  나쁜 예: "## 🎯 증권사 목표가\n[2026-06-15] KB증권: 280,000원..."
-- 팩터 점수 해석: 65 이상은 강세, 40 미만은 약세
-- AI 종합판단(S 점수)이 있으면 판단 근거로 활용하되, S점수 숫자 자체를 굳이 언급 안 해도 됨
-- 데이터 없는 항목은 조용히 넘어가고 있는 데이터로만 답변
-- 마지막 줄에만 짧게: "⚠️ 최종 투자 결정은 본인 판단 하에."
+**데이터 없을 때 대처**
+- 특정 종목 데이터가 없으면 → 같은 섹터 관련종목 데이터를 보고 섹터 흐름으로 추론해서 말하기
+  예: "현대차 직접 데이터는 없는데, 같은 자동차 섹터 기아가 BUY 75점이고 현대모비스가 HOLD 58점인 걸 보면 섹터 전반은 괜찮은 편이에요. 현대차도..."
+- 추론할 때는 "추정컨대", "섹터 흐름으로 보면" 같이 불확실성 표시
 
-[보여줘야 할 핵심 정보 (자연스럽게 포함)]
-종목 분석 시 가능하면: 매매 판단 → 그 이유(팩터/가격/뉴스/유튜브) → 증권사 목표가 → 주가 흐름 → 제안
-단, 사용자가 특정 항목만 물었으면 그것만 답하면 됨
+**모르는 정보는 물어보기**
+- 분석에 필요한데 모르면 자연스럽게 물어봐
+  예: "언제 매수하셨어요?", "평균단가가 얼마예요?", "단기 트레이딩이에요 아니면 장기 투자예요?"
+- 한 번에 너무 많이 물어보지 말고 가장 중요한 것 하나만
 
-${context}${stockContext ? `\n${stockContext}` : ""}`;
+**관련 종목 함께 언급**
+- 종목 분석할 때 같은 섹터 관련종목이 있으면 자연스럽게 비교해주기
+  예: "현대차랑 같은 자동차 섹터에서 기아는 지금 BUY 신호고 현대모비스는 HOLD인데, 비교해보면..."
+
+${context}${stockContext ? `\n\n${stockContext}` : ""}`;
 
   const anthropic = new Anthropic({ apiKey });
   const encoder   = new TextEncoder();
