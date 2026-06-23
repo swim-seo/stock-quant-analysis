@@ -1857,6 +1857,7 @@ def main():
             _run_theme_scanner()
             _run_factor_calculator()
             _run_signal_aggregator()
+            _run_signal_performance_tracker()
             send_daily_report()
             try:
                 from monthly_sniper import run as run_sniper, is_sniper_period
@@ -1892,6 +1893,7 @@ def main():
         _run_theme_scanner()
         _run_factor_calculator()
         _run_signal_aggregator()
+        _run_signal_performance_tracker()
 
     print(f"\n{'='*50}")
     print(f"  완료! {now_kst().strftime('%H:%M:%S')}")
