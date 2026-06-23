@@ -97,18 +97,12 @@ async function buildStockContext(message: string): Promise<string> {
   const sections: string[] = [];
 
   for (const f of factors) {
-    const [sigRes, newsRes, pricesRes] = await Promise.all([
+    const [sigRes, pricesRes] = await Promise.all([
       supabase
         .from("trade_signals")
         .select("signal,composite_score,market_regime")
         .eq("ticker", f.ticker)
         .limit(1),
-      supabase
-        .from("stock_news")
-        .select("sentiment,trading_signal,news_impact_score")
-        .ilike("stock_name", `%${f.stock_name}%`)
-        .order("news_impact_score", { ascending: false })
-        .limit(3),
       supabase
         .from("stock_prices")
         .select("trade_date,close_price,volume")
@@ -119,7 +113,6 @@ async function buildStockContext(message: string): Promise<string> {
 
     const sig = sigRes.data?.[0];
     const prices = pricesRes.data ?? [];
-    const newsItems = newsRes.data ?? [];
 
     const priceTrend =
       prices.length >= 2
@@ -138,17 +131,12 @@ async function buildStockContext(message: string): Promise<string> {
       .map((p) => `  ${p.trade_date}: ${p.close_price?.toLocaleString()}원`)
       .join("\n");
 
-    const newsText = newsItems.length
-      ? newsItems.map((n) => `${n.sentiment}/${n.trading_signal}(${n.news_impact_score}점)`).join(" | ")
-      : "없음";
-
     sections.push(
       `\n[${f.stock_name}(${f.ticker}) 종목 상세분석]
 매매신호: ${sig?.signal ?? "미집계"} | 종합점수: ${f.composite_score ?? sig?.composite_score ?? "-"}
 팩터 — 모멘텀:${f.momentum_score?.toFixed(1) ?? "-"} | 수급:${f.flow_score?.toFixed(1) ?? "-"} | 가치:${f.value_score?.toFixed(1) ?? "-"}
 주가추이: ${priceTrend}
-${priceRows ? `일별 종가:\n${priceRows}` : ""}
-뉴스: ${newsText}`
+${priceRows ? `일별 종가:\n${priceRows}` : ""}`
     );
   }
 
@@ -187,9 +175,10 @@ export async function POST(req: NextRequest) {
 - 한국어 답변
 - 일반 질문: 400자 이내 / 특정 종목 분석: 700자 이내
 - 데이터 근거 필수 — 점수·가격·날짜를 직접 언급
-- 종목 상세 데이터가 있으면: 주가 추이·낙폭·팩터 점수를 분석해 손절/홀딩/매수 판단 근거 제시
-- 팩터 해석: 모멘텀(추세강도) 양수=상승, 수급(기관·외국인 순매수) 양수=강세, 가치(저PBR) 양수=저평가
+- 종목 상세 데이터가 있으면: 주가 추이·낙폭·팩터 점수만으로 손절/홀딩/추가매수 판단 근거 제시 (뉴스·유튜브 언급 불필요)
+- 팩터 해석: 모멘텀(추세강도) 양수=상승추세, 수급(기관·외국인) 양수=순매수 강세, 가치(저PBR) 양수=저평가
 - 종합점수 기준: 65+ BUY / 40-65 HOLD / 40미만 SELL
+- 주가가 하락한 경우: 낙폭·팩터 상태·신호를 보고 "추가 하락 리스크 vs 반등 여력"을 구체적 수치로 판단
 - 마지막 줄: "⚠️ 최종 투자 결정은 본인 판단과 책임 하에 진행하세요."
 
 ${context}${stockContext ? `\n${stockContext}` : ""}`;
