@@ -97,7 +97,7 @@ async function buildStockContext(message: string): Promise<string> {
   const sections: string[] = [];
 
   for (const f of factors) {
-    const [sigRes, pricesRes] = await Promise.all([
+    const [sigRes, pricesRes, newsRes] = await Promise.all([
       supabase
         .from("trade_signals")
         .select("signal,composite_score,market_regime")
@@ -109,10 +109,17 @@ async function buildStockContext(message: string): Promise<string> {
         .eq("ticker", f.ticker)
         .order("trade_date", { ascending: false })
         .limit(7),
+      supabase
+        .from("stock_news")
+        .select("sentiment,trading_signal,news_impact_score,summary")
+        .ilike("stock_name", `%${f.stock_name}%`)
+        .order("news_impact_score", { ascending: false })
+        .limit(3),
     ]);
 
     const sig = sigRes.data?.[0];
     const prices = pricesRes.data ?? [];
+    const newsItems = newsRes.data ?? [];
 
     const priceTrend =
       prices.length >= 2
@@ -131,12 +138,33 @@ async function buildStockContext(message: string): Promise<string> {
       .map((p) => `  ${p.trade_date}: ${p.close_price?.toLocaleString()}원`)
       .join("\n");
 
+    const newsText = newsItems.length
+      ? newsItems.map((n) => `${n.sentiment}/${n.trading_signal}(${n.news_impact_score}점)${n.summary ? ` — ${n.summary.slice(0, 40)}` : ""}`).join("\n  ")
+      : "없음";
+
+    // YouTube mentions for this stock
+    const { data: ytData } = await supabase
+      .from("youtube_insights")
+      .select("upload_date,channel,market_sentiment,investment_signals")
+      .contains("key_stocks", [f.stock_name])
+      .order("processed_at", { ascending: false })
+      .limit(3);
+
+    const ytText = ytData?.length
+      ? ytData.map((y) => {
+          const sigs: string[] = Array.isArray(y.investment_signals) ? y.investment_signals : [];
+          return `[${y.upload_date}] ${y.channel} — ${y.market_sentiment}${sigs.length ? ` / ${sigs[0]}` : ""}`;
+        }).join("\n  ")
+      : "없음";
+
     sections.push(
       `\n[${f.stock_name}(${f.ticker}) 종목 상세분석]
 매매신호: ${sig?.signal ?? "미집계"} | 종합점수: ${f.composite_score ?? sig?.composite_score ?? "-"}
 팩터 — 모멘텀:${f.momentum_score?.toFixed(1) ?? "-"} | 수급:${f.flow_score?.toFixed(1) ?? "-"} | 가치:${f.value_score?.toFixed(1) ?? "-"}
 주가추이: ${priceTrend}
-${priceRows ? `일별 종가:\n${priceRows}` : ""}`
+${priceRows ? `일별 종가:\n${priceRows}` : ""}
+뉴스: ${newsText}
+유튜브 언급: ${ytText}`
     );
   }
 
@@ -175,10 +203,11 @@ export async function POST(req: NextRequest) {
 - 한국어 답변
 - 일반 질문: 400자 이내 / 특정 종목 분석: 700자 이내
 - 데이터 근거 필수 — 점수·가격·날짜를 직접 언급
-- 종목 상세 데이터가 있으면: 주가 추이·낙폭·팩터 점수만으로 손절/홀딩/추가매수 판단 근거 제시 (뉴스·유튜브 언급 불필요)
-- 팩터 해석: 모멘텀(추세강도) 양수=상승추세, 수급(기관·외국인) 양수=순매수 강세, 가치(저PBR) 양수=저평가
+- 종목 상세 데이터가 있으면: 주가추이·팩터·신호·뉴스·유튜브를 종합해 손절/홀딩/추가매수 판단 근거를 구체적 수치로 제시
+- 팩터 해석: 모멘텀 양수=상승추세, 수급 양수=기관·외국인 순매수 강세, 가치 양수=저평가
 - 종합점수 기준: 65+ BUY / 40-65 HOLD / 40미만 SELL
-- 주가가 하락한 경우: 낙폭·팩터 상태·신호를 보고 "추가 하락 리스크 vs 반등 여력"을 구체적 수치로 판단
+- 주가 하락 시: 낙폭·팩터·뉴스 감성·유튜브 언급을 종합해 "추가 하락 리스크 vs 반등 여력" 판단
+- 뉴스·유튜브 데이터가 없으면 "관련 데이터 없음"으로만 표기하고 나머지 데이터로 분석
 - 마지막 줄: "⚠️ 최종 투자 결정은 본인 판단과 책임 하에 진행하세요."
 
 ${context}${stockContext ? `\n${stockContext}` : ""}`;
