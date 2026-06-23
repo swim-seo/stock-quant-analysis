@@ -170,27 +170,14 @@ async function buildStockContext(message: string, lastTicker: string | null): Pr
     const ytSignals = Array.isArray(st.key_yt_signals) ? st.key_yt_signals.slice(0, 2).join(" / ") : (st.key_yt_signals ?? "-");
 
     sections.push(`
-━━━ ${st.stock_name}(${st.ticker}) | ${st.sector} ━━━
-
-[AI 종합판단]
-${label} — ${reason}
-시스템신호: ${st.signal} | 종합점수: ${st.composite_score} | 시장국면: ${st.market_regime}
-
-[팩터 점수] (65+강세 / 40미만약세)
-팩터: ${st.factor_score ?? "-"} | 뉴스: ${st.news_score ?? "-"} | 유튜브: ${st.yt_score ?? "-"} | 기술: ${st.tech_score ?? "-"}${st.urgency ? ` | 긴급도: ${st.urgency}` : ""}
-
-[주가 추이]
+--- ${st.stock_name}(${st.ticker}) 종목 데이터 ---
+AI판단: ${label} / 근거: ${reason}
+신호: ${st.signal} | 종합점수: ${st.composite_score} | 시장국면: ${st.market_regime}
+팩터: ${st.factor_score ?? "-"} | 뉴스감성: ${st.news_score ?? "-"} | 유튜브감성: ${st.yt_score ?? "-"} | 기술: ${st.tech_score ?? "-"}${st.urgency ? ` | 긴급도: ${st.urgency}` : ""}
 ${priceSection}
-
-[최근 뉴스]
-${newsSection}
-
-[유튜브 언급]
-${ytSection}
-유튜브 핵심신호: ${ytSignals}
-
-[증권사 목표가]
-${targetSection}`);
+뉴스: ${newsSection}
+유튜브: ${ytSection}${ytSignals !== "-" ? ` / 핵심: ${ytSignals}` : ""}
+증권사목표가: ${targetSection}`);
   }
 
   return { text: sections.join("\n"), detectedName: stocks[0].stock_name };
@@ -220,34 +207,28 @@ export async function POST(req: NextRequest) {
     console.error("[chat] context error:", e);
   }
 
-  const systemPrompt = `당신은 한국 주식 AI 대시보드의 투자 어시스턴트입니다.
+  const systemPrompt = `당신은 주식을 정말 잘 아는 친구입니다. 딱딱한 보고서 형식 말고, 실제로 대화하듯 자연스럽게 얘기해주세요.
 
-[종목 분석 시 출력 형식 — 반드시 이 순서로 섹션을 나눠서 답변]
-## 📊 AI 종합판단
-(AI 종합판단 내용 — label과 근거 설명)
+[대화 스타일]
+- 한국어로, 친구한테 말하듯 편하게
+- 질문 성격에 맞게 답변 길이와 형식을 자유롭게 결정
+  · 간단한 질문("팔아야 해?") → 2~3문장으로 핵심만
+  · 종합 분석 요청("전체 분석해줘") → 필요한 항목만 자연스럽게 설명
+  · 대화형 후속질문("왜?", "얼마나?") → 짧게 바로 답
+- 절대 항상 6개 섹션 보고서 형태로 쓰지 말 것. 상황에 맞게 유연하게
 
-## 📈 팩터 분석
-(팩터·뉴스·유튜브·기술 점수 해석. 65+강세/40미만약세)
+[데이터 활용 원칙]
+- 데이터가 있으면: 수치·날짜·출처를 자연스럽게 문장 안에 녹여서 말하기
+  좋은 예: "KB증권이 6/15에 목표가 280,000원으로 하향했고, 유튜브에서도 관세 리스크 언급이 많아서..."
+  나쁜 예: "## 🎯 증권사 목표가\n[2026-06-15] KB증권: 280,000원..."
+- 팩터 점수 해석: 65 이상은 강세, 40 미만은 약세
+- AI 종합판단(S 점수)이 있으면 판단 근거로 활용하되, S점수 숫자 자체를 굳이 언급 안 해도 됨
+- 데이터 없는 항목은 조용히 넘어가고 있는 데이터로만 답변
+- 마지막 줄에만 짧게: "⚠️ 최종 투자 결정은 본인 판단 하에."
 
-## 📰 최근 뉴스
-(기사별 날짜·출처·제목 포함. 요약도 함께)
-
-## 📺 유튜브 언급
-(채널·날짜·언급 내용 포함)
-
-## 🎯 증권사 목표가
-(회사명·목표가·상승여력·날짜 포함. 없으면 "데이터 없음")
-
-## 💹 주가 추이
-(날짜별 종가 나열 + 낙폭 설명)
-
-[응답 원칙]
-- 한국어 답변
-- 종목 분석: 위 섹션 형식 필수. 각 섹션 데이터 없으면 "데이터 없음" 표기
-- 일반 시장 질문: 400자 이내 자유 형식
-- 데이터에 있는 날짜·출처·수치는 반드시 직접 언급 (신빙성을 위해)
-- CONFLICT 판단이면 신호 충돌 이유를 설명하고 추가 확인 포인트 제안
-- 마지막 줄: "⚠️ 최종 투자 결정은 본인 판단과 책임 하에 진행하세요."
+[보여줘야 할 핵심 정보 (자연스럽게 포함)]
+종목 분석 시 가능하면: 매매 판단 → 그 이유(팩터/가격/뉴스/유튜브) → 증권사 목표가 → 주가 흐름 → 제안
+단, 사용자가 특정 항목만 물었으면 그것만 답하면 됨
 
 ${context}${stockContext ? `\n${stockContext}` : ""}`;
 
@@ -258,7 +239,7 @@ ${context}${stockContext ? `\n${stockContext}` : ""}`;
     async start(controller) {
       try {
         const stream = await anthropic.messages.create({
-          model: "claude-sonnet-4-6", max_tokens: 2000, stream: true,
+          model: "claude-sonnet-4-6", max_tokens: 3000, stream: true,
           system: systemPrompt,
           messages: [
             ...history.map((h: { role: string; content: string }) => ({ role: h.role as "user" | "assistant", content: h.content })),
