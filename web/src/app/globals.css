@@ -34,3 +34,31 @@ body {
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: var(--bg); }
 ::-webkit-scrollbar-thumb { background: #d1d6db; border-radius: 3px; }
+
+/* Chat markdown renderer */
+.md-body { font-size: 15px; line-height: 1.65; }
+.md-body p { margin: 0 0 8px; }
+.md-body p:last-child { margin-bottom: 0; }
+.md-body h1, .md-body h2, .md-body h3 { margin: 12px 0 6px; font-weight: 700; }
+.md-body h2 { font-size: 16px; }
+.md-body h3 { font-size: 15px; }
+.md-body ul, .md-body ol { margin: 4px 0 8px; padding-left: 20px; }
+.md-body li { margin-bottom: 3px; }
+.md-body strong { font-weight: 700; }
+.md-body blockquote {
+  margin: 8px 0; padding: 8px 12px;
+  border-left: 3px solid #ddd; color: #666; background: #f9f9f9;
+  border-radius: 0 6px 6px 0;
+}
+.md-body table {
+  width: 100%; border-collapse: collapse;
+  margin: 8px 0; font-size: 14px;
+}
+.md-body th {
+  background: #f0f2f5; font-weight: 700;
+  padding: 7px 10px; border: 1px solid #ddd; text-align: left;
+}
+.md-body td {
+  padding: 6px 10px; border: 1px solid #eee;
+}
+.md-body tr:nth-child(even) td { background: #fafafa; }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import ReactMarkdown from "react-markdown";
 import Link from "next/link";
 
 interface Message {
@@ -132,7 +133,7 @@ export default function ChatPage() {
             }}
           >
             <div style={{
-              maxWidth: "80%",
+              maxWidth: msg.role === "user" ? "80%" : "90%",
               padding: "12px 16px",
               borderRadius: msg.role === "user" ? "18px 18px 4px 18px" : "18px 18px 18px 4px",
               background: msg.role === "user" ? "#0066ff" : "#fff",
@@ -140,12 +141,16 @@ export default function ChatPage() {
               boxShadow: "0 1px 4px rgba(0,0,0,0.1)",
               fontSize: 15,
               lineHeight: 1.6,
-              whiteSpace: "pre-wrap",
               wordBreak: "break-word",
             }}>
-              {msg.content}
-              {msg.role === "assistant" && msg.content === "" && loading && (
-                <span style={{ color: "#999", animation: "pulse 1s infinite" }}>▌</span>
+              {msg.role === "user" ? (
+                <span style={{ whiteSpace: "pre-wrap" }}>{msg.content}</span>
+              ) : msg.content === "" && loading ? (
+                <span style={{ color: "#999" }}>▌</span>
+              ) : (
+                <div className="md-body">
+                  <ReactMarkdown>{msg.content}</ReactMarkdown>
+                </div>
               )}
             </div>
           </div>
