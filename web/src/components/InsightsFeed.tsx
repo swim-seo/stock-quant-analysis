@@ -56,8 +56,13 @@ function InsightCard({ insight, expanded, onToggle }: { insight: YoutubeInsight;
             <span style={{ fontSize: 13, color: "var(--text-3)" }}>{insight.processed_at ? timeAgo(insight.processed_at) : fmtDate(insight.upload_date)}</span>
           </div>
           <h3 style={{ fontSize: 15, fontWeight: 700, color: "var(--text-1)", lineHeight: 1.4, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
-            {insight.title}
+            {insight.summary || insight.title}
           </h3>
+          {insight.title && (
+            <p style={{ fontSize: 11, color: "var(--text-3)", marginTop: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {insight.title}
+            </p>
+          )}
         </div>
       </button>
 

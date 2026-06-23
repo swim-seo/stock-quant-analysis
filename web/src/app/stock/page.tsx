@@ -1031,13 +1031,16 @@ function StockContent() {
                                 className="text-sm font-semibold line-clamp-2"
                                 style={{ color: "var(--text-1)" }}
                               >
-                                {item.title}
+                                {item.summary || item.title}
                               </div>
                               <div
                                 className="text-xs mt-1"
                                 style={{ color: "var(--text-3)" }}
                               >
                                 {item.channel}
+                                {item.title && (
+                                  <span style={{ marginLeft: 6, opacity: 0.6 }}>· {item.title}</span>
+                                )}
                               </div>
                             </button>
 
