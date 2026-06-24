@@ -74,11 +74,21 @@ interface SniperSignal {
   ticker: string;
   stock_name: string;
   sector: string;
+  signal: string;
+  execution_signal: string | null;
+  market_risk_level: string | null;
+  market_risk_score: number | null;
   composite_score: number;
   tech_score: number | null;
   yt_score: number | null;
   news_score: number | null;
   factor_score: number | null;
+  suggested_position_pct: number | null;
+  take_profit_pct: number | null;
+  stop_loss_pct: number | null;
+  max_holding_days: number | null;
+  data_freshness_score: number | null;
+  stale_components: string[] | null;
   has_catalyst: boolean;
   news_today: { sentiment: string; trading_signal: string; news_impact_score: number } | null;
   entry_price: number | null;
@@ -821,53 +831,132 @@ export default function SignalsPage() {
               </div>
             )}
 
-            {/* 오늘 신호 탭 */}
-            {!sniperLoading && sniperTab === "signals" && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                <div style={{ background: "#fff8e6", borderRadius: 12, padding: "12px 16px", fontSize: 13, color: "#92400e" }}>
-                  💡 BUY 등급 + 오늘 호재 뉴스 또는 유튜브 언급 종목 우선 · 촉매 있어야 진입
-                </div>
-                {sniperSignals.length === 0 ? (
-                  <div style={{ background: "#fff", borderRadius: 14, padding: "32px", textAlign: "center", color: "#b0b8c1", border: "1px solid var(--border)" }}>오늘 진입 신호 없음</div>
-                ) : (
-                  sniperSignals.map((s, i) => (
-                    <div key={i} style={{ background: "#fff", borderRadius: 14, padding: "16px 18px", border: "1px solid var(--border)", borderLeft: s.has_catalyst ? "4px solid #f04452" : "4px solid #e5e7eb" }}>
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span style={{ fontSize: 15, fontWeight: 700, color: "#191919" }}>{s.stock_name}</span>
-                          {s.has_catalyst && <span style={{ fontSize: 11, background: "#fef2f2", color: "#c81e1e", padding: "2px 7px", borderRadius: 6, fontWeight: 600 }}>🔥 촉매</span>}
-                          <span style={{ fontSize: 11, color: "#b0b8c1" }}>{s.sector}</span>
-                        </div>
-                        <div style={{ textAlign: "right" }}>
-                          <span style={{ fontSize: 15, fontWeight: 800, color: "#f04452" }}>{s.composite_score.toFixed(1)}</span>
-                          {s.entry_price && (
-                            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", marginTop: 2 }}>
-                              <span style={{ fontSize: 12, fontWeight: 700, color: "#191919" }}>{s.entry_price.toLocaleString()}원</span>
-                              {s.open_change_pct != null ? (
-                                <span style={{ fontSize: 11, fontWeight: 600, color: s.open_change_pct > 0 ? "#f04452" : s.open_change_pct < 0 ? "#3182f6" : "#8b95a1" }}>
-                                  {s.open_change_pct > 0 ? "+" : ""}{s.open_change_pct.toFixed(2)}%
-                                </span>
-                              ) : <span style={{ fontSize: 11, color: "#b0b8c1" }}>시가 대기중</span>}
-                            </div>
-                          )}
-                        </div>
+            {/* 오늘 신호 탭 — 3단 구조 */}
+            {!sniperLoading && sniperTab === "signals" && (() => {
+              const tier1 = sniperSignals.filter(s => s.execution_signal === "BUY_OK" && s.has_catalyst && (s.data_freshness_score ?? 0) >= 80);
+              const tier2 = sniperSignals.filter(s => s.execution_signal === "BUY_SMALL" && s.has_catalyst);
+              const tier3 = sniperSignals.filter(s => (s.execution_signal === "WATCH" || s.execution_signal === "BLOCKED") || (s.execution_signal === "BUY_OK" && !s.has_catalyst) || (s.execution_signal === "BUY_SMALL" && !s.has_catalyst));
+
+              const riskColor = (lvl: string | null) =>
+                lvl === "LOW" ? "#057a55" : lvl === "MEDIUM" ? "#b45309" : lvl === "HIGH" ? "#d97706" : lvl === "EXTREME" ? "#b91c1c" : "#8b95a1";
+
+              const freshnessColor = (score: number | null) =>
+                score == null ? "#b0b8c1" : score >= 80 ? "#057a55" : score >= 50 ? "#b45309" : "#b91c1c";
+
+              const SniperCard = ({ s, tier }: { s: SniperSignal; tier: 1 | 2 | 3 }) => {
+                const borderColor = tier === 1 ? "#f04452" : tier === 2 ? "#f5a623" : "#e5e7eb";
+                const bgColor = tier === 1 ? "#fff" : tier === 2 ? "#fffbeb" : "#fafafa";
+                return (
+                  <div style={{ background: bgColor, borderRadius: 14, padding: "16px 18px", border: `1.5px solid ${borderColor}`, borderLeft: `4px solid ${borderColor}` }}>
+                    {/* 헤더 */}
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        <span style={{ fontSize: 15, fontWeight: 700, color: "#191919" }}>{s.stock_name}</span>
+                        {s.has_catalyst && <span style={{ fontSize: 11, background: "#fef2f2", color: "#c81e1e", padding: "2px 7px", borderRadius: 6, fontWeight: 600 }}>🔥 촉매</span>}
+                        {s.execution_signal && (
+                          <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 6,
+                            background: s.execution_signal === "BUY_OK" ? "#f0fdf4" : s.execution_signal === "BUY_SMALL" ? "#fffbeb" : "#f2f4f6",
+                            color: s.execution_signal === "BUY_OK" ? "#057a55" : s.execution_signal === "BUY_SMALL" ? "#b45309" : "#6b7280",
+                          }}>{s.execution_signal}</span>
+                        )}
+                        {s.market_risk_level && (
+                          <span style={{ fontSize: 11, padding: "2px 7px", borderRadius: 6, background: "#f2f4f6", color: riskColor(s.market_risk_level), fontWeight: 600 }}>
+                            위험 {s.market_risk_level}
+                          </span>
+                        )}
+                        <span style={{ fontSize: 11, color: "#b0b8c1" }}>{s.sector}</span>
                       </div>
-                      {s.news_today && (
-                        <div style={{ fontSize: 12, color: "#057a55", background: "#f0fdf4", padding: "6px 10px", borderRadius: 8, marginBottom: 8 }}>
-                          📰 {s.news_today.sentiment} · {s.news_today.trading_signal} · 영향도 {s.news_today.news_impact_score}점
-                        </div>
-                      )}
+                      <div style={{ textAlign: "right", flexShrink: 0 }}>
+                        <span style={{ fontSize: 15, fontWeight: 800, color: "#f04452" }}>{s.composite_score.toFixed(1)}점</span>
+                        {s.entry_price && (
+                          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", marginTop: 2 }}>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: "#191919" }}>{s.entry_price.toLocaleString()}원</span>
+                            {s.open_change_pct != null ? (
+                              <span style={{ fontSize: 11, fontWeight: 600, color: s.open_change_pct > 0 ? "#f04452" : s.open_change_pct < 0 ? "#3182f6" : "#8b95a1" }}>
+                                {s.open_change_pct > 0 ? "+" : ""}{s.open_change_pct.toFixed(2)}%
+                              </span>
+                            ) : <span style={{ fontSize: 11, color: "#b0b8c1" }}>시가 대기중</span>}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 매매 파라미터 */}
+                    {(s.suggested_position_pct || s.take_profit_pct || s.stop_loss_pct) && (
+                      <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+                        {s.suggested_position_pct && (
+                          <span style={{ fontSize: 12, background: "#eff6ff", color: "#1a56db", padding: "4px 10px", borderRadius: 8, fontWeight: 700 }}>
+                            💰 비중 {s.suggested_position_pct}%
+                          </span>
+                        )}
+                        {s.take_profit_pct && s.entry_price && (
+                          <span style={{ fontSize: 12, background: "#fef2f2", color: "#c81e1e", padding: "4px 10px", borderRadius: 8, fontWeight: 700 }}>
+                            ↑ 익절 +{s.take_profit_pct}% ({Math.round(s.entry_price * (1 + s.take_profit_pct / 100)).toLocaleString()}원)
+                          </span>
+                        )}
+                        {s.stop_loss_pct && s.entry_price && (
+                          <span style={{ fontSize: 12, background: "#eff6ff", color: "#1a56db", padding: "4px 10px", borderRadius: 8, fontWeight: 700 }}>
+                            ↓ 손절 -{s.stop_loss_pct}% ({Math.round(s.entry_price * (1 - s.stop_loss_pct / 100)).toLocaleString()}원)
+                          </span>
+                        )}
+                        {s.max_holding_days && (
+                          <span style={{ fontSize: 12, background: "#f2f4f6", color: "#6b7280", padding: "4px 10px", borderRadius: 8 }}>
+                            ⏱ 최대 {s.max_holding_days}일
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* 뉴스 */}
+                    {s.news_today && (
+                      <div style={{ fontSize: 12, color: "#057a55", background: "#f0fdf4", padding: "6px 10px", borderRadius: 8, marginBottom: 8 }}>
+                        📰 {s.news_today.sentiment} · {s.news_today.trading_signal} · 영향도 {s.news_today.news_impact_score}점
+                      </div>
+                    )}
+
+                    {/* 점수 + 신선도 */}
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 4 }}>
                       <div style={{ display: "flex", gap: 8, fontSize: 12, color: "#8b95a1" }}>
                         <span>기술 {(s.tech_score ?? 50).toFixed(0)}</span>
                         <span>·</span><span>유튜브 {(s.yt_score ?? 50).toFixed(0)}</span>
                         <span>·</span><span>뉴스 {(s.news_score ?? 50).toFixed(0)}</span>
                         <span>·</span><span>팩터 {(s.factor_score ?? 50).toFixed(0)}</span>
                       </div>
+                      {s.data_freshness_score != null && (
+                        <span style={{ fontSize: 11, color: freshnessColor(s.data_freshness_score), fontWeight: 600 }}>
+                          📊 신선도 {s.data_freshness_score}점
+                          {s.stale_components && s.stale_components.length > 0 && (
+                            <span style={{ color: "#b45309", marginLeft: 4 }}>({s.stale_components.join(", ")} 오래됨)</span>
+                          )}
+                        </span>
+                      )}
                     </div>
-                  ))
-                )}
-              </div>
-            )}
+                  </div>
+                );
+              };
+
+              const TierSection = ({ title, desc, color, items, tier }: { title: string; desc: string; color: string; items: SniperSignal[]; tier: 1 | 2 | 3 }) => (
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, marginTop: 4 }}>
+                    <span style={{ fontSize: 13, fontWeight: 800, color, background: `${color}18`, padding: "4px 12px", borderRadius: 8 }}>{title}</span>
+                    <span style={{ fontSize: 12, color: "#8b95a1" }}>{desc}</span>
+                    {items.length === 0 && <span style={{ fontSize: 12, color: "#b0b8c1" }}>해당 없음</span>}
+                  </div>
+                  {items.map((s, i) => <SniperCard key={i} s={s} tier={tier} />)}
+                </div>
+              );
+
+              return (
+                <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                  <div style={{ background: "#f0f9ff", borderRadius: 12, padding: "12px 16px", fontSize: 13, color: "#0369a1", border: "1px solid #bae6fd" }}>
+                    💡 위험을 숫자로 통제하면서 진입 — 손절/익절/비중은 각 종목별로 자동 산정됩니다
+                  </div>
+                  <TierSection title="1순위 — 오늘 매수 가능" desc="BUY_OK + 촉매 + 신선도 80↑" color="#057a55" items={tier1} tier={1} />
+                  <TierSection title="2순위 — 소액 가능" desc="BUY_SMALL + 촉매 (시장 위험 있음)" color="#b45309" items={tier2} tier={2} />
+                  <TierSection title="3순위 — 후보 등록" desc="BUY지만 WATCH/BLOCKED 또는 촉매 없음" color="#6b7280" items={tier3} tier={3} />
+                </div>
+              );
+            })()}
 
             {/* 수익률 탭 */}
             {!sniperLoading && sniperTab === "daily" && (

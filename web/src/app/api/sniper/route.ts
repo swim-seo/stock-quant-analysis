@@ -74,10 +74,10 @@ export async function GET(req: Request) {
     // 최근 trade_signals에서 오늘 스캔 결과
     const { data: signals } = await supabase
       .from("trade_signals")
-      .select("ticker, stock_name, sector, signal, composite_score, tech_score, yt_score, news_score, factor_score, market_regime, calculated_at")
+      .select("ticker, stock_name, sector, signal, execution_signal, market_risk_level, market_risk_score, composite_score, tech_score, yt_score, news_score, factor_score, market_regime, suggested_position_pct, take_profit_pct, stop_loss_pct, max_holding_days, data_freshness_score, stale_components, calculated_at")
       .eq("signal", "BUY")
       .order("composite_score", { ascending: false })
-      .limit(20);
+      .limit(30);
 
     // 오늘 뉴스 감성 호재 종목
     const today = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" }))
