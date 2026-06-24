@@ -140,19 +140,23 @@ export async function GET(req: Request) {
     const BUDGET = 2_000_000;
 
     // ① 전체 포지션 (모든 status 포함)
+    // status: "open" | "closed" (exit_reason으로 세부 분류)
     const { data: allTrades } = await supabase
       .from("sniper_positions")
-      .select("entry_date, exit_date, pnl_amount, pnl_pct, status, stock_name")
+      .select("entry_date, exit_date, pnl_amount, pnl_pct, status, exit_reason, stock_name")
       .eq("period", period)
       .order("entry_date", { ascending: true });
 
     const trades = allTrades ?? [];
+    const isStopLoss   = (t: { exit_reason?: string | null }) => !!(t.exit_reason && (t.exit_reason.includes("손절") || t.exit_reason.includes("트레일링") || t.exit_reason.includes("악재") || t.exit_reason.includes("신호 반전")));
+    const isTakeProfit = (t: { exit_reason?: string | null }) => !!(t.exit_reason && (t.exit_reason.includes("익절") || t.exit_reason.includes("상한가")));
+    const isExpired    = (t: { exit_reason?: string | null }) => !!(t.exit_reason && t.exit_reason.includes("만기"));
     const statusGroups = {
       holding:     trades.filter(t => t.status === "open").length,
-      closed:      trades.filter(t => t.status === "closed").length,
-      take_profit: trades.filter(t => t.status === "take_profit").length,
-      stop_loss:   trades.filter(t => t.status === "stop_loss").length,
-      expired:     trades.filter(t => t.status === "expired").length,
+      take_profit: trades.filter(t => t.status === "closed" && isTakeProfit(t)).length,
+      stop_loss:   trades.filter(t => t.status === "closed" && isStopLoss(t)).length,
+      expired:     trades.filter(t => t.status === "closed" && isExpired(t)).length,
+      closed:      trades.filter(t => t.status === "closed" && !isTakeProfit(t) && !isStopLoss(t) && !isExpired(t)).length,
     };
     const exitedTrades = trades.filter(t => t.status !== "open" && t.pnl_pct != null);
     const avgReturn = exitedTrades.length
@@ -196,10 +200,10 @@ export async function GET(req: Request) {
     // ③ execution_signal 별 성과 (signal_performance 테이블)
     const { data: perfRows } = await supabase
       .from("signal_performance")
-      .select("execution_signal, return_5d, return_10d, hit_take_profit, hit_stop_loss")
-      .not("return_5d", "is", null);
+      .select("execution_signal, return_1d, return_3d, return_5d, return_10d, hit_take_profit, hit_stop_loss")
+      .not("return_1d", "is", null);   // D+1이 채워진 행만
 
-    type PerfRow = { execution_signal: string | null; return_5d: number | null; return_10d: number | null; hit_take_profit: boolean | null; hit_stop_loss: boolean | null };
+    type PerfRow = { execution_signal: string | null; return_1d: number | null; return_3d: number | null; return_5d: number | null; return_10d: number | null; hit_take_profit: boolean | null; hit_stop_loss: boolean | null };
     const perfData = (perfRows ?? []) as PerfRow[];
     const execGroups: Record<string, PerfRow[]> = {};
     for (const r of perfData) {
@@ -207,19 +211,23 @@ export async function GET(req: Request) {
       execGroups[key] = [...(execGroups[key] ?? []), r];
     }
     const execPerf = Object.entries(execGroups).map(([signal, rows]) => {
-      const avg5d  = rows.reduce((s, r) => s + (r.return_5d  ?? 0), 0) / rows.length;
-      const avg10d = rows.reduce((s, r) => s + (r.return_10d ?? 0), 0) / rows.length;
-      const w5 = rows.filter(r => (r.return_5d ?? 0) > 0).length;
+      const avg1d  = rows.reduce((s, r) => s + (r.return_1d  ?? 0), 0) / rows.length;
+      const avg3d  = rows.reduce((s, r) => s + (r.return_3d  ?? 0), 0) / rows.length;
+      const avg5d  = rows.filter(r => r.return_5d != null).reduce((s, r) => s + (r.return_5d  ?? 0), 0) / (rows.filter(r => r.return_5d != null).length || 1);
+      const avg10d = rows.filter(r => r.return_10d != null).reduce((s, r) => s + (r.return_10d ?? 0), 0) / (rows.filter(r => r.return_10d != null).length || 1);
+      const w1 = rows.filter(r => (r.return_1d ?? 0) > 0).length;
       const tp  = rows.filter(r => r.hit_take_profit).length;
       const sl  = rows.filter(r => r.hit_stop_loss).length;
       return {
         signal,
-        count:     rows.length,
-        avg_5d:    +avg5d.toFixed(2),
-        avg_10d:   +avg10d.toFixed(2),
-        win_rate:  +(w5 / rows.length * 100).toFixed(1),
-        tp_rate:   +(tp / rows.length * 100).toFixed(1),
-        sl_rate:   +(sl / rows.length * 100).toFixed(1),
+        count:    rows.length,
+        avg_1d:   +avg1d.toFixed(2),
+        avg_3d:   +avg3d.toFixed(2),
+        avg_5d:   rows.some(r => r.return_5d != null)  ? +avg5d.toFixed(2)  : null,
+        avg_10d:  rows.some(r => r.return_10d != null) ? +avg10d.toFixed(2) : null,
+        win_rate: +(w1 / rows.length * 100).toFixed(1),
+        tp_rate:  +(tp / rows.length * 100).toFixed(1),
+        sl_rate:  +(sl / rows.length * 100).toFixed(1),
       };
     }).sort((a, b) => {
       const order = ["BUY_OK", "BUY_SMALL", "WATCH", "BLOCKED", "UNKNOWN"];

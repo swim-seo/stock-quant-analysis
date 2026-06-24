@@ -132,8 +132,10 @@ interface PositionStats {
 interface ExecPerf {
   signal: string;
   count: number;
-  avg_5d: number;
-  avg_10d: number;
+  avg_1d: number;
+  avg_3d: number;
+  avg_5d: number | null;
+  avg_10d: number | null;
   win_rate: number;
   tp_rate: number;
   sl_rate: number;
@@ -794,7 +796,8 @@ export default function SignalsPage() {
                 {!summary?.active && (
                   <div style={{ background: "#fff8e6", borderRadius: 14, padding: "16px 20px", marginBottom: 12, border: "1px solid #fde68a" }}>
                     <p style={{ fontSize: 14, color: "#92400e", fontWeight: 600 }}>⏰ 스나이퍼 기간이 아닙니다</p>
-                    <p style={{ fontSize: 13, color: "#b45309", marginTop: 4 }}>매달 25일부터 다음달 10일 사이에만 전략이 활성화됩니다.</p>
+                    <p style={{ fontSize: 13, color: "#b45309", marginTop: 4 }}>매달 25일부터 다음달 10일까지 운용합니다.</p>
+                    <p style={{ fontSize: 12, color: "#b45309", marginTop: 2 }}>10일은 카드값 12~13일 출금에 대비한 현금화 기준일입니다.</p>
                   </div>
                 )}
                 {positions.length === 0 ? (
@@ -1031,13 +1034,13 @@ export default function SignalsPage() {
                   <p style={{ fontSize: 14, fontWeight: 800, color: "#191919", marginBottom: 6 }}>⚡ 실행 신호별 성과 — 시장 위험 필터 효과 검증</p>
                   <p style={{ fontSize: 12, color: "#8b95a1", marginBottom: 14 }}>BUY_OK·BUY_SMALL이 WATCH·BLOCKED보다 수익률이 높아야 필터가 효과 있는 것</p>
                   {execPerf.length === 0 ? (
-                    <p style={{ color: "#b0b8c1", fontSize: 13 }}>signal_performance 데이터 없음 (신호 발생 후 7일 이상 경과해야 집계됨)</p>
+                    <p style={{ color: "#b0b8c1", fontSize: 13 }}>signal_performance 데이터 없음 (신호 발생 후 2일 이상 경과해야 집계됨)</p>
                   ) : (
                     <div style={{ overflowX: "auto" }}>
                       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                         <thead>
                           <tr style={{ borderBottom: "2px solid #f2f4f6" }}>
-                            {["실행 신호", "신호 수", "D+5 수익률", "D+10 수익률", "5일 승률", "익절 도달", "손절 도달"].map(h => (
+                            {["실행 신호", "신호 수", "D+1", "D+3", "D+5", "D+10", "D+1 승률", "익절", "손절"].map(h => (
                               <th key={h} style={{ padding: "8px 10px", textAlign: "left", color: "#8b95a1", fontWeight: 600, fontSize: 11 }}>{h}</th>
                             ))}
                           </tr>
@@ -1045,16 +1048,18 @@ export default function SignalsPage() {
                         <tbody>
                           {execPerf.map((r, i) => {
                             const sigColor = r.signal === "BUY_OK" ? "#057a55" : r.signal === "BUY_SMALL" ? "#b45309" : r.signal === "WATCH" ? "#6b7280" : "#b91c1c";
-                            const ret5Color = r.avg_5d >= 0 ? "#f04452" : "#3182f6";
-                            const ret10Color = r.avg_10d >= 0 ? "#f04452" : "#3182f6";
+                            const retColor = (v: number | null) => v == null ? "#b0b8c1" : v >= 0 ? "#f04452" : "#3182f6";
+                            const retStr = (v: number | null) => v == null ? "-" : `${v >= 0 ? "+" : ""}${v}%`;
                             return (
                               <tr key={i} style={{ borderBottom: "1px solid #f2f4f6", background: i % 2 === 0 ? "#fff" : "#fafafa" }}>
                                 <td style={{ padding: "10px 10px" }}>
                                   <span style={{ fontWeight: 700, color: sigColor, background: `${sigColor}15`, padding: "3px 8px", borderRadius: 6 }}>{r.signal}</span>
                                 </td>
                                 <td style={{ padding: "10px 10px", color: "#6b7280" }}>{r.count}개</td>
-                                <td style={{ padding: "10px 10px", fontWeight: 700, color: ret5Color }}>{r.avg_5d >= 0 ? "+" : ""}{r.avg_5d}%</td>
-                                <td style={{ padding: "10px 10px", fontWeight: 700, color: ret10Color }}>{r.avg_10d >= 0 ? "+" : ""}{r.avg_10d}%</td>
+                                <td style={{ padding: "10px 10px", fontWeight: 700, color: retColor(r.avg_1d) }}>{retStr(r.avg_1d)}</td>
+                                <td style={{ padding: "10px 10px", fontWeight: 700, color: retColor(r.avg_3d) }}>{retStr(r.avg_3d)}</td>
+                                <td style={{ padding: "10px 10px", fontWeight: 600, color: retColor(r.avg_5d) }}>{retStr(r.avg_5d)}</td>
+                                <td style={{ padding: "10px 10px", fontWeight: 600, color: retColor(r.avg_10d) }}>{retStr(r.avg_10d)}</td>
                                 <td style={{ padding: "10px 10px" }}>{r.win_rate}%</td>
                                 <td style={{ padding: "10px 10px", color: "#057a55" }}>{r.tp_rate}%</td>
                                 <td style={{ padding: "10px 10px", color: "#b91c1c" }}>{r.sl_rate}%</td>
