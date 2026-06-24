@@ -1757,6 +1757,16 @@ def _run_theme_scanner():
         print(f"  [테마 스캐너 오류] {e}", file=sys.stderr)
 
 
+def _run_dart_collector() -> None:
+    try:
+        from dart_collector import run as dart_run
+        dart_run(days=1)
+    except Exception as e:
+        import traceback
+        print(f"  [DART 수집 오류] {e}", file=sys.stderr)
+        print(traceback.format_exc(), file=sys.stderr)
+
+
 def _run_factor_calculator():
     try:
         from factor_calculator import run as factor_run
@@ -1848,6 +1858,7 @@ def main():
             collect_news()
             collect_youtube(collect_time="morning")
             generate_briefing()
+            _run_dart_collector()          # OpenDART 공시 수집 (진입차단 필터용)
             collect_stock_prices(days=5)   # KIS 최근 5거래일 가격 저장
             collect_sector_index()
             stock_data = _collect_stock_data()

@@ -79,6 +79,42 @@ YT_LOOKBACK_DAYS = 7
 BEAR_ENTRY_THRESHOLD = 0.60   # >60% negative → BEAR
 NEUTRAL_REENTRY_THRESHOLD = 0.45  # <45% negative → exit BEAR
 
+# ---------------------------------------------------------------------------
+# YouTube channel weights
+# 종목 신호형(1.0) > 뉴스형(0.7~0.8) > 매크로형(0.5~0.6) > 교양형(0.3)
+# ---------------------------------------------------------------------------
+CHANNEL_WEIGHTS: dict[str, float] = {
+    "한국경제TV":     1.0,
+    "매일경제TV":     1.0,
+    "MTN":           0.8,
+    "머니투데이":     0.8,
+    "이데일리TV":     0.7,
+    "서울경제TV":     0.7,
+    "연합뉴스경제TV": 0.6,
+    "삼프로TV":       0.6,
+    "소수몽키":       0.5,
+    "슈카월드":       0.3,
+}
+
+# ---------------------------------------------------------------------------
+# Regime-adaptive position sizing
+# 장이 좋으면 과감하게(STRONG_BULL ×1.4), 나쁘면 보수적으로(STRONG_BEAR ×0.4)
+# ---------------------------------------------------------------------------
+_REGIME_POS_MULT: dict[str, float] = {
+    "STRONG_BULL": 1.4,   # BUY_OK ≈35%, BUY_SMALL ≈14%
+    "BULL":        1.12,  # BUY_OK ≈28%, BUY_SMALL ≈11%
+    "NEUTRAL":     1.0,
+    "BEAR":        0.6,   # BUY_OK ≈15%, BUY_SMALL ≈6%
+    "STRONG_BEAR": 0.4,   # BUY_OK ≈10%, BUY_SMALL ≈4%
+}
+_REGIME_DAYS_DELTA: dict[str, int] = {
+    "STRONG_BULL": +5,
+    "BULL":        +2,
+    "NEUTRAL":      0,
+    "BEAR":        -2,
+    "STRONG_BEAR": -4,
+}
+
 
 # ---------------------------------------------------------------------------
 # Ticker lookup (ticker_aliases table + in-memory cache)
@@ -267,7 +303,7 @@ def _calc_yt_score(
 
     rows = (
         supabase.table("youtube_insights")
-        .select("market_sentiment,key_stocks,key_stocks_sentiment,investment_signals,urgency,trading_type")
+        .select("channel,market_sentiment,key_stocks,key_stocks_sentiment,investment_signals,urgency,trading_type")
         .gte("upload_date", cutoff[:10])
         .order("upload_date", desc=True)
         .limit(100)
@@ -317,12 +353,13 @@ def _calc_yt_score(
         if sentiment is None:
             sentiment = row.get("market_sentiment", "중립")
 
+        ch_weight = CHANNEL_WEIGHTS.get(row.get("channel", ""), 0.7)
         if "긍정" in str(sentiment):
-            positive_count += 1
+            positive_count += ch_weight
         elif "부정" in str(sentiment):
-            negative_count += 1
+            negative_count += ch_weight
         else:
-            neutral_count += 1
+            neutral_count += ch_weight
 
         # Extract investment_signals text
         inv_signals = row.get("investment_signals")
@@ -906,44 +943,79 @@ def _calc_data_freshness(
     return round(max(0.0, score), 2), stale
 
 
+def _get_disclosure_data(ticker: str) -> tuple[float, bool, str | None]:
+    """Query stock_disclosures for recent DART filings (last 7 days).
+    Returns (disclosure_score, has_blocker, blocker_reason).
+    """
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    try:
+        rows = (
+            supabase.table("stock_disclosures")
+            .select("sentiment,risk_flags,impact_score,report_nm")
+            .eq("ticker", ticker)
+            .gte("rcept_dt", cutoff)
+            .order("rcept_dt", desc=True)
+            .limit(10)
+            .execute()
+        )
+        if not rows.data:
+            return 0.0, False, None
+
+        BLOCKER_FLAGS = {"거래정지", "관리종목", "감사의견_비적정", "횡령_배임", "불성실공시"}
+        for r in rows.data:
+            flags = set(r.get("risk_flags") or [])
+            if flags & BLOCKER_FLAGS:
+                return -50.0, True, r.get("report_nm", "공시 차단")
+
+        total = sum(float(r.get("impact_score") or 0) for r in rows.data)
+        return max(-50.0, min(50.0, total)), False, None
+    except Exception:
+        return 0.0, False, None
+
+
 def _calc_position_params(
     execution_signal: str,
     market_risk_level: str,
     composite_score: float,
+    market_regime: str = "NEUTRAL",
 ) -> tuple[float, float, float, int]:
     """Calculate position sizing and risk parameters.
 
     Returns: (suggested_position_pct, take_profit_pct, stop_loss_pct, max_holding_days)
 
-    Position sizing: BUY_OK=25%, BUY_SMALL=10%, others=0
-    Take profit: fixed +10% target (user strategy: "10% eat and exit")
-    Stop loss: tight in high-risk markets
-    Max holding: 10 days default; shorter in high-risk; longer for very strong signals
+    Position sizing: regime-adaptive — STRONG_BULL ×1.4 ~ STRONG_BEAR ×0.4
+    장이 좋으면 과감하게, 나쁘면 보수적으로.
     """
     if execution_signal not in ("BUY_OK", "BUY_SMALL"):
         return 0.0, 0.0, 0.0, 0
 
-    position_pct = 25.0 if execution_signal == "BUY_OK" else 10.0
+    base_pct = 25.0 if execution_signal == "BUY_OK" else 10.0
+    pos_mult = _REGIME_POS_MULT.get(market_regime, 1.0)
+    position_pct = round(min(50.0, base_pct * pos_mult), 1)
 
-    # Take profit stays at 10% regardless of market — that's the user's target
+    # Take profit stays at 10% — user's exit target
     take_profit_pct = 10.0
 
-    # Stop loss: tighter when market is riskier (risk/reward asymmetry)
+    # Stop loss: tighter when market is riskier
     stop_loss_map = {
-        "LOW":     6.0,   # risk 6% to make 10% → 1:1.67 RR
+        "LOW":     6.0,
         "MEDIUM":  6.0,
-        "HIGH":    5.0,   # tighter stop in volatile market
+        "HIGH":    5.0,
         "EXTREME": 4.0,
     }
     stop_loss_pct = stop_loss_map.get(market_risk_level, 6.0)
 
-    # Max holding: default 10 days; shorten in high risk; extend for very strong signals
+    # Max holding: base from risk level / signal strength
     if market_risk_level in ("HIGH", "EXTREME"):
         max_days = 7
     elif composite_score >= 78:
         max_days = 15
     else:
         max_days = 10
+
+    # Regime adjustment: bull → hold longer, bear → cut sooner
+    days_delta = _REGIME_DAYS_DELTA.get(market_regime, 0)
+    max_days = max(3, max_days + days_delta)
 
     return position_pct, take_profit_pct, stop_loss_pct, max_days
 
@@ -1129,9 +1201,15 @@ def run() -> None:
         # Execution filter: 종목 신호 + 시장 위험도 → 오늘 실제 행동 신호
         execution_signal, execution_reason = apply_execution_filter(signal, market_risk.level)
 
-        # Position sizing & risk management
+        # DART 공시 차단 필터: 거래정지/관리종목/감사의견 등 → BLOCKED 우선
+        disc_score, disc_blocker, disc_reason = _get_disclosure_data(ticker)
+        if disc_blocker and execution_signal in ("BUY_OK", "BUY_SMALL", "WATCH"):
+            execution_signal = "BLOCKED"
+            execution_reason = f"공시 차단: {disc_reason}"
+
+        # Position sizing & risk management (regime-adaptive)
         pos_pct, tp_pct, sl_pct, max_days = _calc_position_params(
-            execution_signal, market_risk.level, composite
+            execution_signal, market_risk.level, composite, market_regime
         )
 
         # Trade type classification
