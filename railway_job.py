@@ -1882,6 +1882,15 @@ def main():
             generate_briefing()
             update_portfolio_returns()
 
+    elif mode == "prices":
+        # 수동 트리거용: 주가 수집 + 팩터 + 신호 재계산만 (뉴스/유튜브 스킵)
+        # 대시보드 "🔄 데이터 새로고침" 버튼에서 호출, 약 2~3분 소요
+        collect_stock_prices(days=5)
+        collect_sector_index()
+        _run_factor_calculator()
+        _run_signal_aggregator()
+        _run_signal_performance_tracker()
+
     else:
         collect_news()
         collect_youtube()
