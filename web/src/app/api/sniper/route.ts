@@ -137,23 +137,49 @@ export async function GET(req: Request) {
   }
 
   if (tab === "daily") {
-    // 일별 누적 수익률 (포지션 기준)
+    const BUDGET = 2_000_000;
+
+    // ① 전체 포지션 (모든 status 포함)
     const { data: allTrades } = await supabase
       .from("sniper_positions")
-      .select("entry_date, exit_date, pnl_amount, pnl_pct, status")
+      .select("entry_date, exit_date, pnl_amount, pnl_pct, status, stock_name")
       .eq("period", period)
       .order("entry_date", { ascending: true });
 
-    // 날짜별 실현 PnL 집계
+    const trades = allTrades ?? [];
+    const statusGroups = {
+      holding:     trades.filter(t => t.status === "open").length,
+      closed:      trades.filter(t => t.status === "closed").length,
+      take_profit: trades.filter(t => t.status === "take_profit").length,
+      stop_loss:   trades.filter(t => t.status === "stop_loss").length,
+      expired:     trades.filter(t => t.status === "expired").length,
+    };
+    const exitedTrades = trades.filter(t => t.status !== "open" && t.pnl_pct != null);
+    const avgReturn = exitedTrades.length
+      ? exitedTrades.reduce((s, t) => s + (t.pnl_pct ?? 0), 0) / exitedTrades.length
+      : null;
+    const wins = exitedTrades.filter(t => (t.pnl_pct ?? 0) > 0);
+    const losses = exitedTrades.filter(t => (t.pnl_pct ?? 0) < 0);
+    const winRate = exitedTrades.length ? (wins.length / exitedTrades.length) * 100 : null;
+    const avgWin  = wins.length   ? wins.reduce((s, t) => s + (t.pnl_pct ?? 0), 0) / wins.length : null;
+    const avgLoss = losses.length ? Math.abs(losses.reduce((s, t) => s + (t.pnl_pct ?? 0), 0) / losses.length) : null;
+    const rrRatio = avgWin && avgLoss ? +(avgWin / avgLoss).toFixed(2) : null;
+
+    const positionStats = {
+      total: trades.length,
+      ...statusGroups,
+      avg_return: avgReturn != null ? +avgReturn.toFixed(2) : null,
+      win_rate:   winRate   != null ? +winRate.toFixed(1)   : null,
+      rr_ratio:   rrRatio,
+    };
+
+    // ② 날짜별 누적 PnL (청산 기준)
     const dailyMap: Record<string, number> = {};
-    for (const t of (allTrades || [])) {
-      if (t.status !== "closed" || !t.exit_date) continue;
+    for (const t of trades) {
+      if (!t.exit_date || t.pnl_amount == null) continue;
       const d = t.exit_date as string;
       dailyMap[d] = (dailyMap[d] ?? 0) + (t.pnl_amount ?? 0);
     }
-
-    // 누적 합산
-    const BUDGET = 2_000_000;
     let cumulative = 0;
     const daily = Object.entries(dailyMap)
       .sort(([a], [b]) => a.localeCompare(b))
@@ -161,13 +187,46 @@ export async function GET(req: Request) {
         cumulative += pnl;
         return {
           date,
-          daily_pnl:    Math.round(pnl),
-          cumulative_pnl: Math.round(cumulative),
-          cumulative_pct: +((cumulative / BUDGET) * 100).toFixed(2),
+          daily_pnl:       Math.round(pnl),
+          cumulative_pnl:  Math.round(cumulative),
+          cumulative_pct:  +((cumulative / BUDGET) * 100).toFixed(2),
         };
       });
 
-    return NextResponse.json({ summary, daily });
+    // ③ execution_signal 별 성과 (signal_performance 테이블)
+    const { data: perfRows } = await supabase
+      .from("signal_performance")
+      .select("execution_signal, return_5d, return_10d, hit_take_profit, hit_stop_loss")
+      .not("return_5d", "is", null);
+
+    type PerfRow = { execution_signal: string | null; return_5d: number | null; return_10d: number | null; hit_take_profit: boolean | null; hit_stop_loss: boolean | null };
+    const perfData = (perfRows ?? []) as PerfRow[];
+    const execGroups: Record<string, PerfRow[]> = {};
+    for (const r of perfData) {
+      const key = r.execution_signal ?? "UNKNOWN";
+      execGroups[key] = [...(execGroups[key] ?? []), r];
+    }
+    const execPerf = Object.entries(execGroups).map(([signal, rows]) => {
+      const avg5d  = rows.reduce((s, r) => s + (r.return_5d  ?? 0), 0) / rows.length;
+      const avg10d = rows.reduce((s, r) => s + (r.return_10d ?? 0), 0) / rows.length;
+      const w5 = rows.filter(r => (r.return_5d ?? 0) > 0).length;
+      const tp  = rows.filter(r => r.hit_take_profit).length;
+      const sl  = rows.filter(r => r.hit_stop_loss).length;
+      return {
+        signal,
+        count:     rows.length,
+        avg_5d:    +avg5d.toFixed(2),
+        avg_10d:   +avg10d.toFixed(2),
+        win_rate:  +(w5 / rows.length * 100).toFixed(1),
+        tp_rate:   +(tp / rows.length * 100).toFixed(1),
+        sl_rate:   +(sl / rows.length * 100).toFixed(1),
+      };
+    }).sort((a, b) => {
+      const order = ["BUY_OK", "BUY_SMALL", "WATCH", "BLOCKED", "UNKNOWN"];
+      return (order.indexOf(a.signal) ?? 9) - (order.indexOf(b.signal) ?? 9);
+    });
+
+    return NextResponse.json({ summary, daily, position_stats: positionStats, exec_perf: execPerf });
   }
 
   return NextResponse.json({ summary });

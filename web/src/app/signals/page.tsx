@@ -117,6 +117,28 @@ interface DailyPnL {
   cumulative_pct: number;
 }
 
+interface PositionStats {
+  total: number;
+  holding: number;
+  closed: number;
+  take_profit: number;
+  stop_loss: number;
+  expired: number;
+  avg_return: number | null;
+  win_rate: number | null;
+  rr_ratio: number | null;
+}
+
+interface ExecPerf {
+  signal: string;
+  count: number;
+  avg_5d: number;
+  avg_10d: number;
+  win_rate: number;
+  tp_rate: number;
+  sl_rate: number;
+}
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 const SECTORS = [
   "전체", "반도체", "2차전지/에너지", "바이오", "자동차",
@@ -318,6 +340,8 @@ export default function SignalsPage() {
   const [sniperSignals, setSniperSignals] = useState<SniperSignal[]>([]);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [daily, setDaily] = useState<DailyPnL[]>([]);
+  const [positionStats, setPositionStats] = useState<PositionStats | null>(null);
+  const [execPerf, setExecPerf] = useState<ExecPerf[]>([]);
   const [sniperLoading, setSniperLoading] = useState(false);
 
   // Read ?tab=sniper from URL on mount
@@ -364,7 +388,11 @@ export default function SignalsPage() {
       if (t === "positions") setPositions(d.positions ?? []);
       if (t === "signals")   setSniperSignals(d.signals ?? []);
       if (t === "history")   setHistory(d.history ?? []);
-      if (t === "daily")     setDaily(d.daily ?? []);
+      if (t === "daily") {
+        setDaily(d.daily ?? []);
+        setPositionStats(d.position_stats ?? null);
+        setExecPerf(d.exec_perf ?? []);
+      }
     } finally {
       setSniperLoading(false);
     }
@@ -742,7 +770,7 @@ export default function SignalsPage() {
               {([
                 { id: "positions" as const, label: "📊 현재 포지션" },
                 { id: "signals"   as const, label: "📡 오늘 신호" },
-                { id: "daily"     as const, label: "📈 수익률" },
+                { id: "daily"     as const, label: "📈 성과 검증" },
                 { id: "history"   as const, label: "📋 거래 내역" },
               ]).map(t => (
                 <button key={t.id} onClick={() => setSniperTab(t.id)}
@@ -958,18 +986,99 @@ export default function SignalsPage() {
               );
             })()}
 
-            {/* 수익률 탭 */}
+            {/* 성과 검증 탭 */}
             {!sniperLoading && sniperTab === "daily" && (
-              <div style={{ background: "#fff", borderRadius: 14, padding: "20px", border: "1px solid var(--border)" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-                  <p style={{ fontSize: 15, fontWeight: 700, color: "#191919" }}>일별 수익률 추적</p>
-                  {summary && (
-                    <p style={{ fontSize: 13, color: summary.realized_pnl >= 0 ? "#f04452" : "#3182f6", fontWeight: 700 }}>
-                      누적 {summary.realized_pnl >= 0 ? "+" : ""}{(summary.realized_pnl / BUDGET * 100).toFixed(1)}%
-                    </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+
+                {/* ① 전체 포지션 현황 */}
+                <div style={{ background: "#fff", borderRadius: 14, padding: "18px 20px", border: "1px solid var(--border)" }}>
+                  <p style={{ fontSize: 14, fontWeight: 800, color: "#191919", marginBottom: 14 }}>📊 전체 포지션 현황</p>
+                  {positionStats ? (
+                    <>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 12 }}>
+                        {[
+                          { label: "총 신호", value: positionStats.total, color: "#191919" },
+                          { label: "현재 보유", value: positionStats.holding, color: "#1a56db" },
+                          { label: "익절", value: positionStats.take_profit + positionStats.closed, color: "#f04452" },
+                          { label: "손절", value: positionStats.stop_loss, color: "#3182f6" },
+                        ].map((c, i) => (
+                          <div key={i} style={{ background: "#f8f9fa", borderRadius: 10, padding: "10px 12px" }}>
+                            <p style={{ fontSize: 11, color: "#8b95a1", marginBottom: 4 }}>{c.label}</p>
+                            <p style={{ fontSize: 18, fontWeight: 800, color: c.color }}>{c.value}</p>
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+                        {[
+                          { label: "평균 수익률", value: positionStats.avg_return != null ? `${positionStats.avg_return >= 0 ? "+" : ""}${positionStats.avg_return}%` : "-", color: (positionStats.avg_return ?? 0) >= 0 ? "#f04452" : "#3182f6" },
+                          { label: "승률", value: positionStats.win_rate != null ? `${positionStats.win_rate}%` : "-", color: "#191919" },
+                          { label: "손익비 (R:R)", value: positionStats.rr_ratio != null ? `1 : ${positionStats.rr_ratio}` : "-", color: "#057a55" },
+                        ].map((c, i) => (
+                          <div key={i} style={{ background: "#f8f9fa", borderRadius: 10, padding: "10px 12px" }}>
+                            <p style={{ fontSize: 11, color: "#8b95a1", marginBottom: 4 }}>{c.label}</p>
+                            <p style={{ fontSize: 16, fontWeight: 800, color: c.color }}>{c.value}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <p style={{ color: "#b0b8c1", fontSize: 13 }}>포지션 데이터 없음</p>
                   )}
                 </div>
-                <DailyChart daily={daily} />
+
+                {/* ② execution_signal 별 성과 */}
+                <div style={{ background: "#fff", borderRadius: 14, padding: "18px 20px", border: "1px solid var(--border)" }}>
+                  <p style={{ fontSize: 14, fontWeight: 800, color: "#191919", marginBottom: 6 }}>⚡ 실행 신호별 성과 — 시장 위험 필터 효과 검증</p>
+                  <p style={{ fontSize: 12, color: "#8b95a1", marginBottom: 14 }}>BUY_OK·BUY_SMALL이 WATCH·BLOCKED보다 수익률이 높아야 필터가 효과 있는 것</p>
+                  {execPerf.length === 0 ? (
+                    <p style={{ color: "#b0b8c1", fontSize: 13 }}>signal_performance 데이터 없음 (신호 발생 후 7일 이상 경과해야 집계됨)</p>
+                  ) : (
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                        <thead>
+                          <tr style={{ borderBottom: "2px solid #f2f4f6" }}>
+                            {["실행 신호", "신호 수", "D+5 수익률", "D+10 수익률", "5일 승률", "익절 도달", "손절 도달"].map(h => (
+                              <th key={h} style={{ padding: "8px 10px", textAlign: "left", color: "#8b95a1", fontWeight: 600, fontSize: 11 }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {execPerf.map((r, i) => {
+                            const sigColor = r.signal === "BUY_OK" ? "#057a55" : r.signal === "BUY_SMALL" ? "#b45309" : r.signal === "WATCH" ? "#6b7280" : "#b91c1c";
+                            const ret5Color = r.avg_5d >= 0 ? "#f04452" : "#3182f6";
+                            const ret10Color = r.avg_10d >= 0 ? "#f04452" : "#3182f6";
+                            return (
+                              <tr key={i} style={{ borderBottom: "1px solid #f2f4f6", background: i % 2 === 0 ? "#fff" : "#fafafa" }}>
+                                <td style={{ padding: "10px 10px" }}>
+                                  <span style={{ fontWeight: 700, color: sigColor, background: `${sigColor}15`, padding: "3px 8px", borderRadius: 6 }}>{r.signal}</span>
+                                </td>
+                                <td style={{ padding: "10px 10px", color: "#6b7280" }}>{r.count}개</td>
+                                <td style={{ padding: "10px 10px", fontWeight: 700, color: ret5Color }}>{r.avg_5d >= 0 ? "+" : ""}{r.avg_5d}%</td>
+                                <td style={{ padding: "10px 10px", fontWeight: 700, color: ret10Color }}>{r.avg_10d >= 0 ? "+" : ""}{r.avg_10d}%</td>
+                                <td style={{ padding: "10px 10px" }}>{r.win_rate}%</td>
+                                <td style={{ padding: "10px 10px", color: "#057a55" }}>{r.tp_rate}%</td>
+                                <td style={{ padding: "10px 10px", color: "#b91c1c" }}>{r.sl_rate}%</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                {/* ③ 날짜별 누적 수익률 */}
+                <div style={{ background: "#fff", borderRadius: 14, padding: "18px 20px", border: "1px solid var(--border)" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                    <p style={{ fontSize: 14, fontWeight: 800, color: "#191919" }}>📈 날짜별 누적 수익률</p>
+                    {summary && (
+                      <p style={{ fontSize: 13, color: summary.realized_pnl >= 0 ? "#f04452" : "#3182f6", fontWeight: 700 }}>
+                        누적 {summary.realized_pnl >= 0 ? "+" : ""}{(summary.realized_pnl / BUDGET * 100).toFixed(1)}%
+                      </p>
+                    )}
+                  </div>
+                  <DailyChart daily={daily} />
+                </div>
               </div>
             )}
 
