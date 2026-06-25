@@ -1757,45 +1757,82 @@ def _run_theme_scanner():
         print(f"  [테마 스캐너 오류] {e}", file=sys.stderr)
 
 
+_PIPELINE_RUN_ID: str = ""
+_PIPELINE_MODE: str = ""
+
+
+def _log_stage(stage: str, status: str, error_msg: str | None = None, rows_written: int | None = None, duration_s: float | None = None) -> None:
+    """Write one pipeline stage result to Supabase pipeline_runs table."""
+    try:
+        row = {
+            "run_id":      _PIPELINE_RUN_ID,
+            "mode":        _PIPELINE_MODE,
+            "stage":       stage,
+            "status":      status,
+            "error_msg":   error_msg[:2000] if error_msg else None,
+            "rows_written": rows_written,
+            "duration_s":  duration_s,
+        }
+        sb_post("pipeline_runs", row)
+    except Exception:
+        pass  # never crash the pipeline due to logging failure
+
+
 def _run_dart_collector() -> None:
+    t0 = time.time()
     try:
         from dart_collector import run as dart_run
         dart_run(days=1)
+        _log_stage("dart", "ok", duration_s=round(time.time() - t0, 2))
     except Exception as e:
         import traceback
+        msg = traceback.format_exc()
         print(f"  [DART 수집 오류] {e}", file=sys.stderr)
-        print(traceback.format_exc(), file=sys.stderr)
+        print(msg, file=sys.stderr)
+        _log_stage("dart", "error", error_msg=msg, duration_s=round(time.time() - t0, 2))
 
 
 def _run_factor_calculator():
+    t0 = time.time()
     try:
         from factor_calculator import run as factor_run
         factor_run()
+        _log_stage("factor_calculator", "ok", duration_s=round(time.time() - t0, 2))
     except Exception as e:
         import traceback
-        print(f"  [팩터 계산 오류] {e}")
-        print(traceback.format_exc())
+        msg = traceback.format_exc()
+        print(f"  [팩터 계산 오류] {e}", flush=True)
+        print(msg, flush=True)
+        _log_stage("factor_calculator", "error", error_msg=msg, duration_s=round(time.time() - t0, 2))
 
 
 def _run_signal_aggregator():
+    t0 = time.time()
     try:
         from signal_aggregator import run as signal_run
         signal_run()
+        _log_stage("signal_aggregator", "ok", duration_s=round(time.time() - t0, 2))
     except Exception as e:
         import traceback
-        print(f"  [신호 집계 오류] {e}")
-        print(traceback.format_exc())
+        msg = traceback.format_exc()
+        print(f"  [신호 집계 오류] {e}", flush=True)
+        print(msg, flush=True)
+        _log_stage("signal_aggregator", "error", error_msg=msg, duration_s=round(time.time() - t0, 2))
 
 
 def _run_signal_performance_tracker():
+    t0 = time.time()
     try:
         from signal_performance_tracker import run as run_perf
-        print("\n[신호 성과] 5일/10일 수익률 업데이트...")
+        print("\n[신호 성과] 5일/10일 수익률 업데이트...", flush=True)
         run_perf()
+        _log_stage("signal_performance", "ok", duration_s=round(time.time() - t0, 2))
     except Exception as e:
         import traceback
+        msg = traceback.format_exc()
         print(f"  [신호 성과 오류] {e}", file=sys.stderr)
-        print(traceback.format_exc(), file=sys.stderr)
+        print(msg, file=sys.stderr)
+        _log_stage("signal_performance", "error", error_msg=msg, duration_s=round(time.time() - t0, 2))
 
 
 def _run_sniper():
@@ -1823,7 +1860,7 @@ def _run_monthly_agent():
 
 
 def main():
-    global _DATE_OVERRIDE
+    global _DATE_OVERRIDE, _PIPELINE_RUN_ID, _PIPELINE_MODE
     args = sys.argv[1:]
 
     # --date YYYY-MM-DD 파싱
@@ -1833,10 +1870,13 @@ def main():
         args = [a for i, a in enumerate(args) if i not in (idx, idx + 1)]
 
     mode = args[0] if args else auto_detect_mode()
+    _PIPELINE_MODE = mode
+    _PIPELINE_RUN_ID = now_kst().strftime("%Y-%m-%dT%H:%M:%S%z")
     date_label = f" [{_DATE_OVERRIDE}]" if _DATE_OVERRIDE else ""
     print(f"{'='*50}")
     print(f"  Railway 통합 수집기 [{mode}]{date_label}")
     print(f"  {now_kst().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"  run_id: {_PIPELINE_RUN_ID}")
     print(f"{'='*50}")
 
     if mode == "backfill":
