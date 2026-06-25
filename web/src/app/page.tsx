@@ -131,7 +131,12 @@ export default async function Home() {
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
             <Link href="/" style={{ textDecoration: "none" }}>
               <p style={{ fontSize: 9, letterSpacing: 3, color: "var(--blue)", fontWeight: 700, margin: 0 }}>KOREA STOCK AI</p>
-              <h1 style={{ fontSize: 18, fontWeight: 800, color: "var(--text-1)", letterSpacing: -0.5, margin: 0 }}>주식 AI 대시보드</h1>
+              <h1 style={{ fontSize: 18, fontWeight: 800, color: "var(--text-1)", letterSpacing: -0.5, margin: "0 0 1px" }}>주식 AI 대시보드</h1>
+              <p style={{ fontSize: 10, color: "#aaa", margin: 0 }}>
+                {summary?.updated_at
+                  ? `최신 업데이트 ${new Date(summary.updated_at).toLocaleString("ko-KR", { timeZone: "Asia/Seoul", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}`
+                  : "데이터 로딩 중..."}
+              </p>
             </Link>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <Link href="/chat" style={{ padding: "7px 13px", borderRadius: 8, background: "linear-gradient(135deg,#6c47ff,#a78bfa)", color: "#fff", fontSize: 12, fontWeight: 700, textDecoration: "none", whiteSpace: "nowrap" }}>
