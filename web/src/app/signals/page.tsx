@@ -199,6 +199,21 @@ function tradeTypeBadge(type: string | null) {
   );
 }
 
+function timeBadge(calculatedAt: string) {
+  const hour = new Date(calculatedAt).toLocaleString("en-US", { timeZone: "Asia/Seoul", hour: "numeric", hour12: false });
+  const h = parseInt(hour);
+  const isMorning = h >= 5 && h < 13;
+  return (
+    <span style={{
+      fontSize: 10, padding: "1px 6px", borderRadius: 5, fontWeight: 600,
+      background: isMorning ? "#fff7ed" : "#f0f4ff",
+      color:      isMorning ? "#c2410c" : "#3730a3",
+    }}>
+      {isMorning ? "🌅 아침" : "🌆 종가"}
+    </span>
+  );
+}
+
 function executionBadge(signal: string | null) {
   if (!signal) return null;
   const map: Record<string, { label: string; bg: string; color: string }> = {
@@ -585,6 +600,7 @@ export default function SignalsPage() {
                                 <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                                   {row.sniper_match && sniperBadge()}
                                   {tradeTypeBadge(row.trade_type)}
+                                  {row.calculated_at && timeBadge(row.calculated_at)}
                                 </div>
                               </div>
                             </td>
