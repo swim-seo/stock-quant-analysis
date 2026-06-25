@@ -1739,12 +1739,19 @@ def send_daily_report():
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def auto_detect_mode():
-    """한국 시간(UTC+9) 기준으로 morning/afternoon 자동 판단"""
+    """한국 시간(UTC+9) 기준으로 morning/afternoon/eod 자동 판단.
+
+    07:00 KST cron  → hour=7  → morning
+    18:00 KST cron  → hour=18 → eod (종가 확정 + 내일 후보 생성)
+    그 외 낮 시간대  →           afternoon (수동 트리거 등)
+    """
     from datetime import timezone, timedelta as td
     kst = datetime.now(timezone(td(hours=9)))
     hour = kst.hour
     if hour < 12:
         return "morning"
+    elif hour >= 16:
+        return "eod"
     else:
         return "afternoon"
 
