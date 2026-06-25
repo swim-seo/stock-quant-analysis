@@ -1778,61 +1778,55 @@ def _log_stage(stage: str, status: str, error_msg: str | None = None, rows_writt
         pass  # never crash the pipeline due to logging failure
 
 
+_MAX_RETRIES = 3
+_RETRY_DELAY = 30  # seconds between retries
+
+
+def _run_with_retry(stage: str, fn, *args, **kwargs) -> bool:
+    """Run fn() with up to _MAX_RETRIES retries on failure. Returns True on success."""
+    import traceback
+    for attempt in range(1, _MAX_RETRIES + 1):
+        t0 = time.time()
+        try:
+            fn(*args, **kwargs)
+            elapsed = round(time.time() - t0, 2)
+            _log_stage(stage, "ok", duration_s=elapsed)
+            if attempt > 1:
+                print(f"  [{stage}] 재시도 {attempt}회 만에 성공 ({elapsed}s)", flush=True)
+            return True
+        except Exception as e:
+            elapsed = round(time.time() - t0, 2)
+            msg = traceback.format_exc()
+            if attempt < _MAX_RETRIES:
+                print(f"  [{stage}] 시도 {attempt}/{_MAX_RETRIES} 실패: {e} → {_RETRY_DELAY}초 후 재시도...", flush=True)
+                _log_stage(stage, f"retry_{attempt}", error_msg=msg, duration_s=elapsed)
+                time.sleep(_RETRY_DELAY)
+            else:
+                print(f"  [{stage}] 최대 재시도 초과 ({_MAX_RETRIES}회) — 오류: {e}", flush=True)
+                print(msg, flush=True)
+                _log_stage(stage, "error", error_msg=msg, duration_s=elapsed)
+    return False
+
+
 def _run_dart_collector() -> None:
-    t0 = time.time()
-    try:
-        from dart_collector import run as dart_run
-        dart_run(days=1)
-        _log_stage("dart", "ok", duration_s=round(time.time() - t0, 2))
-    except Exception as e:
-        import traceback
-        msg = traceback.format_exc()
-        print(f"  [DART 수집 오류] {e}", file=sys.stderr)
-        print(msg, file=sys.stderr)
-        _log_stage("dart", "error", error_msg=msg, duration_s=round(time.time() - t0, 2))
+    from dart_collector import run as dart_run
+    _run_with_retry("dart", dart_run, days=1)
 
 
 def _run_factor_calculator():
-    t0 = time.time()
-    try:
-        from factor_calculator import run as factor_run
-        factor_run()
-        _log_stage("factor_calculator", "ok", duration_s=round(time.time() - t0, 2))
-    except Exception as e:
-        import traceback
-        msg = traceback.format_exc()
-        print(f"  [팩터 계산 오류] {e}", flush=True)
-        print(msg, flush=True)
-        _log_stage("factor_calculator", "error", error_msg=msg, duration_s=round(time.time() - t0, 2))
+    from factor_calculator import run as factor_run
+    _run_with_retry("factor_calculator", factor_run)
 
 
 def _run_signal_aggregator():
-    t0 = time.time()
-    try:
-        from signal_aggregator import run as signal_run
-        signal_run()
-        _log_stage("signal_aggregator", "ok", duration_s=round(time.time() - t0, 2))
-    except Exception as e:
-        import traceback
-        msg = traceback.format_exc()
-        print(f"  [신호 집계 오류] {e}", flush=True)
-        print(msg, flush=True)
-        _log_stage("signal_aggregator", "error", error_msg=msg, duration_s=round(time.time() - t0, 2))
+    from signal_aggregator import run as signal_run
+    _run_with_retry("signal_aggregator", signal_run)
 
 
 def _run_signal_performance_tracker():
-    t0 = time.time()
-    try:
-        from signal_performance_tracker import run as run_perf
-        print("\n[신호 성과] 5일/10일 수익률 업데이트...", flush=True)
-        run_perf()
-        _log_stage("signal_performance", "ok", duration_s=round(time.time() - t0, 2))
-    except Exception as e:
-        import traceback
-        msg = traceback.format_exc()
-        print(f"  [신호 성과 오류] {e}", file=sys.stderr)
-        print(msg, file=sys.stderr)
-        _log_stage("signal_performance", "error", error_msg=msg, duration_s=round(time.time() - t0, 2))
+    from signal_performance_tracker import run as run_perf
+    print("\n[신호 성과] 5일/10일 수익률 업데이트...", flush=True)
+    _run_with_retry("signal_performance", run_perf)
 
 
 def _run_sniper():
