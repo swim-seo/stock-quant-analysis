@@ -294,22 +294,26 @@ def _calc_tech_score(ticker: str) -> float | None:
 # YouTube score (0–100)
 # ---------------------------------------------------------------------------
 
-def _calc_yt_score(
-    ticker: str,
-    stock_name: str,
-) -> tuple[float, int, float, list[str], str | None, str | None, bool]:
-    """Returns (yt_score, mentions, sentiment_ratio, key_signals, urgency, trading_type, no_data)"""
+def _load_yt_data() -> list[dict]:
+    """Bulk-load recent youtube_insights once for the entire run (avoids per-stock queries)."""
     cutoff = (datetime.now(timezone.utc) - timedelta(days=YT_LOOKBACK_DAYS)).isoformat()
-
     rows = (
         supabase.table("youtube_insights")
         .select("channel,market_sentiment,key_stocks,key_stocks_sentiment,investment_signals,urgency,trading_type")
         .gte("upload_date", cutoff[:10])
         .order("upload_date", desc=True)
-        .limit(100)
+        .limit(500)
         .execute()
     )
+    return rows.data or []
 
+
+def _calc_yt_score(
+    ticker: str,
+    stock_name: str,
+    yt_rows: list[dict],
+) -> tuple[float, int, float, list[str], str | None, str | None, bool]:
+    """Returns (yt_score, mentions, sentiment_ratio, key_signals, urgency, trading_type, no_data)"""
     mention_count = 0
     positive_count = 0
     negative_count = 0
@@ -323,7 +327,7 @@ def _calc_yt_score(
         if t == ticker:
             aliases.add(alias)
 
-    for row in rows.data or []:
+    for row in yt_rows:
         ks = row.get("key_stocks") or []
         if isinstance(ks, str):
             try:
@@ -1111,6 +1115,10 @@ def run() -> None:
     analyst_map = _load_analyst_scores()
     print(f"    {len(analyst_map)}개 종목 목표가 데이터")
 
+    print("  youtube_insights 로드...")
+    yt_rows = _load_yt_data()
+    print(f"    {len(yt_rows)}개 영상 데이터")
+
     # Market regime (carry over previous state for hysteresis)
     prev_regime_row = (
         supabase.table("trade_signals")
@@ -1149,9 +1157,9 @@ def run() -> None:
         # Tech score (KIS rate-limit은 kis_fetcher 내부에서 처리)
         tech_raw = _calc_tech_score(ticker)
 
-        # YT score
+        # YT score (uses pre-loaded bulk data — no per-stock Supabase query)
         yt_raw, yt_mentions, yt_ratio, key_signals, urgency, trading_type, yt_no_data = _calc_yt_score(
-            ticker, stock_name
+            ticker, stock_name, yt_rows
         )
 
         # Factor score
