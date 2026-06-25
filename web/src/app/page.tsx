@@ -53,7 +53,7 @@ export default async function Home() {
             )}
           </div>
           {/* 우: 네비게이션 */}
-          <nav style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <nav className="nav-links">
             <Link href="/signals?tab=sniper" style={{ padding: "7px 14px", borderRadius: 8, background: "linear-gradient(135deg, #f04452, #f5a623)", color: "#fff", fontSize: 13, fontWeight: 700, textDecoration: "none", whiteSpace: "nowrap" }}>
               ⚡ 스나이퍼
             </Link>
@@ -80,7 +80,7 @@ export default async function Home() {
       <PipelineAlerts />
 
       {/* Dashboard Grid */}
-      <div style={{ maxWidth: 1200, margin: "0 auto", padding: "24px 24px", display: "grid", gridTemplateColumns: "1fr 2fr", gap: 20 }}>
+      <div className="grid-home" style={{ maxWidth: 1200, margin: "0 auto", padding: "24px 16px" }}>
         {/* Left */}
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
           <SentimentCard />

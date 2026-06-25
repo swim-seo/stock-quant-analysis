@@ -189,7 +189,7 @@ export default function BriefingPage() {
         </div>
 
         {/* 주목 종목 + 섹터 전망 */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <div className="grid-2col" style={{ gap: 16 }}>
 
           {/* 주목 종목 */}
           <div style={{ background: "#fff", borderRadius: 16, padding: "20px 24px", boxShadow: "var(--shadow)" }}>

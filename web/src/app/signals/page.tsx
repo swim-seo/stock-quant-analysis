@@ -669,7 +669,7 @@ export default function SignalsPage() {
                                   </div>
                                 )}
 
-                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                                <div className="grid-2col">
                                   {/* 신호 분석 */}
                                   <div>
                                     <p style={{ margin: "0 0 8px", fontSize: 11, fontWeight: 700, color: "#aaa", letterSpacing: 1, textTransform: "uppercase" }}>신호 분석</p>
@@ -752,7 +752,7 @@ export default function SignalsPage() {
           <div>
             {/* Summary cards */}
             {summary && (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 16 }}>
+              <div className="grid-4col" style={{ marginBottom: 16 }}>
                 {[
                   { label: "실현 손익", value: `${summary.realized_pnl >= 0 ? "+" : ""}${fmtMoney(summary.realized_pnl)}원`, color: summary.realized_pnl >= 0 ? "#f04452" : "#3182f6" },
                   { label: "수익률", value: `${(summary.realized_pnl / BUDGET * 100 >= 0 ? "+" : "")}${(summary.realized_pnl / BUDGET * 100).toFixed(1)}%`, color: summary.realized_pnl >= 0 ? "#f04452" : "#3182f6" },
@@ -837,7 +837,7 @@ export default function SignalsPage() {
                             </div>
                             <span style={{ fontSize: 12, fontWeight: 600, color: "#8b95a1", background: "#f2f4f6", padding: "3px 8px", borderRadius: 6 }}>D+{holdDays}</span>
                           </div>
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, fontSize: 13, marginBottom: 10 }}>
+                          <div className="grid-3col" style={{ fontSize: 13, marginBottom: 10 }}>
                             <div><p style={{ color: "#8b95a1", fontSize: 11 }}>진입가</p><p style={{ fontWeight: 700 }}>{pos.entry_price.toLocaleString()}원</p></div>
                             <div><p style={{ color: "#8b95a1", fontSize: 11 }}>보유 수량</p><p style={{ fontWeight: 700 }}>{pos.shares}주</p></div>
                             <div><p style={{ color: "#8b95a1", fontSize: 11 }}>투자금</p><p style={{ fontWeight: 700 }}>{fmtMoney(pos.cost)}원</p></div>
@@ -998,7 +998,7 @@ export default function SignalsPage() {
                   <p style={{ fontSize: 14, fontWeight: 800, color: "#191919", marginBottom: 14 }}>📊 전체 포지션 현황</p>
                   {positionStats ? (
                     <>
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 12 }}>
+                      <div className="grid-4col" style={{ marginBottom: 12 }}>
                         {[
                           { label: "총 신호", value: positionStats.total, color: "#191919" },
                           { label: "현재 보유", value: positionStats.holding, color: "#1a56db" },
@@ -1011,7 +1011,7 @@ export default function SignalsPage() {
                           </div>
                         ))}
                       </div>
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+                      <div className="grid-3col">
                         {[
                           { label: "평균 수익률", value: positionStats.avg_return != null ? `${positionStats.avg_return >= 0 ? "+" : ""}${positionStats.avg_return}%` : "-", color: (positionStats.avg_return ?? 0) >= 0 ? "#f04452" : "#3182f6" },
                           { label: "승률", value: positionStats.win_rate != null ? `${positionStats.win_rate}%` : "-", color: "#191919" },
