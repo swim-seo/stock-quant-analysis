@@ -1903,6 +1903,11 @@ def main():
             _run_factor_calculator()
             _run_signal_aggregator()
             _run_signal_performance_tracker()
+            try:
+                from next_day_candidate_approver import run as approve_candidates
+                approve_candidates()
+            except Exception as e:
+                print(f"  [아침 후보 승인 오류] {e}", file=sys.stderr)
             send_daily_report()
             try:
                 from monthly_sniper import run as run_sniper, is_sniper_period
@@ -1926,6 +1931,20 @@ def main():
             collect_youtube(collect_time="afternoon")
             generate_briefing()
             update_portfolio_returns()
+
+    elif mode == "eod":
+        # 18:00 KST: 종가 확정 + 시간외단일가 반영 후 내일 후보 생성
+        if is_weekend():
+            print("  [주말] EOD 스킵")
+        else:
+            collect_stock_prices(days=5)
+            _run_factor_calculator()
+            _run_signal_aggregator()
+            try:
+                from next_day_candidate_builder import run as build_candidates
+                build_candidates()
+            except Exception as e:
+                print(f"  [내일 후보 생성 오류] {e}", file=sys.stderr)
 
     elif mode == "prices":
         # 수동 트리거용: 주가 수집 + 팩터 + 신호 재계산만 (뉴스/유튜브 스킵)

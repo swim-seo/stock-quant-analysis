@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { TodayDecisionCard } from "./components/home/TodayDecisionCard";
 import { TodayBuyCandidates } from "./components/home/TodayBuyCandidates";
 import { RiskWarningList } from "./components/home/RiskWarningList";
+import { NextDayCandidates } from "./components/home/NextDayCandidates";
 import { UpdateButton } from "@/components/UpdateButton";
 import { SentimentCard } from "@/components/SentimentCard";
 import { TopStocks } from "@/components/TopStocks";
@@ -195,6 +196,11 @@ export default async function Home() {
             <p style={{ color: "#8b95a1" }}>시장 데이터 로딩 중...</p>
           </div>
         )}
+
+        {/* 내일 매수 후보 (EOD 후보 생성 결과) */}
+        <div style={{ marginBottom: 20 }}>
+          <NextDayCandidates />
+        </div>
 
         {/* 2순위: 보조 지표 (기본 접힘) */}
         <div style={{ marginBottom: 12 }}>
