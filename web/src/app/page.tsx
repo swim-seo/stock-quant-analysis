@@ -100,6 +100,9 @@ async function getHomeSummary() {
       riskLevel === "EXTREME" ? "신규 진입 자제. 기존 포지션 점검 우선입니다." :
       "시장 데이터를 확인 중입니다.";
 
+    const toList = (arr: SR[]) =>
+      arr.map(s => ({ ticker: s.ticker, stock_name: s.stock_name, composite_score: s.composite_score }));
+
     return {
       updated_at:        latestSignal?.calculated_at ?? null,
       market_risk_level: riskLevel,
@@ -109,6 +112,10 @@ async function getHomeSummary() {
       buy_small_count:   buySmall.length,
       watch_count:       watch.length,
       blocked_count:     blocked.length,
+      buy_ok_list:       toList(buyOk),
+      buy_small_list:    toList(buySmall),
+      watch_list:        toList(watch),
+      blocked_list:      toList(blocked),
       avg_freshness:     avgFreshness,
       decision_text:     decisionText,
       top_candidates:    candidates,

@@ -89,6 +89,9 @@ export async function GET() {
     riskLevel === "EXTREME" ? "신규 진입 자제. 기존 포지션 점검 우선입니다." :
     "시장 데이터를 확인 중입니다.";
 
+  const toStockList = (arr: typeof signals) =>
+    arr.map(s => ({ ticker: s.ticker, stock_name: s.stock_name, composite_score: s.composite_score }));
+
   return NextResponse.json({
     updated_at:        latestSignal?.calculated_at ?? null,
     market_risk_level: riskLevel,
@@ -98,6 +101,10 @@ export async function GET() {
     buy_small_count:   buySmall.length,
     watch_count:       watch.length,
     blocked_count:     blocked.length,
+    buy_ok_list:       toStockList(buyOk),
+    buy_small_list:    toStockList(buySmall),
+    watch_list:        toStockList(watch),
+    blocked_list:      toStockList(blocked),
     avg_freshness:     avgFreshness,
     decision_text:     decisionText,
     top_candidates:    candidates,
