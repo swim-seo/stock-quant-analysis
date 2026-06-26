@@ -22,6 +22,7 @@ interface DailyValue { date: string; value: number; benchmark: number }
 interface StrategyResult {
   id: string; label: string; desc: string;
   currentValue: number; totalReturn: number; totalReturnPct: number;
+  winRate: number | null; avgProfit: number | null; avgLoss: number | null; profitFactor: number | null;
   holdings: Holding[]; dailyValues: DailyValue[]; trades: Trade[];
 }
 
