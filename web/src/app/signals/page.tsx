@@ -42,6 +42,16 @@ interface TradeSignal {
   trade_type: "SNIPER" | "SWING" | "LONG_TERM" | "WATCH" | null;
   data_freshness_score: number | null;
   stale_components: string[] | null;
+  // Explanation layer
+  trend_state: string | null;
+  strategy_type: string | null;
+  entry_signal: string | null;
+  action_hint: string | null;
+  passed_conditions: string[] | null;
+  failed_conditions: string[] | null;
+  buy_trigger_conditions: string[] | null;
+  invalidation_conditions: string[] | null;
+  confidence_score: number | null;
 }
 
 interface SniperSummary {
@@ -649,6 +659,94 @@ export default function SignalsPage() {
                           {expanded === row.ticker && (
                             <tr key={`${row.ticker}-detail`}>
                               <td colSpan={10} style={{ padding: "14px 18px", background: "#f8faff", borderBottom: "1px solid var(--border)" }}>
+
+                                {/* ── 설명 레이어 ── */}
+                                {(row.trend_state || row.strategy_type) && (
+                                  <div style={{ marginBottom: 14, padding: "12px 16px", background: "#fff", borderRadius: 10, border: "1.5px solid #e0e7ff" }}>
+                                    {/* 헤더: 전략유형 / 추세상태 / 진입판단 */}
+                                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10, alignItems: "center" }}>
+                                      {row.strategy_type && (() => {
+                                        const st: Record<string, { label: string; bg: string; fg: string }> = {
+                                          TREND_FOLLOW:   { label: "추세추종",    bg: "#e6f9f2", fg: "#00b493" },
+                                          PULLBACK_WATCH: { label: "눌림목대기",  bg: "#eff6ff", fg: "#3182f6" },
+                                          GAP_WATCH:      { label: "갭감시",      bg: "#fff8e6", fg: "#d97706" },
+                                          NO_CHASE:       { label: "추격금지",    bg: "#fff0f0", fg: "#f04452" },
+                                          BUY_DIP:        { label: "급락반등",    bg: "#f3e8ff", fg: "#7c3aed" },
+                                          BLOCKED:        { label: "진입불가",    bg: "#fef2f2", fg: "#b91c1c" },
+                                          WATCH:          { label: "관망",        bg: "#f5f5f5", fg: "#888" },
+                                        };
+                                        const s = st[row.strategy_type] ?? st.WATCH;
+                                        return <span style={{ fontSize: 12, fontWeight: 700, padding: "3px 10px", borderRadius: 6, background: s.bg, color: s.fg }}>전략 {s.label}</span>;
+                                      })()}
+                                      {row.trend_state && (() => {
+                                        const ts: Record<string, { label: string; fg: string }> = {
+                                          MOMENTUM_STRONG: { label: "강한 상승추세", fg: "#f04452" },
+                                          TREND_ALIVE:     { label: "추세 유지중",   fg: "#00b493" },
+                                          PULLBACK:        { label: "눌림목",        fg: "#3182f6" },
+                                          OVERSOLD:        { label: "과매도 반등",   fg: "#7c3aed" },
+                                          NEUTRAL:         { label: "중립",          fg: "#888" },
+                                          TREND_BROKEN:    { label: "추세 붕괴",     fg: "#f04452" },
+                                        };
+                                        const t = ts[row.trend_state] ?? { label: row.trend_state, fg: "#888" };
+                                        return <span style={{ fontSize: 12, color: t.fg, fontWeight: 600 }}>상태 {t.label}</span>;
+                                      })()}
+                                      {row.entry_signal && (() => {
+                                        const es: Record<string, { label: string; bg: string; fg: string }> = {
+                                          ENTRY_BUY_OK: { label: "진입가능", bg: "#e6f9f2", fg: "#00b493" },
+                                          BUY_SMALL:    { label: "소액진입", bg: "#fff8e6", fg: "#d97706" },
+                                          WAIT:         { label: "대기",     bg: "#f0f4ff", fg: "#3182f6" },
+                                          NO_CHASE:     { label: "추격금지", bg: "#fff0f0", fg: "#f04452" },
+                                          BLOCKED:      { label: "진입불가", bg: "#fef2f2", fg: "#b91c1c" },
+                                        };
+                                        const e = es[row.entry_signal] ?? { label: row.entry_signal, bg: "#f5f5f5", fg: "#888" };
+                                        return <span style={{ fontSize: 12, fontWeight: 700, padding: "3px 10px", borderRadius: 6, background: e.bg, color: e.fg }}>진입 {e.label}</span>;
+                                      })()}
+                                      {row.confidence_score != null && (
+                                        <span style={{ fontSize: 11, color: "#888", marginLeft: "auto" }}>
+                                          신뢰도 <b style={{ color: row.confidence_score >= 60 ? "#00b493" : row.confidence_score >= 40 ? "#d97706" : "#f04452" }}>{row.confidence_score}%</b>
+                                        </span>
+                                      )}
+                                    </div>
+
+                                    {/* 행동 지침 */}
+                                    {row.action_hint && (
+                                      <div style={{ marginBottom: 10, fontSize: 13, fontWeight: 600, color: "#1e293b", padding: "7px 12px", background: "#f8fafc", borderRadius: 6, borderLeft: "3px solid #6366f1" }}>
+                                        {row.action_hint}
+                                      </div>
+                                    )}
+
+                                    {/* 통과/실패 조건 */}
+                                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 8 }}>
+                                      {(row.passed_conditions?.length ?? 0) > 0 && (
+                                        <div>
+                                          <div style={{ fontSize: 11, fontWeight: 700, color: "#00b493", marginBottom: 4 }}>통과 조건</div>
+                                          {(row.passed_conditions ?? []).map((c, i) => (
+                                            <div key={i} style={{ fontSize: 11, color: "#166534", marginBottom: 2 }}>✓ {c}</div>
+                                          ))}
+                                        </div>
+                                      )}
+                                      {(row.failed_conditions?.length ?? 0) > 0 && (
+                                        <div>
+                                          <div style={{ fontSize: 11, fontWeight: 700, color: "#f04452", marginBottom: 4 }}>실패 조건</div>
+                                          {(row.failed_conditions ?? []).map((c, i) => (
+                                            <div key={i} style={{ fontSize: 11, color: "#991b1b", marginBottom: 2 }}>✗ {c}</div>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    {/* 매수 전환 조건 */}
+                                    {(row.buy_trigger_conditions?.length ?? 0) > 0 && (
+                                      <div style={{ marginTop: 6, padding: "7px 10px", background: "#f0fdf4", borderRadius: 6, border: "1px solid #bbf7d0" }}>
+                                        <div style={{ fontSize: 11, fontWeight: 700, color: "#15803d", marginBottom: 4 }}>매수로 바뀌려면</div>
+                                        {(row.buy_trigger_conditions ?? []).map((c, i) => (
+                                          <div key={i} style={{ fontSize: 11, color: "#15803d" }}>→ {c}</div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+
                                 {/* 실행 판단 */}
                                 {row.execution_reason && (
                                   <div style={{ marginBottom: 12, padding: "9px 14px", background: "#fff", borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12, color: "#444", display: "flex", gap: 8, alignItems: "flex-start" }}>

@@ -187,13 +187,20 @@ def _fetch_prices(ticker: str) -> pd.DataFrame | None:
 
 
 # ---------------------------------------------------------------------------
-# Tech score (0–100)
+# Tech score (0–100) + Explanation layer
 # ---------------------------------------------------------------------------
 
-def _calc_tech_score(ticker: str) -> float | None:
+def _calc_tech_with_conditions(ticker: str) -> tuple[float | None, dict]:
+    """Return (tech_score, conditions_dict).
+
+    conditions_dict keys:
+      trend_state, rsi, ma_aligned, golden_cross, vol_ratio,
+      passed, failed, buy_triggers, invalidation
+    Returns ({}, {}) if price data unavailable.
+    """
     df = _fetch_prices(ticker)
     if df is None:
-        return None
+        return None, {}
 
     df = add_moving_averages(df)
     df = add_rsi(df)
@@ -203,91 +210,244 @@ def _calc_tech_score(ticker: str) -> float | None:
     df = add_adx(df)
 
     last = df.iloc[-1]
-    score = 50.0  # neutral baseline
+    score = 50.0
 
-    # MA alignment: MA5 > MA20 > MA60 (+15 each level)
-    ma5 = last.get("MA5", float("nan"))
+    ma5  = last.get("MA5",  float("nan"))
     ma20 = last.get("MA20", float("nan"))
     ma60 = last.get("MA60", float("nan"))
     close = last["종가"]
-    if not (pd.isna(ma5) or pd.isna(ma20)):
-        if ma5 > ma20:
-            score += 10
-        else:
-            score -= 10
-    if not pd.isna(ma60):
-        if ma20 > ma60:
-            score += 5
-        else:
-            score -= 5
 
-    # RSI (14)
+    # --- MA alignment ---
+    if not (pd.isna(ma5) or pd.isna(ma20)):
+        score += 10 if ma5 > ma20 else -10
+    if not pd.isna(ma60):
+        score += 5 if ma20 > ma60 else -5
+
+    # --- RSI ---
     rsi = last.get("RSI", float("nan"))
     if not pd.isna(rsi):
         if rsi < 30:
-            score += 15  # oversold → buy signal
+            score += 15
         elif rsi < 45:
             score += 8
         elif rsi > 70:
-            score -= 15  # overbought → sell signal
+            score -= 15
         elif rsi > 55:
             score -= 5
 
-    # MACD histogram direction
+    # --- MACD histogram ---
     macd_hist = last.get("MACD_hist", float("nan"))
     if not pd.isna(macd_hist):
-        if macd_hist > 0:
-            score += 8
-        else:
-            score -= 8
+        score += 8 if macd_hist > 0 else -8
 
-    # Golden cross in last 10 days
+    # --- Golden / Dead cross (last 10 days) ---
     recent = df.tail(10)
+    golden = False
+    dead = False
     if not recent["MA5"].isna().all() and not recent["MA20"].isna().all():
-        golden = (recent["MA5"] > recent["MA20"]) & (recent["MA5"].shift(1) <= recent["MA20"].shift(1))
-        dead = (recent["MA5"] < recent["MA20"]) & (recent["MA5"].shift(1) >= recent["MA20"].shift(1))
-        if golden.any():
+        g_cross = (recent["MA5"] > recent["MA20"]) & (recent["MA5"].shift(1) <= recent["MA20"].shift(1))
+        d_cross = (recent["MA5"] < recent["MA20"]) & (recent["MA5"].shift(1) >= recent["MA20"].shift(1))
+        golden = bool(g_cross.any())
+        dead   = bool(d_cross.any())
+        if golden:
             score += 12
-        elif dead.any():
+        elif dead:
             score -= 12
 
-    # Volume trend (vs 20d avg)
-    vol_avg = df["거래량"].tail(20).mean()
-    last_vol = last["거래량"]
-    if vol_avg > 0:
-        vol_ratio = last_vol / vol_avg
-        if vol_ratio > 1.5:
-            score += 5
-        elif vol_ratio < 0.5:
-            score -= 3
+    # --- Volume ---
+    vol_avg   = df["거래량"].tail(20).mean()
+    last_vol  = last["거래량"]
+    vol_ratio = float(last_vol / vol_avg) if vol_avg > 0 else 1.0
+    if vol_ratio > 1.5:
+        score += 5
+    elif vol_ratio < 0.5:
+        score -= 3
 
-    # ADX (trend strength): if strong trend, amplify existing direction
+    # --- ADX ---
     adx = last.get("ADX", float("nan"))
     if not pd.isna(adx) and adx > 25:
-        direction = 1 if score >= 50 else -1
-        score += direction * 5
+        score += 5 if score >= 50 else -5
 
-    # Bollinger Bands: oversold(하단 이탈) / overbought(상단 돌파)
+    # --- Bollinger Bands ---
     bb_upper = last.get("BB_upper", float("nan"))
     bb_lower = last.get("BB_lower", float("nan"))
+    below_bb = False
     if not (pd.isna(bb_upper) or pd.isna(bb_lower) or pd.isna(close)):
         if close < bb_lower:
-            score += 8   # 볼린저 하단 이탈 → 과매도 반등 가능성
+            score += 8
+            below_bb = True
         elif close > bb_upper:
-            score -= 8   # 볼린저 상단 돌파 → 과매수 주의
+            score -= 8
 
-    # OBV trend (최근 5일 OBV 기울기)
+    # --- OBV slope ---
     obv_col = "OBV" if "OBV" in df.columns else None
     if obv_col:
         obv_recent = df[obv_col].tail(5).dropna()
         if len(obv_recent) >= 3:
             obv_slope = (obv_recent.iloc[-1] - obv_recent.iloc[0]) / max(abs(obv_recent.iloc[0]), 1)
-            if obv_slope > 0.02:
-                score += 5   # OBV 상승 → 매집 신호
-            elif obv_slope < -0.02:
-                score -= 5   # OBV 하락 → 분산 신호
+            score += 5 if obv_slope > 0.02 else (-5 if obv_slope < -0.02 else 0)
 
-    return float(max(0.0, min(100.0, score)))
+    score = float(max(0.0, min(100.0, score)))
+
+    # ── Build human-readable conditions ──────────────────────────────────────
+    passed:      list[str] = []
+    failed:      list[str] = []
+    buy_triggers: list[str] = []
+    invalidation: list[str] = []
+
+    ma_all_aligned = (not pd.isna(ma5) and not pd.isna(ma20) and not pd.isna(ma60)
+                      and ma5 > ma20 > ma60)
+    ma_short_aligned = (not pd.isna(ma5) and not pd.isna(ma20) and ma5 > ma20)
+
+    if ma_all_aligned:
+        passed.append("MA5>MA20>MA60 상승배열")
+    elif ma_short_aligned:
+        passed.append("MA5>MA20 단기배열 유지")
+        failed.append("MA20<MA60 중기배열 미완성")
+        buy_triggers.append("MA20이 MA60 위로 회복")
+    else:
+        failed.append("MA 배열 붕괴 (MA5<MA20)")
+        if not pd.isna(ma20) and not pd.isna(ma60) and ma20 < ma60:
+            failed.append("MA20<MA60 중기 하락추세")
+        buy_triggers.append("MA5가 MA20 위로 회복 (골든크로스)")
+        invalidation.append("MA60 이탈 후 종가 하락 시 신호 무효")
+
+    if not pd.isna(rsi):
+        if 40 <= rsi <= 65:
+            passed.append(f"RSI {rsi:.0f} 적정 구간 (40~65)")
+        elif rsi > 65:
+            failed.append(f"RSI {rsi:.0f} 과열 — 신규매수 보류")
+            buy_triggers.append(f"RSI {rsi:.0f} → 55~60 이하로 완화")
+            invalidation.append("RSI 75 돌파 시 추가 과열 가능")
+        elif rsi < 35:
+            passed.append(f"RSI {rsi:.0f} 과매도 — 반등 가능성")
+        else:
+            failed.append(f"RSI {rsi:.0f} 약세 구간 (35~40)")
+            buy_triggers.append("RSI 40 이상 회복")
+
+    if golden:
+        passed.append("골든크로스 발생 (최근 10일)")
+    elif dead:
+        failed.append("데드크로스 발생 (최근 10일)")
+        invalidation.append("데드크로스 후 반등 실패 시 추가 하락 가능")
+    else:
+        buy_triggers.append("MA5가 MA20 상향 돌파 (골든크로스)")
+
+    if vol_ratio >= 1.2:
+        passed.append(f"거래량 {vol_ratio:.1f}x 평균 초과")
+    else:
+        failed.append(f"거래량 {vol_ratio:.1f}x 평균 미달")
+        buy_triggers.append("거래량 1.2x 이상 회복")
+
+    if below_bb:
+        passed.append("볼린저 하단 이탈 — 과매도 반등 구간")
+    if not pd.isna(macd_hist):
+        if macd_hist > 0:
+            passed.append("MACD 양전환 (상승 모멘텀)")
+        else:
+            failed.append("MACD 음전환 (하락 모멘텀)")
+
+    invalidation.append("MA20 종가 이탈 시 손절 검토")
+
+    # ── Trend state ───────────────────────────────────────────────────────────
+    if ma_all_aligned and not pd.isna(rsi) and 45 <= rsi <= 70 and vol_ratio >= 1.3:
+        trend_state = "MOMENTUM_STRONG"
+    elif below_bb or (not pd.isna(rsi) and rsi < 35):
+        trend_state = "OVERSOLD"
+    elif ma_all_aligned or ma_short_aligned:
+        trend_state = "TREND_ALIVE"
+    elif not pd.isna(ma5) and not pd.isna(ma20) and ma5 < ma20:
+        if not pd.isna(ma60) and ma20 < ma60:
+            trend_state = "TREND_BROKEN"
+        else:
+            trend_state = "PULLBACK"
+    else:
+        trend_state = "NEUTRAL"
+
+    return score, {
+        "trend_state":   trend_state,
+        "rsi":           float(rsi) if not pd.isna(rsi) else None,
+        "ma_aligned":    ma_all_aligned,
+        "golden_cross":  golden,
+        "dead_cross":    dead,
+        "vol_ratio":     round(vol_ratio, 2),
+        "passed":        passed,
+        "failed":        failed,
+        "buy_triggers":  buy_triggers,
+        "invalidation":  invalidation,
+    }
+
+
+def _calc_tech_score(ticker: str) -> float | None:
+    score, _ = _calc_tech_with_conditions(ticker)
+    return score
+
+
+# ---------------------------------------------------------------------------
+# Explanation layer helpers
+# ---------------------------------------------------------------------------
+
+def _determine_strategy_type(
+    trend_state: str,
+    execution_signal: str,
+    vol_ratio: float,
+    rsi: float | None,
+    today_gap_pct: float = 0.0,
+) -> str:
+    if today_gap_pct >= 10.0:
+        return "NO_CHASE"
+    if today_gap_pct >= 5.0:
+        return "GAP_WATCH"
+    if execution_signal == "BLOCKED":
+        return "BLOCKED"
+    if trend_state == "TREND_BROKEN" and rsi is not None and rsi < 38:
+        return "BUY_DIP"
+    if trend_state in ("TREND_ALIVE", "MOMENTUM_STRONG") and execution_signal in ("BUY_OK", "BUY_SMALL"):
+        return "TREND_FOLLOW"
+    if trend_state in ("TREND_ALIVE", "PULLBACK", "MOMENTUM_STRONG"):
+        return "PULLBACK_WATCH"
+    if trend_state == "OVERSOLD" and execution_signal not in ("BLOCKED",):
+        return "BUY_DIP"
+    return "WATCH"
+
+
+def _calc_entry_signal_label(strategy_type: str, execution_signal: str) -> str:
+    if strategy_type == "NO_CHASE":
+        return "NO_CHASE"
+    if strategy_type == "BLOCKED" or execution_signal == "BLOCKED":
+        return "BLOCKED"
+    if strategy_type == "TREND_FOLLOW" and execution_signal == "BUY_OK":
+        return "ENTRY_BUY_OK"
+    if execution_signal == "BUY_SMALL":
+        return "BUY_SMALL"
+    if strategy_type in ("GAP_WATCH", "PULLBACK_WATCH", "BUY_DIP"):
+        return "WAIT"
+    return "WAIT"
+
+
+def _make_action_hint(strategy_type: str, entry_signal: str, trend_state: str) -> str:
+    hints: dict[str, str] = {
+        "NO_CHASE":       "오늘 급등 — 시초 추격 금지. 5분봉 눌림 후 재돌파 시만 소액 검토",
+        "GAP_WATCH":      "갭 상승 감시 — 시초 강세 확인 후 눌림 구간 진입 검토",
+        "TREND_FOLLOW":   "추세 진입 가능 — 현재 구간 분할매수 검토 (리스크 관리 필수)",
+        "PULLBACK_WATCH": "추세 살아있음 — 신규매수 보류. 눌림목 확인 후 진입 검토",
+        "BUY_DIP":        "급락 반등 후보 — 지지선 확인 후 소량 분할매수만 허용",
+        "BLOCKED":        "진입 불가 — 시장 위험 또는 공시 차단 상태",
+        "WATCH":          "관망 — 추세 방향 확인 필요. 진입 조건 미충족",
+    }
+    return hints.get(strategy_type, "관망")
+
+
+def _calc_confidence(passed: list[str], failed: list[str], execution_signal: str) -> float:
+    total = len(passed) + len(failed)
+    if total == 0:
+        return 0.0
+    base = round(len(passed) / total * 100, 1)
+    if execution_signal == "BUY_OK":
+        base = min(100.0, base + 10)
+    elif execution_signal in ("BLOCKED", "REDUCE"):
+        base = max(0.0, base - 15)
+    return base
 
 
 # ---------------------------------------------------------------------------
@@ -1154,8 +1314,8 @@ def run() -> None:
         code = ticker.split(".")[0]
         print(f"  [{i+1:3d}/{len(tickers_in_scope)}] {stock_name}", end=" ... ", flush=True)
 
-        # Tech score (KIS rate-limit은 kis_fetcher 내부에서 처리)
-        tech_raw = _calc_tech_score(ticker)
+        # Tech score + conditions (KIS rate-limit은 kis_fetcher 내부에서 처리)
+        tech_raw, tech_cond = _calc_tech_with_conditions(ticker)
 
         # YT score (uses pre-loaded bulk data — no per-stock Supabase query)
         yt_raw, yt_mentions, yt_ratio, key_signals, urgency, trading_type, yt_no_data = _calc_yt_score(
@@ -1215,6 +1375,20 @@ def run() -> None:
             execution_signal = "BLOCKED"
             execution_reason = f"공시 차단: {disc_reason}"
 
+        # Explanation layer: trend_state / strategy_type / entry_signal / action_hint
+        cond_trend   = tech_cond.get("trend_state", "NEUTRAL")
+        cond_rsi     = tech_cond.get("rsi")
+        cond_vol     = tech_cond.get("vol_ratio", 1.0)
+        cond_passed  = tech_cond.get("passed", [])
+        cond_failed  = tech_cond.get("failed", [])
+        cond_triggers = tech_cond.get("buy_triggers", [])
+        cond_invalid  = tech_cond.get("invalidation", [])
+
+        strategy_type = _determine_strategy_type(cond_trend, execution_signal, cond_vol, cond_rsi)
+        entry_signal  = _calc_entry_signal_label(strategy_type, execution_signal)
+        action_hint   = _make_action_hint(strategy_type, entry_signal, cond_trend)
+        confidence    = _calc_confidence(cond_passed, cond_failed, execution_signal)
+
         # Position sizing & risk management (regime-adaptive)
         pos_pct, tp_pct, sl_pct, max_days = _calc_position_params(
             execution_signal, market_risk.level, composite, market_regime
@@ -1262,6 +1436,16 @@ def run() -> None:
             "yt_no_data": yt_no_data,
             "analyst_score": round(analyst_score, 2) if analyst_score is not None else None,
             "calculated_at": datetime.now(timezone.utc).isoformat(),
+            # Explanation layer
+            "trend_state":             cond_trend,
+            "strategy_type":           strategy_type,
+            "entry_signal":            entry_signal,
+            "action_hint":             action_hint,
+            "passed_conditions":       cond_passed,
+            "failed_conditions":       cond_failed,
+            "buy_trigger_conditions":  cond_triggers,
+            "invalidation_conditions": cond_invalid,
+            "confidence_score":        confidence,
         }
         results.append(row_data)
         streak_label = ""
