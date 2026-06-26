@@ -231,9 +231,9 @@ def _get_ml_scores() -> dict[str, float]:
         f"&select=ticker,probability"
         f"&order=date.desc&limit=300",
     )
-    from railway_job import WATCH_STOCKS
+    from stock_list import ALL_STOCKS
     ticker_to_name = {f"{code}.KS" if code in _KOSPI_CODES else f"{code}.KQ": name
-                      for name, code in WATCH_STOCKS.items()}
+                      for name, code in ALL_STOCKS.items()}
     seen: set[str] = set()
     result: dict[str, float] = {}
     for r in rows:
@@ -538,8 +538,8 @@ def manage_positions(period_label: str, dry_run: bool = False) -> None:
     today_str = today.isoformat()
     print(f"\n[포지션 관리] {len(positions)}개 보유 중")
 
-    from railway_job import WATCH_STOCKS
-    name_to_code    = {name: code for name, code in WATCH_STOCKS.items()}
+    from stock_list import ALL_STOCKS
+    name_to_code    = {name: code for name, code in ALL_STOCKS.items()}
     signal_map      = _get_current_signals_map()
     today_bad_news  = _get_today_bad_news(today_str)
 
@@ -645,8 +645,8 @@ def enter_positions(signals: list[dict], period_label: str,
         print(f"\n  진입 기준({ENTRY_THRESHOLD}) 충족 종목 없음")
         return
 
-    from railway_job import WATCH_STOCKS
-    name_to_code = {name: code for name, code in WATCH_STOCKS.items()}
+    from stock_list import ALL_STOCKS
+    name_to_code = {name: code for name, code in ALL_STOCKS.items()}
 
     per_stock_budget = BUDGET // MAX_POSITIONS
     today_str = datetime.now(KST).date().isoformat()
@@ -717,8 +717,8 @@ def print_status(period_label: str) -> None:
     positions = get_current_positions(period_label)
     if positions:
         print(f"\n  [미결 포지션]")
-        from railway_job import WATCH_STOCKS
-        name_to_code = {name: code for name, code in WATCH_STOCKS.items()}
+        from stock_list import ALL_STOCKS
+        name_to_code = {name: code for name, code in ALL_STOCKS.items()}
         for pos in positions:
             name = pos["stock_name"]
             code = name_to_code.get(name, "")
