@@ -83,6 +83,7 @@ interface DailyValue { date: string; value: number; benchmark: number }
 interface StrategyResult {
   id: string; label: string; desc: string;
   currentValue: number; totalReturn: number; totalReturnPct: number;
+  winRate: number | null; avgProfit: number | null; avgLoss: number | null; profitFactor: number | null;
   holdings: Holding[]; dailyValues: DailyValue[]; trades: Trade[];
 }
 
@@ -197,9 +198,8 @@ function getSignal(
   const volOk = vr > st.volMin;
   const trendOk = trend !== "down";
   const techScore = (aligned ? 1 : 0) + (rsiOk ? 1 : 0) + (volOk ? 1 : 0) + (trendOk ? 1 : 0);
-  const threshold = aiScore > 0 ? 3 : 4; // AI 긍정이면 임계값 3으로 낮춤
 
-  if (techScore >= threshold) {
+  if (techScore >= 4) {
     const parts: string[] = [];
     if (aligned) parts.push(`정배열(MA${st.fastMA}>MA${st.midMA})`);
     parts.push(`RSI ${r.toFixed(0)}`);
@@ -372,7 +372,8 @@ async function runStrategy(
           return bHasAI - aHasAI;
         });
         const toBuy = sorted.slice(0, slots);
-        const perStock = cash / toBuy.length;
+        const rawPerStock = cash / toBuy.length;
+        const perStock = Math.min(rawPerStock, START_CAPITAL * 0.10);
 
         for (const { stock, signal } of toBuy) {
           const q = quoteMap.get(stock.ticker)?.find((q) => q.date === date);
@@ -417,11 +418,27 @@ async function runStrategy(
 
   const last = dailyValues.at(-1);
   const finalValue = last?.value ?? START_CAPITAL;
+
+  // 완결된 매도 트레이드 기준 승률/손익비
+  const sellTrades = trades.filter((t) => t.action === "SELL");
+  const tradeReturns: number[] = [];
+  for (const sell of sellTrades) {
+    const buy = trades.find((t) => t.action === "BUY" && t.ticker === sell.ticker && t.date <= sell.date);
+    if (buy) tradeReturns.push((sell.price - buy.price) / buy.price * 100);
+  }
+  const winners = tradeReturns.filter((r) => r > 0);
+  const losers = tradeReturns.filter((r) => r <= 0);
+  const avgProfit = winners.length ? Math.round(winners.reduce((s, v) => s + v, 0) / winners.length * 100) / 100 : null;
+  const avgLoss = losers.length ? Math.round(Math.abs(losers.reduce((s, v) => s + v, 0) / losers.length) * 100) / 100 : null;
+  const profitFactor = avgLoss && avgLoss > 0 && avgProfit ? Math.round(avgProfit / avgLoss * 100) / 100 : null;
+  const winRate = tradeReturns.length > 0 ? Math.round(winners.length / tradeReturns.length * 100) : null;
+
   return {
     id: st.id, label: st.label, desc: st.desc,
     currentValue: finalValue,
     totalReturn: Math.round(finalValue - START_CAPITAL),
     totalReturnPct: Math.round(((finalValue - START_CAPITAL) / START_CAPITAL) * 10000) / 100,
+    winRate, avgProfit, avgLoss, profitFactor,
     holdings,
     dailyValues,
     trades: trades.slice(-60),

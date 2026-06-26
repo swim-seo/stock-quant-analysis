@@ -177,7 +177,18 @@ interface LiveSignal {
   tech_score?: number; ml_score?: number; news_score?: number; yt_score?: number;
 }
 interface LiveGroup {
-  date: string; rows: LiveSignal[]; avgReturn: number; winners: number; total: number;
+  date: string; rows: LiveSignal[];
+  total: number; holdingCount: number; stopLossCount: number; takeProfitCount: number;
+  avgReturn: number; winners: number;
+  winRate: number | null; avgProfit: number | null; avgLoss: number | null; profitFactor: number | null;
+  daysHeld: number;
+}
+interface SignalPerf {
+  signal: string; count: number;
+  avg_return_1d: number | null; avg_return_3d: number | null;
+  avg_return_5d: number | null; avg_return_10d: number | null;
+  win_rate_3d: number | null; win_rate_5d: number | null;
+  stop_loss_rate: number | null; take_profit_rate: number | null;
 }
 
 export default function PortfolioPage() {
@@ -202,9 +213,11 @@ export default function PortfolioPage() {
     const prev = new Date(y, m - 1, 1);
     return `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, "0")}-25`;
   });
-  const [mainTab, setMainTab] = useState<"backtest" | "live">("live");
+  const [mainTab, setMainTab] = useState<"live" | "signals" | "backtest">("live");
   const [liveGroups, setLiveGroups] = useState<LiveGroup[]>([]);
   const [liveLoading, setLiveLoading] = useState(true);
+  const [sigPerf, setSigPerf] = useState<SignalPerf[]>([]);
+  const [sigPerfLoading, setSigPerfLoading] = useState(true);
 
   const fetchData = (date: string) => {
     setLoading(true);
@@ -223,6 +236,11 @@ export default function PortfolioPage() {
       .then((d) => setLiveGroups(d.groups ?? []))
       .catch(() => {})
       .finally(() => setLiveLoading(false));
+    fetch("/api/signal-performance")
+      .then((r) => r.json())
+      .then((d) => setSigPerf(d.stats ?? []))
+      .catch(() => {})
+      .finally(() => setSigPerfLoading(false));
   }, []);
 
   if (loading) return (
@@ -287,12 +305,16 @@ export default function PortfolioPage() {
       {/* Main tab switcher */}
       <div style={{ background: "#fff", borderBottom: "1px solid var(--border)" }}>
         <div style={{ maxWidth: 1000, margin: "0 auto", display: "flex" }}>
-          {(["live", "backtest"] as const).map((t) => (
-            <button key={t} onClick={() => setMainTab(t)}
+          {([
+            { id: "live", label: "📡 신호 추적" },
+            { id: "signals", label: "📈 신호 검증" },
+            { id: "backtest", label: "📊 백테스트" },
+          ] as const).map((t) => (
+            <button key={t.id} onClick={() => setMainTab(t.id)}
               style={{ padding: "12px 24px", fontSize: 14, fontWeight: 600, border: "none", background: "none", cursor: "pointer",
-                color: mainTab === t ? "var(--blue)" : "var(--text-3)",
-                borderBottom: mainTab === t ? "2px solid var(--blue)" : "2px solid transparent" }}>
-              {t === "live" ? "📡 실시간 신호" : "📊 백테스트"}
+                color: mainTab === t.id ? "var(--blue)" : "var(--text-3)",
+                borderBottom: mainTab === t.id ? "2px solid var(--blue)" : "2px solid transparent" }}>
+              {t.label}
             </button>
           ))}
         </div>
@@ -314,24 +336,55 @@ export default function PortfolioPage() {
                 <p style={{ fontSize: 12, color: "var(--text-3)", marginTop: 8 }}>다음 영업일 오전 파이프라인 실행 후 데이터가 쌓입니다</p>
               </div>
             ) : liveGroups.map((g) => (
-              <div key={g.date} style={{ marginBottom: 24 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 12, padding: "8px 12px", borderRadius: 10, background: "var(--bg)" }}>
-                  <span style={{ fontSize: 14, fontWeight: 700, color: "var(--text-1)" }}>{g.date} 매수신호</span>
-                  <span style={{ fontSize: 12, color: "var(--text-3)" }}>{g.total}종목</span>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: g.avgReturn >= 0 ? "#f04452" : "#3182f6" }}>
-                    평균 {g.avgReturn >= 0 ? "+" : ""}{g.avgReturn}%
-                  </span>
-                  <span style={{ fontSize: 12, color: "#00b493" }}>수익 {g.winners}/{g.total}</span>
+              <div key={g.date} style={{ marginBottom: 28 }}>
+                {/* 그룹 헤더 */}
+                <div style={{ padding: "10px 14px", borderRadius: 10, background: "var(--bg)", marginBottom: 12 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: "var(--text-1)" }}>{g.date} 매수신호</span>
+                    <span style={{ fontSize: 12, color: "var(--text-3)" }}>전체 {g.total}종목</span>
+                    {g.holdingCount > 0 && <span style={{ fontSize: 11, padding: "1px 7px", borderRadius: 6, background: "#e8f3ff", color: "var(--blue)" }}>보유 {g.holdingCount}</span>}
+                    {g.takeProfitCount > 0 && <span style={{ fontSize: 11, padding: "1px 7px", borderRadius: 6, background: "#e8fff5", color: "#00b493" }}>익절 {g.takeProfitCount}</span>}
+                    {g.stopLossCount > 0 && <span style={{ fontSize: 11, padding: "1px 7px", borderRadius: 6, background: "#fff0f1", color: "#f04452" }}>손절 {g.stopLossCount}</span>}
+                  </div>
+                  <div style={{ display: "flex", gap: 20, marginTop: 8, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 12, color: "var(--text-2)" }}>
+                      평균 <strong style={{ color: g.avgReturn >= 0 ? "#f04452" : "#3182f6" }}>{g.avgReturn >= 0 ? "+" : ""}{g.avgReturn}%</strong>
+                    </span>
+                    {g.winRate !== null && (
+                      <span style={{ fontSize: 12, color: "var(--text-2)" }}>
+                        승률 <strong style={{ color: g.winRate >= 50 ? "#00b493" : "#f04452" }}>{g.winRate}%</strong>
+                        <span style={{ color: "var(--text-3)", marginLeft: 4 }}>({g.winners}/{g.total - g.holdingCount})</span>
+                      </span>
+                    )}
+                    {g.profitFactor !== null && (
+                      <span style={{ fontSize: 12, color: "var(--text-2)" }}>
+                        손익비 <strong style={{ color: g.profitFactor >= 1 ? "#00b493" : "#f04452" }}>{g.profitFactor}</strong>
+                      </span>
+                    )}
+                    {g.avgProfit !== null && <span style={{ fontSize: 11, color: "#00b493" }}>평균수익 +{g.avgProfit}%</span>}
+                    {g.avgLoss !== null && <span style={{ fontSize: 11, color: "#f04452" }}>평균손실 -{g.avgLoss}%</span>}
+                    <span style={{ fontSize: 11, color: "var(--text-3)" }}>{g.daysHeld}일 경과</span>
+                  </div>
                 </div>
+
+                {/* 종목 카드 */}
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 10 }}>
                   {g.rows.map((r) => {
                     const retColor = r.return_pct > 0 ? "#f04452" : r.return_pct < 0 ? "#3182f6" : "var(--text-3)";
+                    const statusLabel = r.status === "sold_stoploss" ? "손절" : r.status === "sold_takeprofit" ? "익절" : "보유";
+                    const statusColor = r.status === "sold_stoploss" ? { bg: "#fff0f1", fg: "#f04452" }
+                      : r.status === "sold_takeprofit" ? { bg: "#e8fff5", fg: "#00b493" }
+                      : { bg: "#e8f3ff", fg: "var(--blue)" };
                     return (
                       <a key={r.ticker} href={`/stock?ticker=${r.ticker}`}
                         style={{ display: "block", padding: 14, borderRadius: 12, background: "var(--bg)",
-                          border: "1px solid var(--border)", textDecoration: "none",
-                          transition: "box-shadow .15s" }}>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-1)", marginBottom: 4 }}>{r.stock_name}</div>
+                          border: "1px solid var(--border)", textDecoration: "none" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-1)" }}>{r.stock_name}</div>
+                          <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 5px", borderRadius: 4, background: statusColor.bg, color: statusColor.fg }}>
+                            {statusLabel}
+                          </span>
+                        </div>
                         <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 8 }}>{r.ticker}</div>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                           <div>
@@ -353,31 +406,6 @@ export default function PortfolioPage() {
                             {r.return_pct > 0 ? "+" : ""}{r.return_pct}%
                           </span>
                         </div>
-                        {/* 복합 점수 breakdown */}
-                        <div style={{ marginTop: 8, display: "flex", gap: 3, fontSize: 9, color: "var(--text-3)" }}>
-                          {r.tech_score != null && (
-                            <span style={{ flex: 1, textAlign: "center", padding: "2px 0", borderRadius: 4, background: "#f5f5f5" }}>
-                              기술 {r.tech_score}
-                            </span>
-                          )}
-                          {r.ml_score != null && (
-                            <span style={{ flex: 1, textAlign: "center", padding: "2px 0", borderRadius: 4, background: "#f0f4ff" }}>
-                              ML {r.ml_score}
-                            </span>
-                          )}
-                          {r.news_score != null && (
-                            <span style={{ flex: 1, textAlign: "center", padding: "2px 0", borderRadius: 4,
-                              background: (r.news_score ?? 0) >= 0 ? "#f0fff8" : "#fff0f1",
-                              color: (r.news_score ?? 0) >= 0 ? "#00b493" : "#f04452" }}>
-                              뉴스 {(r.news_score ?? 0) >= 0 ? "+" : ""}{r.news_score}
-                            </span>
-                          )}
-                          {r.yt_score != null && (
-                            <span style={{ flex: 1, textAlign: "center", padding: "2px 0", borderRadius: 4, background: "#fff8f0" }}>
-                              YT {r.yt_score}
-                            </span>
-                          )}
-                        </div>
                         <div style={{ marginTop: 4, fontSize: 10, color: "var(--text-3)", textAlign: "center" }}>
                           종합 {r.signal_score}/10
                         </div>
@@ -387,6 +415,64 @@ export default function PortfolioPage() {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── SIGNALS TAB ── */}
+      {mainTab === "signals" && (
+        <div style={{ maxWidth: 1000, margin: "0 auto", padding: 24, display: "flex", flexDirection: "column", gap: 20 }}>
+          <div style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "var(--shadow)" }}>
+            <h2 style={{ fontSize: 15, fontWeight: 700, color: "var(--text-1)", marginBottom: 4 }}>신호 성과 검증</h2>
+            <p style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 20 }}>
+              최근 90일 signal_performance 기준 — execution_signal별 D+1/3/5/10 실제 수익률
+            </p>
+            {sigPerfLoading ? (
+              <div style={{ padding: 40, textAlign: "center", color: "var(--text-3)" }}>불러오는 중…</div>
+            ) : sigPerf.length === 0 ? (
+              <div style={{ padding: 40, textAlign: "center", color: "var(--text-3)" }}>데이터 없음 (signal_performance 테이블 적재 필요)</div>
+            ) : (
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ borderBottom: "2px solid var(--border)" }}>
+                      {["신호", "건수", "D+1", "D+3", "D+5", "D+10", "승률(3일)", "승률(5일)", "손절률", "익절률"].map((h) => (
+                        <th key={h} style={{ padding: "8px 12px", textAlign: "right", fontWeight: 700, color: "var(--text-2)", fontSize: 12 }}>
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sigPerf.map((s) => {
+                      const sigColor = s.signal === "BUY_OK" ? "#f04452" : s.signal === "BUY_SMALL" ? "#ff7c00"
+                        : s.signal === "WATCH" ? "#3182f6" : "#888";
+                      const fmtR = (v: number | null) => v == null ? "—" : (v > 0 ? `+${v}%` : `${v}%`);
+                      const fmtPct = (v: number | null) => v == null ? "—" : `${v}%`;
+                      const rColor = (v: number | null) => v == null ? "var(--text-3)" : v > 0 ? "#f04452" : "#3182f6";
+                      return (
+                        <tr key={s.signal} style={{ borderBottom: "1px solid var(--border)" }}>
+                          <td style={{ padding: "10px 12px" }}>
+                            <span style={{ fontWeight: 700, padding: "2px 8px", borderRadius: 6, background: sigColor + "18", color: sigColor, fontSize: 12 }}>
+                              {s.signal}
+                            </span>
+                          </td>
+                          <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-3)" }}>{s.count}</td>
+                          <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 600, color: rColor(s.avg_return_1d) }}>{fmtR(s.avg_return_1d)}</td>
+                          <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 600, color: rColor(s.avg_return_3d) }}>{fmtR(s.avg_return_3d)}</td>
+                          <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 600, color: rColor(s.avg_return_5d) }}>{fmtR(s.avg_return_5d)}</td>
+                          <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 600, color: rColor(s.avg_return_10d) }}>{fmtR(s.avg_return_10d)}</td>
+                          <td style={{ padding: "10px 12px", textAlign: "right", color: (s.win_rate_3d ?? 0) >= 50 ? "#00b493" : "#f04452" }}>{fmtPct(s.win_rate_3d)}</td>
+                          <td style={{ padding: "10px 12px", textAlign: "right", color: (s.win_rate_5d ?? 0) >= 50 ? "#00b493" : "#f04452" }}>{fmtPct(s.win_rate_5d)}</td>
+                          <td style={{ padding: "10px 12px", textAlign: "right", color: "#f04452" }}>{fmtPct(s.stop_loss_rate)}</td>
+                          <td style={{ padding: "10px 12px", textAlign: "right", color: "#00b493" }}>{fmtPct(s.take_profit_rate)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -412,6 +498,12 @@ export default function PortfolioPage() {
                 <ReturnBadge pct={s.totalReturnPct} />
               </p>
               <p style={{ fontSize: 12, color: "var(--text-3)" }}>{s.totalReturn >= 0 ? "+" : ""}{fmt(s.totalReturn)}원</p>
+              {s.winRate !== null && (
+                <div style={{ marginTop: 8, display: "flex", gap: 8, fontSize: 11 }}>
+                  <span style={{ color: (s.winRate ?? 0) >= 50 ? "#00b493" : "#f04452" }}>승률 {s.winRate}%</span>
+                  {s.profitFactor !== null && <span style={{ color: "var(--text-3)" }}>손익비 {s.profitFactor}</span>}
+                </div>
+              )}
             </div>
           ))}
           {/* Benchmark */}
@@ -497,30 +589,22 @@ export default function PortfolioPage() {
           </div>
         </div>
 
-        {/* AI 신호 통계 */}
+        {/* 거래 통계 */}
         <div style={{ background: "#fff", borderRadius: 16, padding: "16px 20px", boxShadow: "var(--shadow)" }}>
-          <p style={{ fontSize: 12, fontWeight: 700, color: "var(--text-2)", marginBottom: 12 }}>🤖 AI 신호 기여 분석 ({st.label})</p>
-          {(() => {
-            const buys = st.trades.filter((t) => t.action === "BUY");
-            const aiAssistedBuys = buys.filter((t) => t.aiReason.length > 0);
-            const techOnlyBuys = buys.length - aiAssistedBuys.length;
-            return (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
-                <div style={{ padding: 12, borderRadius: 12, background: "var(--bg)", textAlign: "center" }}>
-                  <p style={{ fontSize: 22, fontWeight: 800, color: "var(--text-1)" }}>{buys.length}</p>
-                  <p style={{ fontSize: 12, color: "var(--text-3)" }}>총 매수</p>
-                </div>
-                <div style={{ padding: 12, borderRadius: 12, background: "#e8f3ff", textAlign: "center" }}>
-                  <p style={{ fontSize: 22, fontWeight: 800, color: "var(--blue)" }}>{aiAssistedBuys.length}</p>
-                  <p style={{ fontSize: 12, color: "var(--blue)" }}>AI 근거 포함</p>
-                </div>
-                <div style={{ padding: 12, borderRadius: 12, background: "var(--bg)", textAlign: "center" }}>
-                  <p style={{ fontSize: 22, fontWeight: 800, color: "var(--text-3)" }}>{techOnlyBuys}</p>
-                  <p style={{ fontSize: 12, color: "var(--text-3)" }}>기술분석만</p>
-                </div>
+          <p style={{ fontSize: 12, fontWeight: 700, color: "var(--text-2)", marginBottom: 12 }}>📊 거래 통계 ({st.label})</p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
+            {[
+              { label: "승률", value: st.winRate != null ? `${st.winRate}%` : "—", color: (st.winRate ?? 0) >= 50 ? "#00b493" : "#f04452" },
+              { label: "평균수익", value: st.avgProfit != null ? `+${st.avgProfit}%` : "—", color: "#f04452" },
+              { label: "평균손실", value: st.avgLoss != null ? `-${st.avgLoss}%` : "—", color: "#3182f6" },
+              { label: "손익비", value: st.profitFactor != null ? `${st.profitFactor}` : "—", color: (st.profitFactor ?? 0) >= 1 ? "#00b493" : "#f04452" },
+            ].map((item) => (
+              <div key={item.label} style={{ padding: 12, borderRadius: 12, background: "var(--bg)", textAlign: "center" }}>
+                <p style={{ fontSize: 20, fontWeight: 800, color: item.color }}>{item.value}</p>
+                <p style={{ fontSize: 11, color: "var(--text-3)", marginTop: 2 }}>{item.label}</p>
               </div>
-            );
-          })()}
+            ))}
+          </div>
         </div>
 
       </div>}
