@@ -6,7 +6,18 @@ import { STOCKS, StockInfo } from "@/lib/stocks";
 export const dynamic = "force-dynamic";
 
 // ── Constants ────────────────────────────────────────────────
-const DEFAULT_START_DATE = "2026-04-25";
+function getLatest25th(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth(); // 0-indexed
+  if (now.getDate() >= 25) {
+    return `${y}-${String(m + 1).padStart(2, "0")}-25`;
+  }
+  const prev = new Date(y, m - 1, 1);
+  return `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, "0")}-25`;
+}
+
+const DEFAULT_START_DATE = getLatest25th();
 const START_CAPITAL = 2_000_000;
 const COMMISSION = 0.0015;
 const SLIPPAGE = 0.001;

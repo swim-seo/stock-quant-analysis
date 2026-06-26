@@ -186,8 +186,22 @@ export default function PortfolioPage() {
   const [error, setError] = useState<string | null>(null);
   const [activeStrategy, setActiveStrategy] = useState(0);
   const [tab, setTab] = useState<TabId>("holdings");
-  const [startDate, setStartDate] = useState("2026-04-25");
-  const [inputDate, setInputDate] = useState("2026-04-25");
+  const [startDate, setStartDate] = useState(() => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth();
+    if (now.getDate() >= 25) return `${y}-${String(m + 1).padStart(2, "0")}-25`;
+    const prev = new Date(y, m - 1, 1);
+    return `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, "0")}-25`;
+  });
+  const [inputDate, setInputDate] = useState(() => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth();
+    if (now.getDate() >= 25) return `${y}-${String(m + 1).padStart(2, "0")}-25`;
+    const prev = new Date(y, m - 1, 1);
+    return `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, "0")}-25`;
+  });
   const [mainTab, setMainTab] = useState<"backtest" | "live">("live");
   const [liveGroups, setLiveGroups] = useState<LiveGroup[]>([]);
   const [liveLoading, setLiveLoading] = useState(true);
